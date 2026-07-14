@@ -1,0 +1,20 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(npm install *)",
+      "Bash(npm run *)",
+      "Bash(grep -o \"set up your profile\" /tmp/start.html | head -1 *)",
+      "Read(//tmp/**)",
+      "Bash(command -v npx)",
+      "Read(//c/Program Files/Google/Chrome/Application/**)",
+      "Read(//c/Program Files \\\\\\(x86\\\\\\)/Microsoft/Edge/Application/**)",
+      "Bash(cat /tmp/chrome.log 2>/dev/null | head -20; echo \"---srv---\"; cat /tmp/srv.log 2>/dev/null | tail -5)",
+      "Bash(netstat -ano)",
+      "Bash(node \"C:/Users/DoC/AppData/Local/Temp/claude/c--Users-DoC-Desktop-sis/9c9c05b5-0b29-4b06-b2bd-82a3b53cc7a1/scratchpad/probe.js\")",
+      "Bash(cp \"C:/Users/DoC/AppData/Local/Temp/claude/c--Users-DoC-Desktop-sis/9c9c05b5-0b29-4b06-b2bd-82a3b53cc7a1/scratchpad/probe.js\" \"c:/Users/DoC/Desktop/sis/probe.js\")",
+      "Bash(node probe.js)",
+      "Bash(rm -f probe.js hero-shot.png hero-1024.png hero-1440.png probe-1024.png probe-1280.png probe-1440.png)",
+      "Bash(taskkill //F //IM node.exe)"
+    ]
+  }
+}

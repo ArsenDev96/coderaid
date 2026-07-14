@@ -1,0 +1,57 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  color-scheme: dark;
+}
+
+html {
+  scroll-behavior: smooth;
+  scroll-padding-top: 5.5rem;
+}
+
+body {
+  @apply bg-base-950 text-slate-200 antialiased;
+  background-image:
+    radial-gradient(70% 55% at 50% -10%, rgba(124, 58, 237, 0.16), transparent 60%),
+    radial-gradient(45% 40% at 85% 8%, rgba(56, 189, 248, 0.1), transparent 65%);
+  background-attachment: fixed;
+}
+
+/* Thin, refined scrollbar for the horizontally scrollable previews */
+.thin-scroll::-webkit-scrollbar {
+  height: 8px;
+  width: 8px;
+}
+.thin-scroll::-webkit-scrollbar-track {
+  background: transparent;
+}
+.thin-scroll::-webkit-scrollbar-thumb {
+  background: rgba(148, 163, 184, 0.25);
+  border-radius: 9999px;
+}
+.thin-scroll::-webkit-scrollbar-thumb:hover {
+  background: rgba(148, 163, 184, 0.4);
+}
+
+@layer components {
+  /* Reusable rounded, thin-bordered surface with subtle depth */
+  .surface {
+    @apply rounded-2xl border border-white/[0.08] bg-white/[0.02] backdrop-blur-sm;
+  }
+
+  .surface-strong {
+    @apply rounded-2xl border border-white/[0.1] bg-base-900/80 shadow-card;
+  }
+
+  /* Gradient accent text */
+  .text-gradient {
+    @apply bg-gradient-to-r from-electric-400 via-violet-400 to-violet-500 bg-clip-text text-transparent;
+  }
+
+  /* Small technical pill / chip */
+  .chip {
+    @apply inline-flex items-center gap-1.5 rounded-full border border-white/10 bg-white/[0.03] px-3 py-1 text-xs font-medium text-slate-300;
+  }
+}
