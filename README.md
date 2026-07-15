@@ -41,32 +41,35 @@ app/
   start/  demo/  sign-in/   # Placeholder routes the CTAs link to
 
 components/
-  Header.tsx          # Sticky header, responsive nav + mobile menu
-  HeroSection.tsx     # Hero copy, CTAs, tech tags
-  GamePreview.tsx     # "The Slow API Incident" mission mockup (hero visual)
-  StatsSection.tsx    # Compact game-stat cards
-  HowItWorks.tsx      # 4 connected gameplay-loop steps
-  MissionPreview.tsx  # Detailed N+1 query mission walkthrough
-  CareerPath.tsx      # Rank progression path (Intern → Tech Lead)
-  SkillsGrid.tsx      # Skill cards with progress bars
-  BenefitsSection.tsx # 3 value-proposition cards
-  FinalCTA.tsx        # Closing call-to-action
-  Footer.tsx          # Brand, link columns, socials, copyright
-  PlaceholderPage.tsx # Shared placeholder for /start, /demo, /sign-in
+  Header.tsx           # Sticky header, responsive nav + mobile menu
+  HeroSection.tsx      # Hero copy, CTAs, value bullets
+  GamePreview.tsx      # "The Slow API Incident" mission mockup (hero visual)
+  ComparisonSection.tsx# "Not Another Coding Quiz" — traditional platforms vs the CodeRaid loop
+  HowItWorks.tsx       # 5 connected gameplay-loop steps
+  MissionPreview.tsx   # N+1 query mission walkthrough (logs + read replica)
+  SkillsGrid.tsx       # Marketing skill cards — shares a row with MissionPreview
+  CareerPath.tsx       # Hexagon rank rail (Intern → Architect)
+  FinalCTA.tsx         # Closing call-to-action
+  Footer.tsx           # Brand, links, socials, copyright
+  PlaceholderPage.tsx  # Shared placeholder for /start, /demo, /sign-in
   ui/
-    Reveal.tsx        # Framer Motion scroll-into-view wrapper (reduced-motion aware)
-    SectionHeading.tsx# Consistent eyebrow + title + subtitle heading
+    Logo.tsx           # Brand mark + optional tagline
+    Reveal.tsx         # Framer Motion scroll-into-view wrapper (reduced-motion aware)
 
 lib/
   types.ts            # Shared TypeScript types
-  data.ts             # Content data arrays (nav, stats, steps, ranks, skills, benefits)
+  data.ts             # Content data arrays (nav, hero bullets, steps, ranks, skills)
 ```
+
+Two skill lists exist on purpose: `LANDING_SKILLS` is the marketing grid (name + icon
+only), while `SKILLS` carries the demo player's level/progress and drives the dashboard.
 
 ### Design system
 
 - **Palette:** near-black navy surfaces (`base.*`) with purple (`violet.*`) and electric-blue (`electric.*`) accents, defined in [`tailwind.config.ts`](tailwind.config.ts).
 - **Reusable utilities:** `.surface` / `.surface-strong` (rounded, thin-bordered cards), `.chip` (technical pills), `.text-gradient` (accent text) in `globals.css`.
 - **Motion:** entrance reveals are centralized in `ui/Reveal.tsx`; hover states use Tailwind transitions. Framer Motion respects the user's reduced-motion preference.
+- **Rank badges:** the career hexagons are a `clip-path` polygon; per-rank colors live in `RANK_ACCENTS` in [`lib/data.ts`](lib/data.ts).
 
 ### Responsiveness
 
@@ -74,4 +77,4 @@ Layouts collapse from multi-column grids to stacked single columns on smaller sc
 
 ### Navigation
 
-Header links use in-page anchors (`#how-it-works`, `#mission`, `#career`, `#skills`) with smooth scrolling and scroll-padding to clear the sticky header. CTAs point to placeholder routes (`/start`, `/demo`, `/sign-in`).
+Header links use in-page anchors (`#how-it-works`, `#mission`, `#skills`, `#career`) with smooth scrolling and scroll-padding to clear the sticky header. CTAs point to placeholder routes (`/start`, `/demo`, `/sign-in`).

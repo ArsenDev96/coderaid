@@ -20,20 +20,19 @@ export function FinalCTA() {
               </span>
               <div>
                 <h2 className="text-2xl font-bold leading-tight text-white sm:text-3xl lg:text-4xl">
-                  Start your first raid today.
+                  Your first incident is waiting.
                 </h2>
                 <p className="mt-2 max-w-lg text-sm leading-relaxed text-slate-300 sm:text-base">
-                  Learn backend engineering through interactive missions and
-                  level up as you go.
+                  Start solving real problems and become a better engineer.
                 </p>
               </div>
             </div>
 
             <Link
               href="/start"
-              className="group inline-flex shrink-0 items-center gap-2 rounded-xl border border-white/20 bg-white/[0.06] px-7 py-3.5 text-sm font-semibold text-white backdrop-blur transition-colors hover:bg-white/[0.12]"
+              className="group inline-flex shrink-0 items-center gap-2 rounded-xl border border-violet-400/40 bg-gradient-to-r from-violet-600 to-electric-500 px-7 py-3.5 text-sm font-semibold text-white shadow-neon transition-transform hover:scale-[1.03]"
             >
-              Enter CodeRaid
+              Start Your First Mission
               <ArrowRight className="h-4 w-4 transition-transform group-hover:translate-x-0.5" />
             </Link>
           </div>

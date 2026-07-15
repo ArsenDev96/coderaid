@@ -4,6 +4,8 @@ import { Crosshair } from "lucide-react";
 type LogoProps = {
   href?: string;
   withTagline?: boolean;
+  /** Overrides the default tagline copy when `withTagline` is set. */
+  tagline?: string;
   size?: "sm" | "md";
 };
 
@@ -12,7 +14,12 @@ type LogoProps = {
  * optional "SOFTWARE ENGINEER SIMULATOR" tagline. Shared across marketing and
  * in-app surfaces so the brand stays consistent.
  */
-export function Logo({ href = "/", withTagline = false, size = "md" }: LogoProps) {
+export function Logo({
+  href = "/",
+  withTagline = false,
+  tagline = "Software Engineer Simulator",
+  size = "md",
+}: LogoProps) {
   const badge = size === "sm" ? "h-8 w-8" : "h-9 w-9";
   const icon = size === "sm" ? "h-4 w-4" : "h-5 w-5";
 
@@ -31,7 +38,7 @@ export function Logo({ href = "/", withTagline = false, size = "md" }: LogoProps
         </span>
         {withTagline && (
           <span className="mt-1 text-[0.58rem] font-medium uppercase tracking-[0.22em] text-slate-500">
-            Software Engineer Simulator
+            {tagline}
           </span>
         )}
       </span>

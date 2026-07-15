@@ -2,8 +2,8 @@
 
 import Link from "next/link";
 import { motion } from "framer-motion";
-import { PlayCircle, Terminal } from "lucide-react";
-import { TECH_TAGS } from "@/lib/data";
+import { ArrowRight, PlayCircle } from "lucide-react";
+import { HERO_HIGHLIGHTS } from "@/lib/data";
 import { GamePreview } from "./GamePreview";
 
 const container = {
@@ -33,26 +33,26 @@ export function HeroSection() {
         {/* Left: copy */}
         <motion.div variants={container} initial="hidden" animate="visible">
           <motion.div variants={item}>
-            <span className="chip">
-              <Terminal className="h-3.5 w-3.5 text-electric-400" />
-              Software Engineer Simulator
+            <span className="chip uppercase tracking-[0.18em] text-[0.68rem] text-violet-200">
+              Software Engineering, Simulated
             </span>
           </motion.div>
 
           <motion.h1
             variants={item}
-            className="mt-5 text-4xl font-semibold leading-[1.08] tracking-tight text-white sm:text-5xl lg:text-6xl"
+            className="mt-5 text-4xl font-bold leading-[1.05] tracking-tight text-white sm:text-5xl lg:text-6xl"
           >
-            Play Like a{" "}
+            Play Like a
+            <br />
             <span className="text-gradient">Software Engineer.</span>
           </motion.h1>
 
           <motion.p
             variants={item}
-            className="mt-5 max-w-xl text-base leading-relaxed text-slate-400 sm:text-lg"
+            className="mt-5 max-w-md text-base leading-relaxed text-slate-400 sm:text-lg"
           >
-            Investigate real production incidents, diagnose the root cause,
-            apply the right fix, and level up your backend engineering skills.
+            Solve realistic production incidents, diagnose the root cause, and
+            ship the fix.
           </motion.p>
 
           <motion.div
@@ -61,9 +61,10 @@ export function HeroSection() {
           >
             <Link
               href="/start"
-              className="inline-flex items-center justify-center gap-2 rounded-xl border border-violet-400/40 bg-gradient-to-r from-violet-600 to-electric-500 px-6 py-3 text-sm font-semibold text-white shadow-neon transition-transform hover:scale-[1.03]"
+              className="group inline-flex items-center justify-center gap-2 rounded-xl border border-violet-400/40 bg-gradient-to-r from-violet-600 to-electric-500 px-6 py-3 text-sm font-semibold text-white shadow-neon transition-transform hover:scale-[1.03]"
             >
               Start Your First Mission
+              <ArrowRight className="h-4 w-4 transition-transform group-hover:translate-x-0.5" />
             </Link>
             <Link
               href="/demo"
@@ -74,19 +75,31 @@ export function HeroSection() {
             </Link>
           </motion.div>
 
-          {/* Tech tags */}
-          <motion.div variants={item} className="mt-8">
-            <div className="mb-2.5 text-xs uppercase tracking-[0.16em] text-slate-500">
-              Built around
-            </div>
-            <div className="flex flex-wrap gap-2">
-              {TECH_TAGS.map((tag) => (
-                <span key={tag} className="chip font-mono">
-                  {tag}
-                </span>
-              ))}
-            </div>
-          </motion.div>
+          {/* Value bullets */}
+          <motion.ul
+            variants={item}
+            className="mt-8 flex flex-col gap-4 sm:flex-row sm:flex-wrap sm:gap-x-5 sm:gap-y-3"
+          >
+            {HERO_HIGHLIGHTS.map((highlight) => {
+              const Icon = highlight.icon;
+              return (
+                <li
+                  key={highlight.label}
+                  className="flex items-center gap-2.5 text-sm text-slate-300"
+                >
+                  <span className="grid h-8 w-8 shrink-0 place-items-center rounded-lg border border-white/[0.08] bg-white/[0.03]">
+                    <Icon
+                      className={`h-4 w-4 ${highlight.accent}`}
+                      strokeWidth={1.9}
+                    />
+                  </span>
+                  <span className="max-w-[7.5rem] text-xs leading-tight sm:text-[0.8rem]">
+                    {highlight.label}
+                  </span>
+                </li>
+              );
+            })}
+          </motion.ul>
         </motion.div>
 
         {/* Right: preview */}

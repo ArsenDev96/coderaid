@@ -14,7 +14,22 @@
       "Bash(cp \"C:/Users/DoC/AppData/Local/Temp/claude/c--Users-DoC-Desktop-sis/9c9c05b5-0b29-4b06-b2bd-82a3b53cc7a1/scratchpad/probe.js\" \"c:/Users/DoC/Desktop/sis/probe.js\")",
       "Bash(node probe.js)",
       "Bash(rm -f probe.js hero-shot.png hero-1024.png hero-1440.png probe-1024.png probe-1280.png probe-1440.png)",
-      "Bash(taskkill //F //IM node.exe)"
+      "Bash(taskkill //F //IM node.exe)",
+      "Bash(ls \"C:/Program Files/Google/Chrome/Application/chrome.exe\" \"C:/Program Files \\(x86\\)/Google/Chrome/Application/chrome.exe\" \"C:/Program Files \\(x86\\)/Microsoft/Edge/Application/msedge.exe\" 2>/dev/null; echo \"---\"; ls node_modules | grep -iE \"puppeteer|playwright\" || echo \"no browser driver\")",
+      "Bash(curl -s -o /dev/null -w \"%{http_code}\" http://localhost:3000)",
+      "Bash('C:/Program Files/Google/Chrome/Application/chrome.exe' --headless=new --disable-gpu --hide-scrollbars --window-size=1280,900 --screenshot=C:/Users/user/AppData/Local/Temp/claude/d--coderaid/973e7df9-e71a-4515-86d9-d327021b8e5f/scratchpad/landing.png --virtual-time-budget=6000 http://localhost:3000)",
+      "Bash(kill %1)",
+      "Bash(curl -s -o /dev/null -w \"%{http_code}\\\\n\" http://localhost:3000)",
+      "Bash('C:/Program Files/Google/Chrome/Application/chrome.exe' --headless=new --disable-gpu --hide-scrollbars --window-size=1280,4400 --screenshot=C:/Users/user/AppData/Local/Temp/claude/d--coderaid/973e7df9-e71a-4515-86d9-d327021b8e5f/scratchpad/full.png --virtual-time-budget=9000 http://localhost:3000)",
+      "PowerShell(Get-NetTCPConnection -LocalPort 3000 -State Listen -ErrorAction SilentlyContinue | ForEach-Object { Stop-Process -Id $_.OwningProcess -Force -ErrorAction SilentlyContinue }; Start-Sleep -Seconds 1; $c = Get-NetTCPConnection -LocalPort 3000 -State Listen -ErrorAction SilentlyContinue; if \\($null -eq $c\\) { \"port 3000 free\" } else { \"still in use\" })",
+      "Bash('C:/Program Files/Google/Chrome/Application/chrome.exe' --headless=new --disable-gpu --hide-scrollbars --window-size=1280,4300 --screenshot=C:/Users/user/AppData/Local/Temp/claude/d--coderaid/973e7df9-e71a-4515-86d9-d327021b8e5f/scratchpad/full2.png --virtual-time-budget=9000 http://localhost:3000)",
+      "Bash(npm init *)",
+      "Bash(node shot.js)",
+      "Bash(node debug.js)",
+      "PowerShell(Get-NetTCPConnection -LocalPort 3000 -State Listen -ErrorAction SilentlyContinue | ForEach-Object { Stop-Process -Id $_.OwningProcess -Force -ErrorAction SilentlyContinue }; Start-Sleep -Seconds 1; \"killed\")",
+      "Bash(curl -s -o /dev/null -w \"page: %{http_code}\\\\n\" http://localhost:3000)",
+      "Bash(node mobile.js)",
+      "PowerShell(Get-NetTCPConnection -LocalPort 3000 -State Listen -ErrorAction SilentlyContinue | ForEach-Object { Stop-Process -Id $_.OwningProcess -Force -ErrorAction SilentlyContinue }; Start-Sleep -Seconds 1; $c = Get-NetTCPConnection -LocalPort 3000 -State Listen -ErrorAction SilentlyContinue; if \\($null -eq $c\\) { \"server stopped\" } else { \"still running\" })"
     ]
   }
 }

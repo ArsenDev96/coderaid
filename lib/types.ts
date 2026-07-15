@@ -19,14 +19,21 @@ export type HowItWorksStep = {
   icon: LucideIcon;
 };
 
-export type RankState = "unlocked" | "current" | "locked";
+export type RankAccent =
+  | "slate"
+  | "violet"
+  | "electric"
+  | "emerald"
+  | "amber"
+  | "fuchsia";
 
 export type CareerRank = {
   name: string;
-  levelRange: string;
   xpRange: string;
-  state: RankState;
+  /** Pips shown inside the rank badge; crown ranks render a crown instead. */
+  stars: number;
   icon: LucideIcon;
+  accent: RankAccent;
 };
 
 export type SkillColor =
@@ -52,6 +59,22 @@ export type Benefit = {
   icon: LucideIcon;
 };
 
-export type TechTag = {
+/** Icon bullet under the hero CTAs. */
+export type HeroHighlight = {
   label: string;
+  icon: LucideIcon;
+  accent: string;
+};
+
+/** A skill card in the marketing grid — no player progress, unlike `Skill`. */
+export type LandingSkill = {
+  name: string;
+  icon: LucideIcon;
+  color: SkillColor;
+};
+
+/** One node of the CodeRaid loop shown in the comparison section. */
+export type FlowStep = {
+  label: string;
+  icon: LucideIcon;
 };
