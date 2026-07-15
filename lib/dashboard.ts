@@ -1,15 +1,21 @@
 import {
   Award,
+  BarChart3,
+  Boxes,
   Bug,
+  Crosshair,
   Database,
-  Flag,
+  Gauge,
   Home,
-  LayoutGrid,
+  Layers,
   Lock,
   type LucideIcon,
+  Map,
+  Network,
   Settings,
-  Trophy,
-  Waypoints,
+  Star,
+  Target,
+  TestTube2,
 } from "lucide-react";
 
 /* ------------------------------- Player -------------------------------- */
@@ -18,28 +24,20 @@ export type Player = {
   name: string;
   rank: string;
   level: number;
-  xpIntoLevel: number;
-  xpForLevel: number;
-  levelPct: number;
   totalXp: number;
   streakDays: number;
-  xpToNext: number;
-  nextLevel: number;
 };
 
 // Demo profile — overridden by the onboarding localStorage draft where present.
 export const DEMO_PLAYER: Player = {
-  name: "ArsDev",
+  name: "Ars",
   rank: "Junior Engineer",
   level: 7,
-  xpIntoLevel: 4350,
-  xpForLevel: 5000,
-  levelPct: 87,
   totalXp: 4350,
   streakDays: 7,
-  xpToNext: 650,
-  nextLevel: 8,
 };
+
+export const GREETING_SUBTITLE = "Let's solve some real problems.";
 
 /* ------------------------------ Navigation ------------------------------ */
 
@@ -47,86 +45,183 @@ export type SidebarItem = { label: string; icon: LucideIcon; href?: string };
 
 export const SIDEBAR_ITEMS: SidebarItem[] = [
   { label: "Dashboard", icon: Home, href: "/dashboard" },
-  { label: "Missions", icon: Flag, href: "/missions" },
-  { label: "Career Path", icon: Waypoints },
-  { label: "Skills", icon: LayoutGrid },
-  { label: "Leaderboards", icon: Trophy },
-  { label: "Achievements", icon: Award },
+  { label: "Missions", icon: Target, href: "/missions" },
+  { label: "Mission Map", icon: Map },
+  { label: "Skills", icon: Layers },
+  { label: "Leaderboards", icon: BarChart3 },
+  { label: "Challenges", icon: Crosshair },
+  { label: "Achievements", icon: Star },
   { label: "Settings", icon: Settings },
 ];
 
-/* --------------------------- Current mission ---------------------------- */
+/* ---------------------------- Your next action -------------------------- */
 
-export const CURRENT_MISSION = {
-  id: "slow-api-incident",
+export type CodeLine = { n: number; content: string; tone?: "comment" | "warn" };
+
+export const NEXT_ACTION = {
   title: "The Slow API Incident",
-  severity: "High Severity",
   description:
-    "Users are experiencing slow responses when fetching orders. Investigate and fix the issue.",
-  tags: ["JavaScript", "Node.js", "PostgreSQL"],
-  progressDone: 3,
-  progressTotal: 7,
+    "The production API is responding slowly. Users are experiencing timeouts and elevated error rates.",
+  step: 3,
+  totalSteps: 7,
+  phase: "Diagnose",
+  severity: "High Severity",
+  avgResponseTime: "2,850ms",
+  cluesFound: 2,
+  cluesTotal: 5,
+  estTimeLeft: "8 min",
+  findings: [
+    "High response times detected in the order service.",
+    "N+1 query pattern suspected in recent logs.",
+  ],
+  code: [
+    { n: 1, content: "async function getOrders(userId) {" },
+    { n: 2, content: "  const orders = await prisma.order.findMany({" },
+    { n: 3, content: "    where: { userId }" },
+    { n: 4, content: "  });" },
+    { n: 5, content: "  // N+1 queries detected", tone: "comment" },
+    { n: 6, content: "  for (const order of orders) {", tone: "warn" },
+    {
+      n: 7,
+      content: "    order.items = await prisma.order_item.findMany({ ... });",
+      tone: "warn",
+    },
+    { n: 8, content: "  }" },
+    { n: 9, content: "}" },
+  ] as CodeLine[],
 };
+
+// Noisy, elevated latency series for the response-time sparkline.
+export const RESPONSE_SERIES =
+  "0,30 12,22 24,28 36,18 48,26 60,15 72,24 84,20 96,27 108,12 120,20 132,8 144,18 156,14 168,22 180,10 192,19 204,13 216,24 228,16 240,26";
 
 /* ------------------------------ Daily raid ------------------------------ */
 
 export const DAILY_RAID = {
-  title: "Log Analyzer",
-  timeLeft: "23:45:12 left",
-  description: "Find the error in the logs and get bonus XP!",
-  rewards: { xp: 150, stars: 75, energy: 10 },
+  title: "Daily Raid",
+  description: "Solve a quick challenge and earn extra XP every day.",
+  xp: 150,
+};
+
+/* ---------------------------- Career progress --------------------------- */
+
+export const CAREER = {
+  currentRank: "Junior Engineer",
+  nextRank: "Mid-Level Engineer",
+  xp: 4350,
+  xpMax: 10000,
+  blurb: "Keep solving to reach the next rank.",
 };
 
 /* --------------------------- Recommended list --------------------------- */
 
+export type Difficulty = "Easy" | "Medium" | "Hard";
+
 export type RecommendedMission = {
   id: string;
   title: string;
-  difficulty: "Low" | "Medium" | "High";
+  description: string;
+  difficulty: Difficulty;
   xp: number;
   icon: LucideIcon;
-  accent: "emerald" | "electric" | "slate";
-  locked?: boolean;
+  accent: "violet" | "electric" | "emerald";
 };
 
 export const RECOMMENDED_MISSIONS: RecommendedMission[] = [
   {
-    id: "memory-leak-worker",
-    title: "Memory Leak in Worker Service",
-    difficulty: "Medium",
-    xp: 250,
-    icon: Bug,
-    accent: "emerald",
-  },
-  {
-    id: "n-plus-one-order-history",
-    title: "N+1 Query in Order History",
+    id: "db-connection-leak",
+    title: "Database Connection Leak",
+    description: "Identify and fix connection leak in production",
     difficulty: "Medium",
     xp: 250,
     icon: Database,
+    accent: "violet",
+  },
+  {
+    id: "cache-stampede",
+    title: "Cache Stampede",
+    description: "Prevent cache stampede during traffic spikes",
+    difficulty: "Hard",
+    xp: 300,
+    icon: Lock,
     accent: "electric",
   },
   {
-    id: "payment-timeout-errors",
-    title: "Payment Timeout Errors",
-    difficulty: "Low",
-    xp: 200,
-    icon: Lock,
-    accent: "slate",
-    locked: true,
+    id: "message-queue-failure",
+    title: "Message Queue Failure",
+    description: "Diagnose failed jobs and fix the backlog",
+    difficulty: "Medium",
+    xp: 250,
+    icon: Boxes,
+    accent: "emerald",
   },
 ];
 
-/* ------------------------------- Up next -------------------------------- */
+/* ---------------------------- Skills summary ---------------------------- */
 
-export const UP_NEXT = {
-  title: "Caching Gone Wrong",
-  difficulty: "Medium",
-  description: "Responses are inconsistent due to incorrect cache invalidation.",
-  xp: 250,
+export type DashboardSkill = {
+  name: string;
+  icon: LucideIcon;
+  level: number;
+  progress: number; // 0-100, drives the bar
+  xpToNext: number;
+  bar: string; // gradient classes
+  iconColor: string;
 };
 
-/* --------------------------------- Tip ---------------------------------- */
+export const DASHBOARD_SKILLS: DashboardSkill[] = [
+  {
+    name: "Debugging",
+    icon: Bug,
+    level: 7,
+    progress: 72,
+    xpToNext: 350,
+    bar: "from-violet-500 to-violet-400",
+    iconColor: "text-violet-300",
+  },
+  {
+    name: "SQL",
+    icon: Database,
+    level: 6,
+    progress: 64,
+    xpToNext: 650,
+    bar: "from-electric-500 to-electric-400",
+    iconColor: "text-electric-300",
+  },
+  {
+    name: "Performance",
+    icon: Gauge,
+    level: 5,
+    progress: 48,
+    xpToNext: 800,
+    bar: "from-emerald-500 to-emerald-400",
+    iconColor: "text-emerald-300",
+  },
+  {
+    name: "System Design",
+    icon: Network,
+    level: 5,
+    progress: 44,
+    xpToNext: 900,
+    bar: "from-rose-500 to-rose-400",
+    iconColor: "text-rose-300",
+  },
+  {
+    name: "Testing",
+    icon: TestTube2,
+    level: 4,
+    progress: 36,
+    xpToNext: 700,
+    bar: "from-amber-500 to-amber-400",
+    iconColor: "text-amber-300",
+  },
+];
 
-export const DASHBOARD_TIP =
-  "Consistency is the key to becoming a great engineer. Keep raiding! 🚀";
+/* ------------------------------- Premium -------------------------------- */
+
+export const PREMIUM = {
+  title: "Go Premium",
+  blurb: "Unlock premium missions, exclusive rewards and advanced analytics.",
+  cta: "Upgrade Now",
+  icon: Award,
+};

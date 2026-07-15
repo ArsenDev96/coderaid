@@ -29,7 +29,20 @@
       "PowerShell(Get-NetTCPConnection -LocalPort 3000 -State Listen -ErrorAction SilentlyContinue | ForEach-Object { Stop-Process -Id $_.OwningProcess -Force -ErrorAction SilentlyContinue }; Start-Sleep -Seconds 1; \"killed\")",
       "Bash(curl -s -o /dev/null -w \"page: %{http_code}\\\\n\" http://localhost:3000)",
       "Bash(node mobile.js)",
-      "PowerShell(Get-NetTCPConnection -LocalPort 3000 -State Listen -ErrorAction SilentlyContinue | ForEach-Object { Stop-Process -Id $_.OwningProcess -Force -ErrorAction SilentlyContinue }; Start-Sleep -Seconds 1; $c = Get-NetTCPConnection -LocalPort 3000 -State Listen -ErrorAction SilentlyContinue; if \\($null -eq $c\\) { \"server stopped\" } else { \"still running\" })"
+      "PowerShell(Get-NetTCPConnection -LocalPort 3000 -State Listen -ErrorAction SilentlyContinue | ForEach-Object { Stop-Process -Id $_.OwningProcess -Force -ErrorAction SilentlyContinue }; Start-Sleep -Seconds 1; $c = Get-NetTCPConnection -LocalPort 3000 -State Listen -ErrorAction SilentlyContinue; if \\($null -eq $c\\) { \"server stopped\" } else { \"still running\" })",
+      "Bash(cd \"c:/Users/DoC/Desktop/sis\" && tail -25 /tmp/srv.log)",
+      "Bash(cd \"c:/Users/DoC/Desktop/sis\" && grep -m2 -B2 \"MODULE_NOT_FOUND\\\\|Cannot find module\" /tmp/srv.log | head -8)",
+      "Bash(rm -f probe.js dash-1024.png dash-1440.png)",
+      "Bash(rm -f probe.js miss-1024.png miss-1536.png)",
+      "Bash(rm -f probe.js brief-desktop.png brief-mobile.png)",
+      "Bash(npx tsc *)",
+      "Bash(curl -s -o /dev/null -w \"\" http://localhost:3000/missions)",
+      "Bash(break)",
+      "Bash(curl -s -o /dev/null -w \"server up: %{http_code}\\\\n\" http://localhost:3000/missions)",
+      "Bash(curl -s http://localhost:3000/missions/slow-api-incident/investigation)",
+      "Bash(node diag.js)",
+      "Bash(node shots.js)",
+      "Bash(npx next *)"
     ]
   }
 }

@@ -1,12 +1,10 @@
-import { CareerProgressCard } from "@/components/dashboard/CareerProgressCard";
-import { CurrentMission } from "@/components/dashboard/CurrentMission";
+import { CareerProgress } from "@/components/dashboard/CareerProgress";
 import { DailyRaid } from "@/components/dashboard/DailyRaid";
 import { DashboardGreeting } from "@/components/dashboard/DashboardGreeting";
 import { DashboardShell } from "@/components/dashboard/DashboardShell";
+import { NextAction } from "@/components/dashboard/NextAction";
 import { RecommendedMissions } from "@/components/dashboard/RecommendedMissions";
-import { UpNext } from "@/components/dashboard/UpNext";
-import { YourSkills } from "@/components/dashboard/YourSkills";
-import { DASHBOARD_TIP } from "@/lib/dashboard";
+import { SkillsSummary } from "@/components/dashboard/SkillsSummary";
 
 export const metadata = {
   title: "Dashboard — CodeRaid",
@@ -15,20 +13,18 @@ export const metadata = {
 
 export default function DashboardPage() {
   return (
-    <DashboardShell active="Dashboard" topLeft={<DashboardGreeting />} footerTip={DASHBOARD_TIP}>
-      <div className="grid grid-cols-1 gap-6 lg:grid-cols-3">
-        {/* Left / main column */}
-        <div className="flex flex-col gap-6 lg:col-span-2">
-          <CurrentMission />
-          <RecommendedMissions />
-          <YourSkills />
+    <DashboardShell active="Dashboard" topLeft={<DashboardGreeting />}>
+      <div className="flex flex-col gap-6">
+        <NextAction />
+
+        <div className="grid grid-cols-1 gap-6 xl:grid-cols-2">
+          <DailyRaid />
+          <CareerProgress />
         </div>
 
-        {/* Right rail */}
-        <div className="flex flex-col gap-6">
-          <DailyRaid />
-          <CareerProgressCard />
-          <UpNext />
+        <div className="grid grid-cols-1 gap-6 xl:grid-cols-2">
+          <RecommendedMissions />
+          <SkillsSummary />
         </div>
       </div>
     </DashboardShell>
