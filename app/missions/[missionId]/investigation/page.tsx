@@ -5,8 +5,11 @@ import { ArrowLeft, Search } from "lucide-react";
 import { DashboardShell } from "@/components/dashboard/DashboardShell";
 import { InvestigationHeader } from "@/components/missions/investigation/InvestigationHeader";
 import { InvestigationWorkspace } from "@/components/missions/investigation/InvestigationWorkspace";
-import { getInvestigation } from "@/lib/investigation";
-import { MISSIONS, getMission, resolveBriefing } from "@/lib/missions";
+import {
+  INVESTIGATABLE_MISSION_IDS,
+  getInvestigation,
+} from "@/lib/investigation";
+import { MISSIONS, getMission, missionStep, resolveBriefing } from "@/lib/missions";
 
 type Params = { params: { missionId: string } };
 
@@ -29,10 +32,16 @@ export default function InvestigationPage({ params }: Params) {
 
   const investigation = getInvestigation(mission.id);
   const briefing = resolveBriefing(mission);
+  const investigationStep = missionStep("Investigation");
 
-  // Investigation content is authored per mission — logs, code and query traces
-  // can't be derived. Missions without it keep the placeholder.
+  // Investigation content is authored per mission — logs, code and traces can't
+  // be derived from the mission model, so missions without an authored config
+  // say so rather than rendering an empty workspace.
   if (!investigation) {
+    const playable = INVESTIGATABLE_MISSION_IDS.map(getMission).filter(
+      (m): m is NonNullable<typeof m> => Boolean(m) && m!.id !== mission.id,
+    );
+
     return (
       <DashboardShell active="Missions">
         <div className="mx-auto max-w-2xl py-10 text-center">
@@ -45,14 +54,24 @@ export default function InvestigationPage({ params }: Params) {
           </h1>
           <p className="mx-auto mt-3 max-w-md text-sm leading-relaxed text-slate-400">
             The investigation workspace for this mission is still being written.
-            Try{" "}
-            <Link
-              href="/missions/slow-api-incident/investigation"
-              className="font-medium text-violet-300 underline-offset-4 hover:underline"
-            >
-              The Slow API Incident
-            </Link>{" "}
-            to play the full loop.
+            {playable.length > 0 && (
+              <>
+                {" "}
+                Try{" "}
+                {playable.map((m, i) => (
+                  <span key={m.id}>
+                    {i > 0 && (i === playable.length - 1 ? " or " : ", ")}
+                    <Link
+                      href={`/missions/${m.id}/investigation`}
+                      className="font-medium text-violet-300 underline-offset-4 hover:underline"
+                    >
+                      {m.title}
+                    </Link>
+                  </span>
+                ))}{" "}
+                to play the full loop.
+              </>
+            )}
           </p>
 
           <div className="mt-7 flex flex-col justify-center gap-3 sm:flex-row">
@@ -82,8 +101,8 @@ export default function InvestigationPage({ params }: Params) {
         investigation={investigation}
         title={mission.title}
         severity={briefing.severity}
-        step={2}
-        totalSteps={briefing.steps.length}
+        step={investigationStep.step}
+        totalSteps={investigationStep.totalSteps}
         phase="Investigate"
       />
     </DashboardShell>

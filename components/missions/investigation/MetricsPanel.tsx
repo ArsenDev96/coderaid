@@ -36,7 +36,7 @@ function LatencyChart({ latency }: { latency: Investigation["metrics"]["latency"
           style={{ left: `${deployLeft}%` }}
         >
           <span className="absolute top-0 left-1.5 whitespace-nowrap rounded border border-violet-400/30 bg-violet-500/15 px-1.5 py-0.5 text-[0.55rem] font-semibold uppercase tracking-wider text-violet-200">
-            Deploy v2.8.1
+            {latency.deployLabel}
           </span>
         </div>
 
@@ -63,10 +63,12 @@ function LatencyChart({ latency }: { latency: Investigation["metrics"]["latency"
 
 export function MetricsPanel({
   metrics,
+  hint,
   isCollected,
   onCollect,
 }: {
   metrics: Investigation["metrics"];
+  hint: string;
   isCollected: (evidenceId: string) => boolean;
   onCollect: (ids: string[]) => void;
 }) {
@@ -159,7 +161,7 @@ export function MetricsPanel({
       <MarkEvidenceBar
         count={selection.count}
         onSubmit={selection.submit}
-        hint="Select the metrics that explain the slowdown."
+        hint={hint}
       />
     </div>
   );

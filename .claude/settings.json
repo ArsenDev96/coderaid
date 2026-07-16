@@ -42,7 +42,19 @@
       "Bash(curl -s http://localhost:3000/missions/slow-api-incident/investigation)",
       "Bash(node diag.js)",
       "Bash(node shots.js)",
-      "Bash(npx next *)"
+      "Bash(npx next *)",
+      "PowerShell(Get-NetTCPConnection -LocalPort 3000 -State Listen -ErrorAction SilentlyContinue | ForEach-Object { Stop-Process -Id $_.OwningProcess -Force -ErrorAction SilentlyContinue }; Start-Sleep -Seconds 1; \"port free\")",
+      "Bash(curl -s -o /dev/null -w \"server: %{http_code}\\\\n\" http://localhost:3000)",
+      "Bash(node investigate.js)",
+      "Bash(node integration.js)",
+      "PowerShell(Get-NetTCPConnection -LocalPort 3000 -State Listen -ErrorAction SilentlyContinue | ForEach-Object { Stop-Process -Id $_.OwningProcess -Force -ErrorAction SilentlyContinue }; Start-Sleep -Seconds 1; \"server stopped\")",
+      "Bash(node diagnosis.js)",
+      "Bash(node fix.js)",
+      "Bash(node verify.js)",
+      "Bash(node results.js)",
+      "Bash(node missionmap.js)",
+      "Bash(node mapsplit.js)",
+      "Bash(node skills.js)"
     ]
   }
 }

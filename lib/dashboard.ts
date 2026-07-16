@@ -10,13 +10,14 @@ import {
   Layers,
   Lock,
   type LucideIcon,
-  Map,
   Network,
   Settings,
   Star,
   Target,
   TestTube2,
 } from "lucide-react";
+import { getInvestigation } from "./investigation";
+import { CURRENT_MISSION_ID, SEVERITY_BADGE, getMission, resolveBriefing } from "./missions";
 
 /* ------------------------------- Player -------------------------------- */
 
@@ -46,8 +47,7 @@ export type SidebarItem = { label: string; icon: LucideIcon; href?: string };
 export const SIDEBAR_ITEMS: SidebarItem[] = [
   { label: "Dashboard", icon: Home, href: "/dashboard" },
   { label: "Missions", icon: Target, href: "/missions" },
-  { label: "Mission Map", icon: Map },
-  { label: "Skills", icon: Layers },
+  { label: "Skills", icon: Layers, href: "/skills" },
   { label: "Leaderboards", icon: BarChart3 },
   { label: "Challenges", icon: Crosshair },
   { label: "Achievements", icon: Star },
@@ -58,38 +58,52 @@ export const SIDEBAR_ITEMS: SidebarItem[] = [
 
 export type CodeLine = { n: number; content: string; tone?: "comment" | "warn" };
 
-export const NEXT_ACTION = {
-  title: "The Slow API Incident",
-  description:
-    "The production API is responding slowly. Users are experiencing timeouts and elevated error rates.",
-  step: 3,
-  totalSteps: 7,
-  phase: "Diagnose",
-  severity: "High Severity",
-  avgResponseTime: "2,850ms",
-  cluesFound: 2,
-  cluesTotal: 5,
-  estTimeLeft: "8 min",
-  findings: [
-    "High response times detected in the order service.",
-    "N+1 query pattern suspected in recent logs.",
-  ],
-  code: [
-    { n: 1, content: "async function getOrders(userId) {" },
-    { n: 2, content: "  const orders = await prisma.order.findMany({" },
-    { n: 3, content: "    where: { userId }" },
-    { n: 4, content: "  });" },
-    { n: 5, content: "  // N+1 queries detected", tone: "comment" },
-    { n: 6, content: "  for (const order of orders) {", tone: "warn" },
-    {
-      n: 7,
-      content: "    order.items = await prisma.order_item.findMany({ ... });",
-      tone: "warn",
+/**
+ * The dashboard's "continue where you left off" card. Derived from the player's
+ * current mission and its investigation content, so the title, severity and
+ * code preview follow whichever mission is current instead of naming one.
+ */
+function buildNextAction() {
+  const mission = getMission(CURRENT_MISSION_ID);
+  if (!mission) throw new Error(`Unknown CURRENT_MISSION_ID: ${CURRENT_MISSION_ID}`);
+
+  const briefing = resolveBriefing(mission);
+  const investigation = getInvestigation(mission.id);
+
+  // A preview, not the whole file — the workspace is where you read the code.
+  const code: CodeLine[] = (investigation?.code.lines ?? [])
+    .slice(0, 9)
+    .map((line, i) => ({
+      n: i + 1,
+      content: line.text,
+      tone: line.evidenceId ? ("warn" as const) : undefined,
+    }));
+
+  return {
+    missionId: mission.id,
+    href: `/missions/${mission.id}/investigation`,
+    briefingHref: `/missions/${mission.id}/briefing`,
+    title: mission.title,
+    description: mission.description,
+    step: 2,
+    totalSteps: briefing.steps.length,
+    phase: "Investigate",
+    severity: SEVERITY_BADGE[briefing.severity].label,
+    severityCls: SEVERITY_BADGE[briefing.severity].cls,
+    headline: investigation?.summary.headline ?? {
+      label: "Status",
+      value: "—",
     },
-    { n: 8, content: "  }" },
-    { n: 9, content: "}" },
-  ] as CodeLine[],
-};
+    cluesFound: 2,
+    // Mirrors the workspace gate, so "2 / 3" here means the same "3" there.
+    cluesTotal: investigation?.requiredKeyClues ?? 5,
+    estTimeLeft: "12 min",
+    findings: investigation?.summary.findings ?? [],
+    code,
+  };
+}
+
+export const NEXT_ACTION = buildNextAction();
 
 // Noisy, elevated latency series for the response-time sparkline.
 export const RESPONSE_SERIES =

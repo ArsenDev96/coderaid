@@ -1,3 +1,4 @@
+import Link from "next/link";
 import { ArrowRight, Clock, Coffee, Laptop, Search, Target } from "lucide-react";
 import { NEXT_ACTION } from "@/lib/dashboard";
 
@@ -67,13 +68,13 @@ export function MissionsNextAction() {
             />
           </div>
 
-          <button
-            type="button"
+          <Link
+            href={a.href}
             className="group inline-flex w-full items-center justify-center gap-2 whitespace-nowrap rounded-xl border border-violet-400/40 bg-gradient-to-r from-violet-600 to-violet-500 px-7 py-3.5 text-sm font-semibold text-white shadow-neon transition-transform hover:scale-[1.02] sm:w-auto"
           >
             Continue Mission
             <ArrowRight className="h-4 w-4 transition-transform group-hover:translate-x-0.5" />
-          </button>
+          </Link>
         </div>
       </div>
     </div>

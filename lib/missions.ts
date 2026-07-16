@@ -139,7 +139,7 @@ export const MISSIONS: Mission[] = [
 
   /* ---------------------- Chapter 2 — Async Ops ----------------------- */
   {
-    id: "user-signup-latency",
+    id: "user-signup-latency-spike",
     index: 4,
     chapterId: 2,
     title: "User Signup Latency Spike",
@@ -148,16 +148,33 @@ export const MISSIONS: Mission[] = [
     xp: 140,
     status: "current",
     category: "Node.js",
-    tags: ["Node.js", "Backend", "Performance"],
+    tags: ["Node.js", "PostgreSQL", "Backend", "Performance"],
     description:
-      "New user signups are taking too long. Find the bottleneck and get things running smoothly again.",
+      "New user registrations are taking several seconds to complete. Investigate the signup flow, identify the bottleneck, and restore normal response times.",
     objectives: [
-      { text: "Investigate slow signup endpoint", done: true },
-      { text: "Profile database query performance", done: true },
-      { text: "Optimize and fix the root cause", done: true },
+      { text: "Investigate the slow signup endpoint", done: true },
+      { text: "Profile each step of the request", done: true },
+      { text: "Diagnose the real root cause", done: false },
       { text: "Ship the fix and monitor results", done: false },
     ],
     rewardSkill: "Perf +1",
+    briefing: {
+      severity: "medium",
+      technologies: ["Node.js", "PostgreSQL", "Backend", "Performance"],
+      firstPhase: "Reproduce the Issue",
+      steps: [
+        "Reproduce the slow signup request.",
+        "Identify the bottleneck using logs, metrics and the trace.",
+        "Apply the best fix and verify the improvement.",
+      ],
+      skills: ["Debugging", "Performance", "Node.js"],
+      context: [
+        { label: "Affected endpoint", value: "POST /api/signup" },
+        { label: "First reported", value: "Shortly after the 4.2.0 release" },
+        { label: "Impact", value: "Signups succeed but take ~3.2s" },
+        { label: "Environment", value: "Node.js 20 · PostgreSQL 15 · production" },
+      ],
+    },
   },
   {
     id: "redis-cache-meltdown",
@@ -478,6 +495,51 @@ export const MISSIONS: Mission[] = [
   },
 ];
 
+/* ----------------------------- Mission flow ----------------------------- */
+
+/**
+ * Canonical stage order every playable mission moves through. The step counter
+ * shown on each stage page is derived from this, so "Step 4 of 6" stays
+ * consistent across Investigation → Diagnosis → Fix regardless of how many
+ * objectives a mission's briefing happens to list.
+ */
+export const MISSION_FLOW = [
+  "Briefing",
+  "Investigation",
+  "Diagnosis",
+  "Fix",
+  "Verification",
+  "Complete",
+] as const;
+
+export type MissionStage = (typeof MISSION_FLOW)[number];
+
+export function missionStep(stage: MissionStage): {
+  step: number;
+  totalSteps: number;
+} {
+  return {
+    step: MISSION_FLOW.indexOf(stage) + 1,
+    totalSteps: MISSION_FLOW.length,
+  };
+}
+
+/**
+ * The next mission a player should tackle after finishing `currentId`: the
+ * lowest-indexed mission that comes after it and isn't locked or already done.
+ * Returns undefined when there is nothing left to play.
+ */
+export function nextMissionId(currentId: string): string | undefined {
+  const current = getMission(currentId);
+  if (!current) return undefined;
+  return MISSIONS.filter(
+    (m) =>
+      m.index > current.index &&
+      m.status !== "locked" &&
+      m.status !== "completed",
+  ).sort((a, b) => a.index - b.index)[0]?.id;
+}
+
 /* ------------------------------- Filters -------------------------------- */
 
 export const CATEGORIES: Category[] = [
@@ -490,7 +552,7 @@ export const CATEGORIES: Category[] = [
 
 export const DIFFICULTIES: Difficulty[] = ["Easy", "Medium", "Hard", "Expert"];
 
-export const CURRENT_MISSION_ID = "user-signup-latency";
+export const CURRENT_MISSION_ID = "user-signup-latency-spike";
 
 /* ------------------------------- Helpers -------------------------------- */
 
@@ -567,6 +629,41 @@ export function chapterProgress(chapterId: number) {
     done: all.filter((m) => m.status === "completed").length,
     total: all.length,
   };
+}
+
+export type ChapterState = "complete" | "in-progress" | "locked";
+
+/** A chapter is locked until any of its missions opens, complete when all are done. */
+export function chapterState(chapterId: number, list = MISSIONS): ChapterState {
+  const rows = list.filter((m) => m.chapterId === chapterId);
+  if (rows.length === 0) return "locked";
+  if (rows.every((m) => m.status === "locked")) return "locked";
+  if (rows.every((m) => m.status === "completed")) return "complete";
+  return "in-progress";
+}
+
+/** Overall completion across every mission — drives the header progress bar. */
+export function overallProgress(list = MISSIONS) {
+  const total = list.length;
+  const done = list.filter((m) => m.status === "completed").length;
+  return { done, total, pct: total === 0 ? 0 : Math.round((done / total) * 100) };
+}
+
+/**
+ * The message shown under the map: how many missions remain in the last
+ * in-progress chapter before the first locked chapter opens. Returns null when
+ * nothing is locked.
+ */
+export function nextUnlockHint(): {
+  remaining: number;
+  fromChapter: Chapter;
+  lockedChapter: Chapter;
+} | null {
+  const locked = CHAPTERS.find((c) => chapterState(c.id) === "locked");
+  if (!locked) return null;
+  const from = CHAPTERS.find((c) => c.id === locked.id - 1) ?? locked;
+  const { done, total } = chapterProgress(from.id);
+  return { remaining: Math.max(total - done, 0), fromChapter: from, lockedChapter: locked };
 }
 
 /* ------------------------------- Styling -------------------------------- */

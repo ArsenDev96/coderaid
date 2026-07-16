@@ -1,11 +1,11 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import type { Metadata } from "next";
-import { ArrowLeft, Stethoscope } from "lucide-react";
+import { ArrowLeft, Trophy } from "lucide-react";
 import { DashboardShell } from "@/components/dashboard/DashboardShell";
-import { DiagnosisWorkspace } from "@/components/missions/diagnosis/DiagnosisWorkspace";
-import { DIAGNOSABLE_MISSION_IDS, getDiagnosis } from "@/lib/diagnosis";
-import { MISSIONS, getMission, missionStep, resolveBriefing } from "@/lib/missions";
+import { ResultsWorkspace } from "@/components/missions/results/ResultsWorkspace";
+import { RESULT_MISSION_IDS, getResult } from "@/lib/results";
+import { MISSIONS, getMission, nextMissionId } from "@/lib/missions";
 
 type Params = { params: { missionId: string } };
 
@@ -17,23 +17,21 @@ export function generateMetadata({ params }: Params): Metadata {
   const mission = getMission(params.missionId);
   return {
     title: mission
-      ? `${mission.title} — Diagnosis | CodeRaid`
-      : "Diagnosis — CodeRaid",
+      ? `${mission.title} — Results | CodeRaid`
+      : "Results — CodeRaid",
   };
 }
 
-export default function DiagnosisPage({ params }: Params) {
+export default function ResultsPage({ params }: Params) {
   const mission = getMission(params.missionId);
   if (!mission) notFound();
 
-  const diagnosis = getDiagnosis(mission.id);
-  const briefing = resolveBriefing(mission);
-  const diagnosisStep = missionStep("Diagnosis");
+  const result = getResult(mission.id);
 
-  // Diagnosis content is authored per mission — the plausible-but-wrong causes
-  // only make sense against that mission's scenario, so they can't be derived.
-  if (!diagnosis) {
-    const playable = DIAGNOSABLE_MISSION_IDS.map(getMission).filter(
+  // Results content is authored per mission — the score, lessons and rewards
+  // belong to that mission's scenario, so they can't be derived.
+  if (!result) {
+    const playable = RESULT_MISSION_IDS.map(getMission).filter(
       (m): m is NonNullable<typeof m> => Boolean(m) && m!.id !== mission.id,
     );
 
@@ -41,15 +39,15 @@ export default function DiagnosisPage({ params }: Params) {
       <DashboardShell active="Missions">
         <div className="mx-auto max-w-2xl py-10 text-center">
           <span className="mx-auto grid h-14 w-14 place-items-center rounded-2xl border border-violet-400/40 bg-violet-500/10 text-violet-200 shadow-neon">
-            <Stethoscope className="h-7 w-7" strokeWidth={1.8} />
+            <Trophy className="h-7 w-7" strokeWidth={1.8} />
           </span>
 
           <h1 className="mt-5 text-2xl font-bold tracking-tight text-white sm:text-3xl">
-            Diagnosis: {mission.title}
+            Results: {mission.title}
           </h1>
           <p className="mx-auto mt-3 max-w-md text-sm leading-relaxed text-slate-400">
-            The diagnosis step for this mission is still being written — your
-            investigation progress is saved.
+            The results summary for this mission is still being written — your
+            progress is saved.
             {playable.length > 0 && (
               <>
                 {" "}
@@ -58,7 +56,7 @@ export default function DiagnosisPage({ params }: Params) {
                   <span key={m.id}>
                     {i > 0 && (i === playable.length - 1 ? " or " : ", ")}
                     <Link
-                      href={`/missions/${m.id}/diagnosis`}
+                      href={`/missions/${m.id}/results`}
                       className="font-medium text-violet-300 underline-offset-4 hover:underline"
                     >
                       {m.title}
@@ -72,11 +70,11 @@ export default function DiagnosisPage({ params }: Params) {
 
           <div className="mt-7 flex flex-col justify-center gap-3 sm:flex-row">
             <Link
-              href={`/missions/${mission.id}/investigation`}
+              href={`/missions/${mission.id}/verification`}
               className="inline-flex items-center justify-center gap-2 rounded-xl border border-white/12 bg-white/[0.03] px-6 py-3 text-sm font-semibold text-slate-200 transition-colors hover:border-white/25 hover:text-white"
             >
               <ArrowLeft className="h-4 w-4" />
-              Back to Investigation
+              Back to Verification
             </Link>
             <Link
               href="/missions"
@@ -90,25 +88,17 @@ export default function DiagnosisPage({ params }: Params) {
     );
   }
 
+  // Next available mission: config override wins, otherwise derive from status.
+  const nextId = result.nextMissionId ?? nextMissionId(mission.id);
+  const nextHref = nextId ? `/missions/${nextId}/briefing` : "/missions";
+
   return (
     <DashboardShell active="Missions">
-      <div className="mb-6">
-        <Link
-          href={`/missions/${mission.id}/investigation`}
-          className="inline-flex items-center gap-1.5 text-xs font-medium text-slate-400 transition-colors hover:text-white"
-        >
-          <ArrowLeft className="h-3.5 w-3.5" />
-          Back to Investigation
-        </Link>
-      </div>
-
-      <DiagnosisWorkspace
-        config={diagnosis}
-        title={mission.title}
-        description={mission.description}
-        severity={briefing.severity}
-        step={diagnosisStep.step}
-        totalSteps={diagnosisStep.totalSteps}
+      <ResultsWorkspace
+        config={result}
+        missionTitle={mission.title}
+        difficulty={mission.difficulty}
+        nextHref={nextHref}
       />
     </DashboardShell>
   );

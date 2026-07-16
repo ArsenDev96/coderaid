@@ -11,10 +11,12 @@ import {
 
 export function DatabasePanel({
   database,
+  hint,
   isCollected,
   onCollect,
 }: {
   database: Investigation["database"];
+  hint: string;
   isCollected: (evidenceId: string) => boolean;
   onCollect: (ids: string[]) => void;
 }) {
@@ -100,22 +102,25 @@ export function DatabasePanel({
         })}
       </ul>
 
-      <div className="mt-3 rounded-xl border border-white/[0.06] bg-base-950/60 p-4">
-        <h4 className="flex items-center gap-2 text-[0.62rem] font-semibold uppercase tracking-[0.14em] text-slate-500">
-          <Repeat className="h-3.5 w-3.5" strokeWidth={2.2} />
-          Most repeated query
-        </h4>
-        <div className="thin-scroll mt-2.5 overflow-x-auto">
-          <code className="block whitespace-pre font-mono text-xs text-violet-200">
-            {database.repeatedQuery}
-          </code>
+      {/* Only scenarios with a query worth pinning author a callout. */}
+      {database.queryCallout && (
+        <div className="mt-3 rounded-xl border border-white/[0.06] bg-base-950/60 p-4">
+          <h4 className="flex items-center gap-2 text-[0.62rem] font-semibold uppercase tracking-[0.14em] text-slate-500">
+            <Repeat className="h-3.5 w-3.5" strokeWidth={2.2} />
+            {database.queryCallout.label}
+          </h4>
+          <div className="thin-scroll mt-2.5 overflow-x-auto">
+            <code className="block whitespace-pre font-mono text-xs text-violet-200">
+              {database.queryCallout.sql}
+            </code>
+          </div>
         </div>
-      </div>
+      )}
 
       <MarkEvidenceBar
         count={selection.count}
         onSubmit={selection.submit}
-        hint="Select the query statistics that stand out."
+        hint={hint}
       />
     </div>
   );

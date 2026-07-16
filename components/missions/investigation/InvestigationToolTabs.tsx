@@ -1,9 +1,10 @@
 "use client";
 
 import { useRef } from "react";
-import {
-  INVESTIGATION_TOOLS,
-  type InvestigationToolId,
+import type {
+  InvestigationTool,
+  InvestigationToolId,
+  ToolCopy,
 } from "@/lib/investigation";
 
 export function tabId(id: InvestigationToolId) {
@@ -15,9 +16,12 @@ export function panelId(id: InvestigationToolId) {
 }
 
 export function InvestigationToolTabs({
+  tools,
   active,
   onSelect,
 }: {
+  /** The mission's own tools, in tab order. */
+  tools: (InvestigationTool & ToolCopy)[];
   active: InvestigationToolId;
   onSelect: (id: InvestigationToolId) => void;
 }) {
@@ -29,18 +33,18 @@ export function InvestigationToolTabs({
     if (!keys.includes(e.key)) return;
     e.preventDefault();
 
-    const i = INVESTIGATION_TOOLS.findIndex((t) => t.id === active);
-    const last = INVESTIGATION_TOOLS.length - 1;
+    const i = tools.findIndex((t) => t.id === active);
+    const last = tools.length - 1;
     const next =
       e.key === "ArrowRight"
-        ? (i + 1) % INVESTIGATION_TOOLS.length
+        ? (i + 1) % tools.length
         : e.key === "ArrowLeft"
-          ? (i - 1 + INVESTIGATION_TOOLS.length) % INVESTIGATION_TOOLS.length
+          ? (i - 1 + tools.length) % tools.length
           : e.key === "Home"
             ? 0
             : last;
 
-    const target = INVESTIGATION_TOOLS[next];
+    const target = tools[next];
     onSelect(target.id);
     listRef.current
       ?.querySelector<HTMLButtonElement>(`#${tabId(target.id)}`)
@@ -56,7 +60,7 @@ export function InvestigationToolTabs({
         onKeyDown={onKeyDown}
         className="flex min-w-max gap-2 border-b border-white/[0.06] pb-3"
       >
-        {INVESTIGATION_TOOLS.map((tool) => {
+        {tools.map((tool) => {
           const selected = tool.id === active;
           const Icon = tool.icon;
           return (

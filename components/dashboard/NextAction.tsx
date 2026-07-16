@@ -1,3 +1,4 @@
+import Link from "next/link";
 import {
   AlertTriangle,
   ArrowRight,
@@ -76,35 +77,37 @@ export function NextAction() {
 
           {/* Actions */}
           <div className="mt-5 flex flex-col gap-3 sm:flex-row">
-            <button
-              type="button"
+            <Link
+              href={a.href}
               className="group inline-flex items-center justify-center gap-2 rounded-xl border border-violet-400/40 bg-gradient-to-r from-violet-600 to-violet-500 px-6 py-3.5 text-sm font-semibold text-white shadow-neon transition-transform hover:scale-[1.02]"
             >
               Continue Mission
               <ArrowRight className="h-4 w-4 transition-transform group-hover:translate-x-0.5" />
-            </button>
-            <button
-              type="button"
+            </Link>
+            <Link
+              href={a.briefingHref}
               className="inline-flex items-center justify-center gap-2 rounded-xl border border-white/12 bg-white/[0.03] px-6 py-3.5 text-sm font-semibold text-slate-200 transition-colors hover:border-white/25 hover:text-white"
             >
               <ListChecks className="h-4 w-4" />
               View Mission
-            </button>
+            </Link>
           </div>
         </div>
 
         {/* Right: evidence panel */}
         <div className="min-w-0 rounded-xl border border-white/[0.07] bg-base-950/50 p-4">
-          <span className="inline-flex items-center gap-2 rounded-lg border border-rose-500/40 bg-rose-500/10 px-3 py-1.5 text-[0.68rem] font-bold uppercase tracking-wide text-rose-300">
+          <span
+            className={`inline-flex items-center gap-2 rounded-lg border px-3 py-1.5 text-[0.68rem] font-bold uppercase tracking-wide ${a.severityCls}`}
+          >
             <AlertTriangle className="h-3.5 w-3.5" /> {a.severity}
           </span>
 
-          {/* Response time + sparkline */}
+          {/* Headline metric + sparkline */}
           <div className="mt-4 flex items-end justify-between gap-4">
             <div className="shrink-0">
-              <div className="text-xs text-slate-400">Average Response Time</div>
+              <div className="text-xs text-slate-400">{a.headline.label}</div>
               <div className="mt-0.5 text-3xl font-bold text-rose-400">
-                {a.avgResponseTime}
+                {a.headline.value}
               </div>
             </div>
             <svg

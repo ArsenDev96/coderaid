@@ -10,10 +10,12 @@ import {
 
 export function CodeInspectionPanel({
   code,
+  hint,
   isCollected,
   onCollect,
 }: {
   code: Investigation["code"];
+  hint: string;
   isCollected: (evidenceId: string) => boolean;
   onCollect: (ids: string[]) => void;
 }) {
@@ -97,7 +99,7 @@ export function CodeInspectionPanel({
       <MarkEvidenceBar
         count={selection.count}
         onSubmit={selection.submit}
-        hint="Select the lines responsible for the extra database work."
+        hint={hint}
       />
     </div>
   );

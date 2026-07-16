@@ -10,10 +10,12 @@ import {
 
 export function LogsPanel({
   logs,
+  hint,
   isCollected,
   onCollect,
 }: {
   logs: Investigation["logs"];
+  hint: string;
   isCollected: (evidenceId: string) => boolean;
   onCollect: (ids: string[]) => void;
 }) {
@@ -110,7 +112,7 @@ export function LogsPanel({
       <MarkEvidenceBar
         count={selection.count}
         onSubmit={selection.submit}
-        hint="Select the log lines that look suspicious."
+        hint={hint}
       />
     </div>
   );

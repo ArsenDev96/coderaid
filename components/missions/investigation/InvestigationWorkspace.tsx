@@ -2,11 +2,11 @@
 
 import { useEffect, useMemo, useState } from "react";
 import {
-  INVESTIGATION_TOOLS,
   findEvidence,
   keyEvidence,
   loadInvestigationState,
   saveInvestigationState,
+  toolsFor,
   type Investigation,
   type InvestigationToolId,
 } from "@/lib/investigation";
@@ -19,6 +19,7 @@ import { InvestigationToolTabs, panelId, tabId } from "./InvestigationToolTabs";
 import { LogsPanel } from "./LogsPanel";
 import { MetricsPanel } from "./MetricsPanel";
 import { MissionStepProgress } from "./MissionStepProgress";
+import { TracePanel } from "./TracePanel";
 
 export function InvestigationWorkspace({
   investigation,
@@ -35,22 +36,29 @@ export function InvestigationWorkspace({
   totalSteps: number;
   phase: string;
 }) {
-  const [activeTool, setActiveTool] = useState<InvestigationToolId>("logs");
+  const tools = useMemo(() => toolsFor(investigation), [investigation]);
+
+  const [activeTool, setActiveTool] = useState<InvestigationToolId>(
+    investigation.tools[0],
+  );
   const [collectedIds, setCollectedIds] = useState<string[]>([]);
   const [hydrated, setHydrated] = useState(false);
 
   // Restore progress after mount — reading localStorage during render would
-  // desync the server-rendered markup.
+  // desync the server-rendered markup. Each mission has its own key, so
+  // switching missions starts from that mission's own saved state.
   useEffect(() => {
-    const saved = loadInvestigationState(investigation.missionId);
-    if (saved) {
-      setActiveTool(saved.activeTool);
-      setCollectedIds(
-        saved.collectedEvidenceIds.filter((id) =>
-          Boolean(findEvidence(investigation, id)),
-        ),
-      );
-    }
+    setHydrated(false);
+    const saved = loadInvestigationState(
+      investigation.missionId,
+      investigation.tools,
+    );
+    setActiveTool(saved?.activeTool ?? investigation.tools[0]);
+    setCollectedIds(
+      (saved?.collectedEvidenceIds ?? []).filter((id) =>
+        Boolean(findEvidence(investigation, id)),
+      ),
+    );
     setHydrated(true);
   }, [investigation]);
 
@@ -89,37 +97,58 @@ export function InvestigationWorkspace({
     keyRequired,
   );
 
-  const activeMeta = INVESTIGATION_TOOLS.find((t) => t.id === activeTool)!;
+  const activeMeta = tools.find((t) => t.id === activeTool) ?? tools[0];
 
-  const panels: Record<InvestigationToolId, React.ReactNode> = {
-    logs: (
-      <LogsPanel
-        logs={investigation.logs}
-        isCollected={isCollected}
-        onCollect={collect}
-      />
-    ),
-    metrics: (
-      <MetricsPanel
-        metrics={investigation.metrics}
-        isCollected={isCollected}
-        onCollect={collect}
-      />
-    ),
-    code: (
-      <CodeInspectionPanel
-        code={investigation.code}
-        isCollected={isCollected}
-        onCollect={collect}
-      />
-    ),
-    database: (
-      <DatabasePanel
-        database={investigation.database}
-        isCollected={isCollected}
-        onCollect={collect}
-      />
-    ),
+  const renderPanel = () => {
+    const hint = activeMeta.hint;
+    switch (activeMeta.id) {
+      case "logs":
+        return (
+          <LogsPanel
+            logs={investigation.logs}
+            hint={hint}
+            isCollected={isCollected}
+            onCollect={collect}
+          />
+        );
+      case "metrics":
+        return (
+          <MetricsPanel
+            metrics={investigation.metrics}
+            hint={hint}
+            isCollected={isCollected}
+            onCollect={collect}
+          />
+        );
+      case "code":
+        return (
+          <CodeInspectionPanel
+            code={investigation.code}
+            hint={hint}
+            isCollected={isCollected}
+            onCollect={collect}
+          />
+        );
+      case "database":
+        return (
+          <DatabasePanel
+            database={investigation.database}
+            hint={hint}
+            isCollected={isCollected}
+            onCollect={collect}
+          />
+        );
+      case "trace":
+        // `tools` only lists "trace" when the mission authored trace content.
+        return investigation.trace ? (
+          <TracePanel
+            trace={investigation.trace}
+            hint={hint}
+            isCollected={isCollected}
+            onCollect={collect}
+          />
+        ) : null;
+    }
   };
 
   return (
@@ -138,19 +167,23 @@ export function InvestigationWorkspace({
       <div className="grid grid-cols-1 gap-6 xl:grid-cols-[1.6fr_1fr]">
         {/* Dominant area: one tool at a time */}
         <section className="min-w-0 rounded-2xl border border-white/[0.06] bg-white/[0.02] p-4 sm:p-5">
-          <InvestigationToolTabs active={activeTool} onSelect={setActiveTool} />
+          <InvestigationToolTabs
+            tools={tools}
+            active={activeMeta.id}
+            onSelect={setActiveTool}
+          />
 
           <div
-            id={panelId(activeTool)}
+            id={panelId(activeMeta.id)}
             role="tabpanel"
-            aria-labelledby={tabId(activeTool)}
+            aria-labelledby={tabId(activeMeta.id)}
             tabIndex={0}
             className="pt-5"
           >
             <p className="mb-4 text-xs text-slate-500">
               {activeMeta.description}
             </p>
-            {panels[activeTool]}
+            {renderPanel()}
           </div>
         </section>
 
