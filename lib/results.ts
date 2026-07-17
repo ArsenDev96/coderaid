@@ -192,6 +192,16 @@ export function resultsStorageKey(missionId: string): string {
 }
 
 /**
+ * Read-only view of the reward ledger's claimed missions. Derived views (the
+ * Achievements page) read progress through this rather than keeping a second
+ * tally of what the player has finished. Empty during SSR — callers that need
+ * it must read after mount.
+ */
+export function claimedMissionIds(): string[] {
+  return loadProgress().claimedMissions;
+}
+
+/**
  * Credits the mission's XP and skill points exactly once, then returns the
  * before/after skill totals to display. Idempotent: the global ledger's claimed
  * set and the per-mission snapshot both guard against a refresh re-applying the

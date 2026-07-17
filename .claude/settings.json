@@ -54,7 +54,25 @@
       "Bash(node results.js)",
       "Bash(node missionmap.js)",
       "Bash(node mapsplit.js)",
-      "Bash(node skills.js)"
+      "Bash(node skills.js)",
+      "PowerShell(npx tsc --noEmit; \"tsc exit: $LASTEXITCODE\"; npx next build)",
+      "PowerShell(Start-Process -FilePath \"npx\" -ArgumentList \"next\",\"dev\",\"-p\",\"3111\" -WorkingDirectory \"d:\\\\coderaid\" -WindowStyle Hidden; Start-Sleep -Seconds 12; try { $r = Invoke-WebRequest -Uri \"http://localhost:3111/leaderboards\" -UseBasicParsing -TimeoutSec 60; \"STATUS: $\\($r.StatusCode\\)\"; \"LENGTH: $\\($r.Content.Length\\)\" } catch { \"ERR: $_\" })",
+      "PowerShell(Start-Sleep -Seconds 20; try { $r = Invoke-WebRequest -Uri \"http://localhost:3111/leaderboards\" -UseBasicParsing -TimeoutSec 90; \"STATUS: $\\($r.StatusCode\\)\"; \"LENGTH: $\\($r.Content.Length\\)\" } catch { \"ERR: $_\" })",
+      "Bash(curl -s -o /dev/null http://localhost:3111/leaderboards)",
+      "Bash(curl -s http://localhost:3111/leaderboards -o /tmp/lb.html -w \"status=%{http_code}\\\\n\")",
+      "Bash(curl -s http://localhost:3111/__lbcheck)",
+      "Bash(python -m json.tool)",
+      "Bash(curl -s http://localhost:3111/lbcheck-tmp)",
+      "Bash(curl -s -o /tmp/lb2.html -w \"PAGE: %{http_code}\\\\n\" http://localhost:3111/leaderboards)",
+      "Bash(taskkill //F //PID 11980 //T)",
+      "Bash(taskkill //F //PID 14332 //T)",
+      "Bash(node -e \"console.log\\('node', process.version\\)\")",
+      "Bash(awk '{print $5}')",
+      "Bash(xargs -r -I{} taskkill //F //PID {} //T)",
+      "Bash(grep -oE \"\\\\.translate-x-[^{,]*\" /tmp/app.css)"
+    ],
+    "additionalDirectories": [
+      "\\tmp"
     ]
   }
 }

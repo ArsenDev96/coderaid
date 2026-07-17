@@ -3,7 +3,6 @@ import {
   BarChart3,
   Boxes,
   Bug,
-  Crosshair,
   Database,
   Gauge,
   Home,
@@ -48,10 +47,9 @@ export const SIDEBAR_ITEMS: SidebarItem[] = [
   { label: "Dashboard", icon: Home, href: "/dashboard" },
   { label: "Missions", icon: Target, href: "/missions" },
   { label: "Skills", icon: Layers, href: "/skills" },
-  { label: "Leaderboards", icon: BarChart3 },
-  { label: "Challenges", icon: Crosshair },
-  { label: "Achievements", icon: Star },
-  { label: "Settings", icon: Settings },
+  { label: "Leaderboards", icon: BarChart3, href: "/leaderboards" },
+  { label: "Achievements", icon: Star, href: "/achievements" },
+  { label: "Settings", icon: Settings, href: "/settings" },
 ];
 
 /* ---------------------------- Your next action -------------------------- */

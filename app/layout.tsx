@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 import { Inter, JetBrains_Mono } from "next/font/google";
+import { SettingsEffects } from "@/components/settings/SettingsEffects";
 import "./globals.css";
 
 const inter = Inter({
@@ -42,7 +43,10 @@ export default function RootLayout({
 }) {
   return (
     <html lang="en" className={`${inter.variable} ${jetbrains.variable}`}>
-      <body>{children}</body>
+      <body>
+        <SettingsEffects />
+        {children}
+      </body>
     </html>
   );
 }
