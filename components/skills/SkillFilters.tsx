@@ -1,7 +1,7 @@
 "use client";
 
 import { ChevronDown, Search } from "lucide-react";
-import { levelLabel, type SkillLevelLabel } from "@/lib/skills";
+import { LEVEL_LABELS, levelLabel, type SkillLevelLabel } from "@/lib/skills";
 
 export type SkillTab = "all" | "core" | "advanced" | "category";
 export type LevelFilter = "All" | SkillLevelLabel;
@@ -13,13 +13,9 @@ const TABS: { id: SkillTab; label: string }[] = [
   { id: "advanced", label: "Advanced Skills" },
 ];
 
-const LEVELS: LevelFilter[] = [
-  "All",
-  "Beginner",
-  "Intermediate",
-  "Advanced",
-  "Expert",
-];
+// Derived from the canonical label list in lib/skills, so a new level label
+// (such as "Not Started") shows up here without a second literal to maintain.
+const LEVELS: LevelFilter[] = ["All", ...LEVEL_LABELS];
 
 export function SkillFilters({
   tab,

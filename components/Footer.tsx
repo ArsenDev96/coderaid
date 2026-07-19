@@ -2,12 +2,12 @@ import { Github, MessageCircle, Twitter } from "lucide-react";
 import { Logo } from "./ui/Logo";
 
 const PRODUCT_LINKS = [
-  { label: "Product", href: "#how-it-works" },
+  { label: "How It Works", href: "#how-it-works" },
   { label: "Mission Preview", href: "#mission" },
-  { label: "Skills", href: "#skills" },
+  { label: "Node.js Skills", href: "/skills" },
   { label: "Career Path", href: "#career" },
-  { label: "About", href: "/demo" },
-  { label: "Contact", href: "/demo" },
+  { label: "Missions", href: "/missions" },
+  { label: "Leaderboards", href: "/leaderboards" },
 ];
 
 const LEGAL_LINKS = [
@@ -26,7 +26,7 @@ export function Footer() {
     <footer className="border-t border-white/[0.06] bg-base-950/60">
       <div className="mx-auto max-w-7xl px-4 py-8 sm:px-6 lg:px-8">
         <div className="flex flex-col items-center gap-8 lg:flex-row lg:justify-between lg:gap-10">
-          <Logo withTagline tagline="Play. Learn. Level Up." />
+          <Logo withTagline tagline="Node.js Debugging Simulator" />
 
           {/* Links */}
           <nav className="flex flex-wrap items-center justify-center gap-x-6 gap-y-3 lg:gap-x-7">

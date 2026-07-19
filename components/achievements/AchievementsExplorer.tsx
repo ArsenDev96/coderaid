@@ -6,7 +6,7 @@ import {
   sortAchievements,
   type AchievementCategory,
 } from "@/lib/achievements";
-import { DEMO_PLAYER } from "@/lib/dashboard";
+import { useProgress } from "@/components/progress/ProgressProvider";
 import { AchievementAside } from "./AchievementAside";
 import { AchievementCard } from "./AchievementCard";
 import { AchievementSummary } from "./AchievementSummary";
@@ -21,6 +21,7 @@ const TABS: { id: Filter; label: string }[] = [
 
 export function AchievementsExplorer() {
   const achievements = useAchievements();
+  const { player } = useProgress();
   const [filter, setFilter] = useState<Filter>("all");
 
   // Sorted once over the full set, then filtered — so a category's cards keep
@@ -37,7 +38,7 @@ export function AchievementsExplorer() {
       {/* 1 — total progress, streak, latest */}
       <AchievementSummary
         achievements={achievements}
-        streakDays={DEMO_PLAYER.streakDays}
+        streakDays={player.streakDays}
       />
 
       <div className="grid grid-cols-1 gap-6 xl:grid-cols-[minmax(0,1fr)_20rem]">

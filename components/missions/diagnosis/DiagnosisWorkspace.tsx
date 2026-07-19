@@ -8,6 +8,7 @@ import {
   type MissionDiagnosisConfig,
 } from "@/lib/diagnosis";
 import type { Severity } from "@/lib/missions";
+import { completeStage, touchRun } from "@/lib/run";
 import { DiagnosisConfirmBar } from "./DiagnosisConfirmBar";
 import { DiagnosisEvidenceList } from "./DiagnosisEvidenceList";
 import { DiagnosisHint } from "./DiagnosisHint";
@@ -38,6 +39,9 @@ export function DiagnosisWorkspace({
   // server-rendered markup. Each mission has its own key.
   useEffect(() => {
     setHydrated(false);
+    // Keeps the run clock warm — the elapsed time reported on the results
+    // screen spans the whole mission, not just its last stage.
+    touchRun(config.missionId);
     const saved = loadDiagnosisState(config);
     setRootCauseId(saved?.rootCauseId ?? null);
     setEvidenceIds(saved?.evidenceIds ?? []);
@@ -82,7 +86,7 @@ export function DiagnosisWorkspace({
               evidence that supports your diagnosis.
             </p>
           </div>
-          <DiagnosisHint hint={config.hint} />
+            <DiagnosisHint hint={config.hint} missionId={config.missionId} />
         </div>
 
         {/* Reasoning columns: cause on the left, the evidence for it on the right */}
@@ -106,7 +110,10 @@ export function DiagnosisWorkspace({
         ready={ready}
         rootCauseChosen={Boolean(rootCauseId)}
         evidenceNeeded={evidenceNeeded}
-        onConfirm={() => setConfirmed(true)}
+        onConfirm={() => {
+          setConfirmed(true);
+          completeStage(config.missionId, "Diagnosis");
+        }}
       />
     </div>
   );

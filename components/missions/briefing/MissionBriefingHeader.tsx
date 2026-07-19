@@ -15,7 +15,7 @@ export function MissionBriefingHeader() {
         Mission Briefing
       </h1>
       <p className="mt-1.5 text-sm text-slate-400 sm:text-base">
-        Review the incident, understand the objectives, and start your
+        Review the Node.js incident, understand the objectives, and start your
         investigation.
       </p>
     </div>

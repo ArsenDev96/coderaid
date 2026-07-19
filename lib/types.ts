@@ -5,12 +5,9 @@ export type NavLink = {
   href: string;
 };
 
-export type GameStat = {
-  label: string;
-  value: string;
-  icon: LucideIcon;
-  accent: "violet" | "electric";
-};
+/* `GameStat` was removed with `GAME_STATS` — it only ever typed a fabricated
+   player's XP, streak and rank. Player-facing figures come from the
+   progression ledger (`lib/progress.ts`) and are typed there. */
 
 export type HowItWorksStep = {
   step: number;
@@ -29,6 +26,8 @@ export type RankAccent =
 
 export type CareerRank = {
   name: string;
+  /** Authoritative lower XP bound. `xpRange` is display only. */
+  minXp: number;
   xpRange: string;
   /** Pips shown inside the rank badge; crown ranks render a crown instead. */
   stars: number;
@@ -42,16 +41,14 @@ export type SkillColor =
   | "electric"
   | "fuchsia"
   | "orange"
-  | "cyan";
+  | "cyan"
+  /** Muted treatment used by roadmap tiles that are not yet available. */
+  | "slate";
 
-export type Skill = {
-  name: string;
-  icon: LucideIcon;
-  progress: number; // 0 - 100 (drives the bar)
-  level: number;
-  missions: number;
-  color: SkillColor;
-};
+/* The marketing `Skill` type (name + progress + level + missions) is gone too.
+   It described a skill as a static tile with a level baked in; the real one is
+   `Skill` in `lib/skills.ts`, where level and XP are resolved per player. The
+   landing grid uses `LandingSkill` below, which carries no progress at all. */
 
 export type Benefit = {
   title: string;

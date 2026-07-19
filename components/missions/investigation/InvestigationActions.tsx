@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import { ArrowRight, Stethoscope } from "lucide-react";
+import { completeStage } from "@/lib/run";
 
 export function InvestigationActions({
   missionId,
@@ -22,6 +23,7 @@ export function InvestigationActions({
         {unlocked ? (
           <Link
             href={`/missions/${missionId}/diagnosis`}
+            onClick={() => completeStage(missionId, "Investigation")}
             className="group inline-flex w-full items-center justify-center gap-2.5 rounded-xl border border-violet-400/40 bg-gradient-to-r from-violet-600 to-violet-500 px-6 py-3.5 text-sm font-semibold text-white shadow-neon transition-transform hover:scale-[1.02]"
           >
             <Stethoscope className="h-4 w-4" strokeWidth={2.2} />

@@ -9,6 +9,11 @@ import { MissionObjectives } from "@/components/missions/briefing/MissionObjecti
 import { MissionOverview } from "@/components/missions/briefing/MissionOverview";
 import { SkillTags } from "@/components/missions/briefing/SkillTags";
 import { MISSIONS, getMission, resolveBriefing } from "@/lib/missions";
+import {
+  blockedReason,
+  canStart,
+  missionAvailability,
+} from "@/lib/availability";
 
 type Params = { params: { missionId: string } };
 
@@ -30,6 +35,13 @@ export default function MissionBriefingPage({ params }: Params) {
   if (!mission) notFound();
 
   const briefing = resolveBriefing(mission);
+  const availability = missionAvailability(mission);
+
+  // The single gate that stops a player reaching an unwritten stage: the CTA
+  // only links into /investigation when the whole flow is authored.
+  const blocked = canStart(mission)
+    ? null
+    : (blockedReason(mission) ?? "This mission is not available yet.");
 
   return (
     <DashboardShell active="Missions">
@@ -39,12 +51,17 @@ export default function MissionBriefingPage({ params }: Params) {
         <div className="grid grid-cols-1 gap-8 lg:grid-cols-[1.15fr_1fr]">
           {/* Primary column: what happened → what to do → act */}
           <div className="flex min-w-0 flex-col gap-6">
-            <MissionOverview mission={mission} briefing={briefing} />
+            <MissionOverview
+              mission={mission}
+              briefing={briefing}
+              availability={availability}
+            />
             <MissionObjectives steps={briefing.steps} />
             <MissionActions
               missionId={mission.id}
               context={briefing.context}
-              locked={mission.status === "locked"}
+              availability={availability}
+              blockedReason={blocked}
             />
           </div>
 

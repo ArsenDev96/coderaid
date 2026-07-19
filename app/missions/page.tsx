@@ -6,7 +6,7 @@ import { MissionsNextAction } from "@/components/missions/MissionsNextAction";
 export const metadata = {
   title: "Missions — CodeRaid",
   description:
-    "Choose your next engineering challenge and level up through real backend missions.",
+    "Debug real Node.js backend incidents: async behaviour, API services and workers under load.",
 };
 
 export default function MissionsPage() {

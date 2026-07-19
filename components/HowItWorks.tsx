@@ -22,7 +22,8 @@ export function HowItWorks() {
             How <span className="text-gradient">CodeRaid</span> Works
           </h2>
           <p className="text-sm text-slate-400 sm:text-base">
-            A gameplay loop designed to build real engineering skills.
+            A gameplay loop built around debugging real Node.js backend
+            failures.
           </p>
         </div>
 

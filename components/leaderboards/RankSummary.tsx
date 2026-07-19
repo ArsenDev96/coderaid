@@ -1,7 +1,15 @@
-import { Minus, TrendingDown, TrendingUp } from "lucide-react";
-import { formatXp, type LeaderboardPeriod, type LeaderboardScope, getRankSummary } from "@/lib/leaderboards";
+"use client";
 
-/** Compact "where do I stand" panel: rank, percentile, period XP, movement. */
+import { formatXp, type LeaderboardPeriod, type LeaderboardScope, getRankSummary } from "@/lib/leaderboards";
+import { useCurrentPlayerEntry } from "./useLeaderboardIdentity";
+
+/**
+ * Compact "where do I stand" panel: rank, percentile, period XP and incidents.
+ *
+ * Every figure is the player's own, computed from their ledger and their real
+ * position in the standings. There is deliberately no rank-movement arrow —
+ * nothing records last week's rank, so it could only ever be decoration.
+ */
 export function RankSummary({
   scope,
   period,
@@ -9,7 +17,8 @@ export function RankSummary({
   scope: LeaderboardScope;
   period: LeaderboardPeriod;
 }) {
-  const summary = getRankSummary(scope, period);
+  const me = useCurrentPlayerEntry();
+  const summary = getRankSummary(scope, period, me);
 
   if (!summary) {
     return (
@@ -23,7 +32,7 @@ export function RankSummary({
     );
   }
 
-  const { rank, percentile, xp, rankChange, periodLabel } = summary;
+  const { rank, percentile, xp, missions, periodLabel } = summary;
 
   return (
     <section className="surface p-5">
@@ -53,7 +62,7 @@ export function RankSummary({
         </div>
         <p className="mt-3 text-xs text-slate-400">
           Top <span className="font-semibold text-violet-300">{percentile}%</span>{" "}
-          of developers
+          of Node.js developers
         </p>
       </div>
 
@@ -65,37 +74,12 @@ export function RankSummary({
           </div>
         </div>
         <div>
-          <div className="text-xs text-slate-500">Rank Change</div>
-          <RankChange value={rankChange} />
+          <div className="text-xs text-slate-500">Incidents {periodLabel}</div>
+          <div className="mt-0.5 font-mono text-base font-bold text-emerald-300">
+            {missions}
+          </div>
         </div>
       </div>
     </section>
-  );
-}
-
-function RankChange({ value }: { value: number }) {
-  if (value === 0) {
-    return (
-      <div className="mt-0.5 flex items-center gap-1 text-base font-bold text-slate-400">
-        <Minus className="h-4 w-4" strokeWidth={2.4} />
-        <span className="sr-only">No change</span>
-        <span aria-hidden>0</span>
-      </div>
-    );
-  }
-
-  const up = value > 0;
-  const Icon = up ? TrendingUp : TrendingDown;
-
-  return (
-    <div
-      className={`mt-0.5 flex items-center gap-1 text-base font-bold ${
-        up ? "text-emerald-300" : "text-rose-300"
-      }`}
-    >
-      <Icon className="h-4 w-4" strokeWidth={2.4} />
-      <span className="sr-only">{up ? "Up" : "Down"}</span>
-      <span aria-hidden>{Math.abs(value)}</span>
-    </div>
   );
 }

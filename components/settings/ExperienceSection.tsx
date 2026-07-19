@@ -74,7 +74,7 @@ export function ExperienceSection() {
       <SettingRow
         icon={Globe}
         title="Default language"
-        description="Preferred language for code challenges."
+        description="Preferred language for Node.js mission code."
         htmlFor="language"
       >
         <SelectField

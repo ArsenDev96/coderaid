@@ -3,21 +3,27 @@
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { Check, RotateCcw, ShieldCheck } from "lucide-react";
+import { useProgress } from "@/components/progress/ProgressProvider";
 import { resetMissionProgress } from "@/lib/settings";
 import { ResetProgressDialog } from "./ResetProgressDialog";
 import { SectionCard } from "./SectionCard";
 
 export function ProgressSection() {
   const router = useRouter();
+  const { refresh } = useProgress();
   const [confirming, setConfirming] = useState(false);
   const [done, setDone] = useState(false);
 
   function reset() {
+    // Clears the progression ledger and every mission's saved run along with
+    // it — the sweep covers the whole `coderaid:` namespace except the profile
+    // and preferences.
     resetMissionProgress();
     setConfirming(false);
     setDone(true);
-    // Other pages read this progress on render; refresh so nothing downstream
-    // keeps showing a mission as resumable after it's been cleared.
+    // Re-read storage so the XP, level, rank, skills and mission states held in
+    // the provider drop back to zero immediately, in this tab and every other.
+    refresh();
     router.refresh();
   }
 

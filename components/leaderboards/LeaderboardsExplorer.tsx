@@ -20,7 +20,7 @@ import { LeaderboardPodium } from "./LeaderboardPodium";
 import { LeaderboardTable } from "./LeaderboardTable";
 import { LeaderboardTabs } from "./LeaderboardTabs";
 import { RankSummary } from "./RankSummary";
-import { useIdentifiedPlayers } from "./useLeaderboardIdentity";
+import { useCurrentPlayerEntry } from "./useLeaderboardIdentity";
 
 function activeFilterCount(f: LeaderboardFilters): number {
   return [f.category, f.difficulty, f.playerScope].filter((v) => v !== "all")
@@ -33,13 +33,16 @@ export function LeaderboardsExplorer() {
   const [filters, setFilters] = useState<LeaderboardFilters>(DEFAULT_FILTERS);
   const [drawerOpen, setDrawerOpen] = useState(false);
 
+  // The player's own row, ranked against the roster with their real numbers.
+  const me = useCurrentPlayerEntry();
+
   const { podium, rows, total } = useMemo(
-    () => getLeaderboard(scope, period, filters),
-    [scope, period, filters],
+    () => getLeaderboard(scope, period, filters, me),
+    [scope, period, filters, me],
   );
 
-  const identifiedPodium = useIdentifiedPlayers(podium);
-  const identifiedRows = useIdentifiedPlayers(rows);
+  const identifiedPodium = podium;
+  const identifiedRows = rows;
   const filterCount = activeFilterCount(filters);
   const scopeLabel = SCOPES.find((s) => s.id === scope)!.label;
 

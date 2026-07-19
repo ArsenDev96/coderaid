@@ -2,16 +2,19 @@
 
 import Link from "next/link";
 import { ArrowUpRight, CircleCheckBig } from "lucide-react";
+import { useProgress } from "@/components/progress/ProgressProvider";
 import {
-  RECENT_ACHIEVEMENTS,
   levelLabel,
+  recentSkillActivity,
   recommendedMission,
   skillsToImprove,
 } from "@/lib/skills";
 import { SkillRadar } from "./SkillRadar";
 
 export function SkillsAside() {
-  const improve = skillsToImprove(4);
+  const { ledger, view } = useProgress();
+  const improve = skillsToImprove(ledger, view, 4);
+  const activity = recentSkillActivity(ledger, 3);
 
   return (
     <div className="flex flex-col gap-4">
@@ -22,8 +25,9 @@ export function SkillsAside() {
         <h3 className="text-sm font-semibold text-white">Skills to Improve</h3>
         <ul className="mt-4 flex flex-col gap-4">
           {improve.map((skill, i) => {
-            const mission = recommendedMission(skill);
-            const href = mission ? `/missions/${mission.id}/briefing` : "/missions";
+            // Undefined when nothing playable trains this skill yet — the row
+            // then simply carries no practice action.
+            const mission = recommendedMission(skill, view);
             return (
               <li key={skill.id} className="flex items-center gap-3">
                 <span className="grid h-7 w-7 shrink-0 place-items-center rounded-full border border-violet-400/25 bg-violet-500/10 text-xs font-bold text-violet-300">
@@ -46,24 +50,39 @@ export function SkillsAside() {
                     />
                   </div>
                 </div>
-                <Link
-                  href={href}
-                  aria-label={`Practice ${skill.name}`}
-                  className="grid h-8 w-8 shrink-0 place-items-center rounded-lg border border-violet-400/30 bg-violet-500/10 text-violet-300 transition-colors hover:bg-violet-500/20"
-                >
-                  <ArrowUpRight className="h-4 w-4" />
-                </Link>
+                {mission ? (
+                  <Link
+                    href={`/missions/${mission.id}/briefing`}
+                    aria-label={`Practice ${skill.name}`}
+                    className="grid h-8 w-8 shrink-0 place-items-center rounded-lg border border-violet-400/30 bg-violet-500/10 text-violet-300 transition-colors hover:bg-violet-500/20"
+                  >
+                    <ArrowUpRight className="h-4 w-4" />
+                  </Link>
+                ) : (
+                  <span
+                    aria-disabled="true"
+                    title="Practice missions for this skill are being prepared."
+                    className="grid h-8 w-8 shrink-0 place-items-center rounded-lg border border-white/10 bg-white/[0.03] text-slate-500"
+                  >
+                    <ArrowUpRight className="h-4 w-4" aria-hidden="true" />
+                  </span>
+                )}
               </li>
             );
           })}
         </ul>
       </section>
 
-      {/* Recent Achievements */}
+      {/* Recent activity — real completions, newest first */}
       <section className="surface p-5">
-        <h3 className="text-sm font-semibold text-white">Recent Achievements</h3>
+        <h3 className="text-sm font-semibold text-white">Recent Activity</h3>
+        {activity.length === 0 && (
+          <p className="mt-3 text-xs leading-relaxed text-slate-500">
+            Nothing yet. Resolve an incident and your skill gains show up here.
+          </p>
+        )}
         <ul className="mt-4 flex flex-col gap-3.5">
-          {RECENT_ACHIEVEMENTS.map((a) => {
+          {activity.map((a) => {
             const Icon = a.icon;
             return (
               <li key={a.id} className="flex items-center gap-3">

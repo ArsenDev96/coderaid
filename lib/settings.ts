@@ -50,10 +50,14 @@ export const EDITOR_THEME_OPTIONS: {
   { id: "solarized", label: "Solarized", swatch: "bg-amber-400" },
 ];
 
+/**
+ * The languages mission code is actually presented in. SQL is deliberately not
+ * here: database content is a future track, so offering it would promise a
+ * language no mission is written in today.
+ */
 export const LANGUAGE_OPTIONS: { id: string; label: string }[] = [
   { id: "typescript", label: "TypeScript" },
   { id: "javascript", label: "JavaScript" },
-  { id: "sql", label: "SQL" },
 ];
 
 /* ----------------------------- Persistence ------------------------------ */

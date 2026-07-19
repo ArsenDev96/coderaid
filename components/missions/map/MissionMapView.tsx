@@ -2,18 +2,27 @@
 
 import { useState } from "react";
 import Link from "next/link";
-import { Check, Circle, Lock, Trophy } from "lucide-react";
+import { Check, Circle, Hammer, Lock, Trophy } from "lucide-react";
 import {
   CHAPTERS,
-  CURRENT_MISSION_ID,
+  FUTURE_CHAPTERS,
   MISSIONS,
-  chapterProgress,
-  chapterState,
+  NODE_CHAPTERS,
+  NODE_MISSIONS,
   missionsForChapter,
-  nextUnlockHint,
-  type ChapterState,
+  type Chapter,
   type Mission,
 } from "@/lib/missions";
+import {
+  chapterProgress,
+  chapterState,
+  missionAvailability,
+  playableSummary,
+  recommendedMission,
+  type ChapterState,
+} from "@/lib/availability";
+import { useProgress } from "@/components/progress/ProgressProvider";
+import { AvailabilityBadge, AvailabilityNote } from "@/components/ui/AvailabilityBadge";
 import { MissionDetailsPanel } from "./MissionDetailsPanel";
 import { useMissionResume } from "./useMissionResume";
 
@@ -38,7 +47,7 @@ function SpineNode({ state, last }: { state: ChapterState; last: boolean }) {
       >
         {state === "complete" ? (
           <Check className="h-4 w-4" strokeWidth={3} />
-        ) : state === "locked" ? (
+        ) : state === "locked" || state === "coming-soon" ? (
           <Lock className="h-3.5 w-3.5" />
         ) : (
           <span className="h-2.5 w-2.5 rounded-full bg-violet-300" />
@@ -62,8 +71,10 @@ function SpineNode({ state, last }: { state: ChapterState; last: boolean }) {
 function ChapterCard({ chapterId }: { chapterId: number }) {
   const chapter = CHAPTERS.find((c) => c.id === chapterId)!;
   const Icon = chapter.icon;
-  const state = chapterState(chapterId);
-  const { done, total } = chapterProgress(chapterId);
+  const { view } = useProgress();
+  const state = chapterState(chapterId, view);
+  const { done, total } = chapterProgress(chapterId, view);
+  const dimmed = state === "locked" || state === "coming-soon";
 
   const accent =
     state === "complete"
@@ -75,13 +86,13 @@ function ChapterCard({ chapterId }: { chapterId: number }) {
   return (
     <div
       className={`rounded-xl border border-white/[0.06] border-l-2 bg-white/[0.02] p-4 ${accent} ${
-        state === "locked" ? "opacity-70" : ""
+        dimmed ? "opacity-70" : ""
       }`}
     >
       <div className="flex items-center gap-2">
         <span
           className={`grid h-8 w-8 shrink-0 place-items-center rounded-lg border ${
-            state === "locked"
+            dimmed
               ? "border-white/10 bg-white/[0.02] text-slate-600"
               : "border-violet-400/30 bg-violet-500/10 text-violet-300"
           }`}
@@ -99,8 +110,12 @@ function ChapterCard({ chapterId }: { chapterId: number }) {
 
       <h3 className="mt-2 text-sm font-bold text-white">{chapter.name}</h3>
 
+      {state === "coming-soon" && (
+        <AvailabilityBadge status="coming-soon" className="mt-2" />
+      )}
+
       <div className="mt-2 text-xs leading-relaxed text-slate-500">
-        {CHAPTER_BLURB[chapter.id] ?? "Level up your engineering skills."}
+        {chapter.description}
       </div>
 
       <div
@@ -112,35 +127,15 @@ function ChapterCard({ chapterId }: { chapterId: number }) {
               : "text-slate-500"
         }`}
       >
-        {done} / {total} completed
+        {state === "coming-soon"
+          ? "Not counted toward progress"
+          : `${done} / ${total} completed`}
       </div>
     </div>
   );
 }
 
-const CHAPTER_BLURB: Record<number, string> = {
-  1: "Master the fundamentals of JavaScript and solve real bugs.",
-  2: "Handle async work, concurrency, and background jobs.",
-  3: "Build resilient services and design reliable APIs.",
-  4: "Tune queries, indexes, and database performance.",
-  5: "Scale services and design resilient architectures.",
-};
-
 /* ------------------------------ Mission row ----------------------------- */
-
-function StatusEnd({ mission }: { mission: Mission }) {
-  if (mission.status === "completed")
-    return (
-      <span className="grid h-6 w-6 shrink-0 place-items-center rounded-full border border-emerald-400/40 bg-emerald-500/15 text-emerald-300">
-        <Check className="h-3.5 w-3.5" strokeWidth={3} />
-      </span>
-    );
-  if (mission.status === "available")
-    return <span className="shrink-0 text-xs font-medium text-electric-300">Available</span>;
-  if (mission.status === "locked")
-    return <span className="shrink-0 text-xs font-medium text-slate-500">Locked</span>;
-  return null;
-}
 
 function MissionMapRow({
   mission,
@@ -153,8 +148,10 @@ function MissionMapRow({
   selected: boolean;
   onSelect: () => void;
 }) {
-  const isCurrent = mission.status === "current";
-  const locked = mission.status === "locked";
+  const { view } = useProgress();
+  const availability = missionAvailability(mission, view);
+  const isCurrent = availability === "current";
+  const muted = availability === "locked" || availability === "coming-soon";
   const resume = useMissionResume(mission.id);
 
   return (
@@ -175,13 +172,14 @@ function MissionMapRow({
         <span className="grid h-6 w-6 shrink-0 place-items-center rounded-full border border-violet-400/50 bg-violet-500/20 text-violet-200">
           <span className="h-2 w-2 rounded-full bg-violet-300" />
         </span>
-      ) : mission.status === "completed" ? (
+      ) : availability === "completed" ? (
         <span className="grid h-6 w-6 shrink-0 place-items-center rounded-full border border-emerald-400/40 bg-emerald-500/15 text-emerald-300">
           <Check className="h-3.5 w-3.5" strokeWidth={3} />
-          <span className="sr-only">Completed</span>
         </span>
-      ) : locked ? (
+      ) : availability === "locked" || availability === "coming-soon" ? (
         <Lock className="h-4 w-4 shrink-0 text-slate-600" />
+      ) : availability === "in-development" ? (
+        <Hammer className="h-4 w-4 shrink-0 text-amber-300/70" />
       ) : (
         <Circle className="h-5 w-5 shrink-0 text-slate-600" />
       )}
@@ -191,7 +189,7 @@ function MissionMapRow({
       <span className="min-w-0 flex-1">
         <span
           className={`block truncate text-sm ${
-            locked ? "text-slate-500" : "text-slate-100"
+            muted ? "text-slate-500" : "text-slate-100"
           }`}
         >
           {mission.title}
@@ -203,6 +201,7 @@ function MissionMapRow({
         )}
       </span>
 
+      {/* Only a mission with authored content offers a link out of the row. */}
       {isCurrent ? (
         <Link
           href={resume.href}
@@ -212,9 +211,50 @@ function MissionMapRow({
           Continue
         </Link>
       ) : (
-        <StatusEnd mission={mission} />
+        <AvailabilityBadge status={availability} className="shrink-0" />
       )}
     </button>
+  );
+}
+
+/* ------------------------------ Chapter lane ---------------------------- */
+
+function ChapterLane({
+  chapter,
+  last,
+  selectedId,
+  onSelect,
+}: {
+  chapter: Chapter;
+  last: boolean;
+  selectedId: string;
+  onSelect: (id: string) => void;
+}) {
+  const { view } = useProgress();
+  const rows = missionsForChapter(chapter.id);
+  const state = chapterState(chapter.id, view);
+
+  return (
+    <div className="grid grid-cols-1 gap-4 lg:grid-cols-[15rem_auto_minmax(0,1fr)]">
+      <ChapterCard chapterId={chapter.id} />
+
+      {/* spine (desktop only) */}
+      <div className="hidden lg:block">
+        <SpineNode state={state} last={last} />
+      </div>
+
+      <div className="flex min-w-0 flex-col gap-2">
+        {rows.map((mission, mi) => (
+          <MissionMapRow
+            key={mission.id}
+            mission={mission}
+            number={`${chapter.id}.${mi + 1}`}
+            selected={mission.id === selectedId}
+            onSelect={() => onSelect(mission.id)}
+          />
+        ))}
+      </div>
+    </div>
   );
 }
 
@@ -225,13 +265,17 @@ export function MissionMapView({
 }: {
   initialMissionId?: string;
 }) {
-  const [selectedId, setSelectedId] = useState(() =>
-    initialMissionId && MISSIONS_BY_ID[initialMissionId]
-      ? initialMissionId
-      : CURRENT_MISSION_ID,
+  // Default to something the player can actually open, never a roadmap entry.
+  const [selectedId, setSelectedId] = useState(
+    () =>
+      (initialMissionId && MISSIONS_BY_ID[initialMissionId]
+        ? initialMissionId
+        : recommendedMission()?.id) ??
+      NODE_MISSIONS[0]?.id ??
+      "",
   );
   const selected = MISSIONS_BY_ID[selectedId] ?? null;
-  const unlock = nextUnlockHint();
+  const summary = playableSummary();
 
   // Keep the selection deep-linkable (?mission=…) without a full navigation, so
   // a reload or shared link restores the same mission.
@@ -248,58 +292,70 @@ export function MissionMapView({
       {/* Map board */}
       <div className="min-w-0">
         <div className="surface p-5 sm:p-6">
-          <h2 className="text-lg font-bold text-white">Mission Map</h2>
+          <h2 className="text-lg font-bold text-white">Node.js Mission Map</h2>
           <p className="mt-1 text-sm text-slate-400">
-            Complete missions to unlock new challenges and advance your skills.
+            Three Node.js chapters: async behaviour, API services, and workers
+            under load.
           </p>
 
           <div className="mt-6 flex flex-col gap-10">
-            {CHAPTERS.map((chapter, ci) => {
-              const rows = missionsForChapter(chapter.id);
-              const state = chapterState(chapter.id);
-              return (
-                <div
-                  key={chapter.id}
-                  className="grid grid-cols-1 gap-4 lg:grid-cols-[15rem_auto_minmax(0,1fr)]"
-                >
-                  <ChapterCard chapterId={chapter.id} />
-
-                  {/* spine (desktop only) */}
-                  <div className="hidden lg:block">
-                    <SpineNode state={state} last={ci === CHAPTERS.length - 1} />
-                  </div>
-
-                  <div className="flex min-w-0 flex-col gap-2">
-                    {rows.map((mission, mi) => (
-                      <MissionMapRow
-                        key={mission.id}
-                        mission={mission}
-                        number={`${chapter.id}.${mi + 1}`}
-                        selected={mission.id === selectedId}
-                        onSelect={() => select(mission.id)}
-                      />
-                    ))}
-                  </div>
-                </div>
-              );
-            })}
+            {NODE_CHAPTERS.map((chapter, ci) => (
+              <ChapterLane
+                key={chapter.id}
+                chapter={chapter}
+                last={ci === NODE_CHAPTERS.length - 1}
+                selectedId={selectedId}
+                onSelect={select}
+              />
+            ))}
           </div>
         </div>
 
-        {/* Unlock hint */}
-        {unlock && unlock.remaining > 0 && (
+        {/* Roadmap — separated, visibly locked, never counted toward progress */}
+        {FUTURE_CHAPTERS.length > 0 && (
+          <section
+            aria-labelledby="map-coming-soon"
+            className="surface mt-6 p-5 opacity-90 sm:p-6"
+          >
+            <div className="flex flex-wrap items-center gap-3">
+              <h2
+                id="map-coming-soon"
+                className="text-lg font-bold text-white"
+              >
+                Coming Soon
+              </h2>
+              <AvailabilityBadge status="coming-soon" size="md" />
+            </div>
+            <AvailabilityNote status="coming-soon" className="mt-1.5" />
+
+            <div className="mt-6 flex flex-col gap-10">
+              {FUTURE_CHAPTERS.map((chapter, ci) => (
+                <ChapterLane
+                  key={chapter.id}
+                  chapter={chapter}
+                  last={ci === FUTURE_CHAPTERS.length - 1}
+                  selectedId={selectedId}
+                  onSelect={select}
+                />
+              ))}
+            </div>
+          </section>
+        )}
+
+        {/* Build status — honest about how much is playable today */}
+        {summary.inDevelopment > 0 && (
           <div className="surface mt-6 flex items-start gap-4 p-5">
             <span className="grid h-12 w-12 shrink-0 place-items-center rounded-2xl border border-violet-400/30 bg-violet-500/10 text-violet-300">
               <Trophy className="h-6 w-6" strokeWidth={1.7} />
             </span>
             <div className="min-w-0">
               <p className="text-sm font-semibold text-white">
-                Complete {unlock.remaining} more{" "}
-                {unlock.remaining === 1 ? "mission" : "missions"} in{" "}
-                {unlock.fromChapter.name} to unlock {unlock.lockedChapter.name}
+                {summary.playable} of {summary.total} Node.js missions are
+                playable end to end today.
               </p>
               <p className="mt-1 text-xs text-slate-400">
-                Keep going! You&apos;re building real-world engineering skills.
+                {summary.inDevelopment} more Node.js incidents are currently
+                being prepared.
               </p>
             </div>
           </div>

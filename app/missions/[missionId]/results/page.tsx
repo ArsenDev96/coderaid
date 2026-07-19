@@ -5,7 +5,7 @@ import { ArrowLeft, Trophy } from "lucide-react";
 import { DashboardShell } from "@/components/dashboard/DashboardShell";
 import { ResultsWorkspace } from "@/components/missions/results/ResultsWorkspace";
 import { RESULT_MISSION_IDS, getResult } from "@/lib/results";
-import { MISSIONS, getMission, nextMissionId } from "@/lib/missions";
+import { MISSIONS, getMission } from "@/lib/missions";
 
 type Params = { params: { missionId: string } };
 
@@ -88,18 +88,11 @@ export default function ResultsPage({ params }: Params) {
     );
   }
 
-  // Next available mission: config override wins, otherwise derive from status.
-  const nextId = result.nextMissionId ?? nextMissionId(mission.id);
-  const nextHref = nextId ? `/missions/${nextId}/briefing` : "/missions";
-
+  // Grading, crediting and the "what's next" link all depend on what this
+  // player actually did, so they resolve in the workspace after hydration.
   return (
     <DashboardShell active="Missions">
-      <ResultsWorkspace
-        config={result}
-        missionTitle={mission.title}
-        difficulty={mission.difficulty}
-        nextHref={nextHref}
-      />
+      <ResultsWorkspace mission={mission} config={result} />
     </DashboardShell>
   );
 }

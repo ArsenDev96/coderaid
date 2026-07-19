@@ -4,7 +4,7 @@ import { LeaderboardsExplorer } from "@/components/leaderboards/LeaderboardsExpl
 export const metadata = {
   title: "Leaderboards — CodeRaid",
   description:
-    "Compare your progress with other developers and see where you rank.",
+    "Compare your Node.js debugging progress with other backend developers and see where you rank.",
 };
 
 export default function LeaderboardsPage() {
@@ -15,7 +15,7 @@ export default function LeaderboardsPage() {
           Leaderboards
         </h1>
         <p className="mt-1.5 text-sm text-slate-400 sm:text-base">
-          Compete with developers and climb the ranks.
+          Compete with backend developers and climb the Node.js ranks.
         </p>
       </div>
 

@@ -1,8 +1,7 @@
 "use client";
 
-import { useEffect, useState } from "react";
-import { AVATARS, loadDraft, type Avatar } from "@/lib/onboarding";
-import { DEMO_PLAYER } from "@/lib/dashboard";
+import { useProgress } from "@/components/progress/ProgressProvider";
+import type { Avatar } from "@/lib/onboarding";
 
 type PlayerIdentity = {
   name: string;
@@ -10,31 +9,14 @@ type PlayerIdentity = {
   avatar: Avatar;
 };
 
-const DEFAULT_AVATAR = AVATARS[0];
-
 /**
- * Reads the engineer identity created during onboarding from localStorage.
- * Falls back to the demo player so the dashboard is populated on first visit.
- * Runs after mount to avoid hydration mismatches.
+ * The engineer identity created during onboarding.
+ *
+ * A thin read over the progress provider, which owns hydration for both the
+ * identity and the progression ledger — so a component can't end up showing a
+ * name from one source and XP from another.
  */
 export function usePlayer(): PlayerIdentity {
-  const [identity, setIdentity] = useState<PlayerIdentity>({
-    name: DEMO_PLAYER.name,
-    slogan: "Code. Debug. Deploy. Repeat.",
-    avatar: DEFAULT_AVATAR,
-  });
-
-  useEffect(() => {
-    const draft = loadDraft();
-    if (!draft) return;
-    const avatar =
-      AVATARS.find((a) => a.id === draft.avatarId) ?? DEFAULT_AVATAR;
-    setIdentity({
-      name: draft.name.trim() || DEMO_PLAYER.name,
-      slogan: draft.slogan,
-      avatar,
-    });
-  }, []);
-
-  return identity;
+  const { player, slogan, avatar } = useProgress();
+  return { name: player.name, slogan, avatar };
 }

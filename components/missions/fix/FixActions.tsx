@@ -3,6 +3,7 @@
 import { useState } from "react";
 import Link from "next/link";
 import { ArrowLeft, ArrowRight, Lightbulb } from "lucide-react";
+import { recordHint } from "@/lib/run";
 
 /**
  * The way out of the fix stage. Stays reachable on stacked layouts, where the
@@ -21,6 +22,15 @@ export function FixActions({
 }) {
   const [hintOpen, setHintOpen] = useState(false);
 
+  // Opening a hint costs score, so it has to be recorded the first time it is
+  // opened — closing and re-opening the same hint is not a second cost.
+  const toggleHint = () => {
+    setHintOpen((open) => {
+      if (!open) recordHint(missionId, "fix");
+      return !open;
+    });
+  };
+
   return (
     <div className="max-lg:sticky max-lg:bottom-3 max-lg:z-20">
       <div className="rounded-2xl border border-white/[0.06] bg-base-900/90 p-4 backdrop-blur sm:p-5">
@@ -37,7 +47,7 @@ export function FixActions({
           {/* Hint */}
           <button
             type="button"
-            onClick={() => setHintOpen((v) => !v)}
+            onClick={toggleHint}
             aria-expanded={hintOpen}
             aria-controls="fix-hint"
             className={`inline-flex items-center justify-center gap-2 rounded-xl border px-4 py-2.5 text-sm font-semibold transition-colors ${

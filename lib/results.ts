@@ -9,57 +9,66 @@ export type MissionResultMetric = {
   spark?: { before: number[]; after: number[]; yMax: number };
 };
 
+/**
+ * Authored results *narrative* for a mission.
+ *
+ * Deliberately carries no score, time, step count or status: those describe a
+ * run, not a mission, and are produced by the grading engine from what the
+ * player actually did. What is authored here is the story — what the incident
+ * was, what the correct fix changed, and what there was to learn.
+ */
 export type MissionResultConfig = {
   missionId: string;
-  score: number;
-  xpEarned: number;
-  timeTaken: string;
-  stepsCompleted: number;
-  totalSteps: number;
-  status: "resolved" | "failed";
-  /** One-line completion headline. */
-  summary: string;
-  /** Short recap shown beside the mission title. */
-  missionBlurb: string;
+  /** Copy for a run that resolved the incident. */
+  resolved: ResultNarrative;
+  /** Copy for a run that did not. Reuses the resolved metrics as a target. */
+  unresolved: ResultNarrative;
   fix: {
     problem: string;
     solution: string;
     code: string;
     note: string;
   };
+  /** Before/after impact of the *correct* fix. Only shown once resolved. */
   metrics: MissionResultMetric[];
   lessons: string[];
   skillImprovement: {
-    skill: string;
-    increase: number;
+    /** Stable skill id from `lib/skills.ts` — not a display name. */
+    skillId: string;
     description: string;
   };
-  encouragement: string;
   /** Overrides the derived "next available mission". */
   nextMissionId?: string;
 };
 
-export type ResultsState = {
-  claimed: boolean;
-  /** Snapshot captured at claim time so the display is stable across refresh. */
-  skillBefore: number;
-  skillAfter: number;
+export type ResultNarrative = {
+  /** One-line completion headline. */
+  summary: string;
+  /** Short recap shown beside the mission title. */
+  missionBlurb: string;
+  encouragement: string;
 };
 
 /* ------------------------------- Content -------------------------------- */
 
 const SIGNUP_LATENCY_RESULT: MissionResultConfig = {
   missionId: "user-signup-latency-spike",
-  score: 92,
-  xpEarned: 140,
-  timeTaken: "14m 32s",
-  stepsCompleted: 5,
-  totalSteps: 5,
-  status: "resolved",
-  summary:
-    "You successfully resolved the issue and improved the system performance.",
-  missionBlurb:
-    "New user registrations were taking several seconds to complete. You identified the root cause, implemented the correct fix, and restored normal response times.",
+
+  resolved: {
+    summary:
+      "You resolved the incident and restored signup performance.",
+    missionBlurb:
+      "New user registrations were taking several seconds to complete. You identified the root cause, implemented the correct fix, and restored normal response times.",
+    encouragement: "Keep going! You're building real incident response skills.",
+  },
+
+  unresolved: {
+    summary: "The incident is still open — signup latency has not recovered.",
+    missionBlurb:
+      "New user registrations were taking several seconds to complete. The change you applied didn't remove the slow operation from the request path, so the latency is unchanged.",
+    encouragement:
+      "Re-read the trace: the step that dominates the request is the one to move off it. You can run this incident again.",
+  },
 
   fix: {
     problem:
@@ -115,13 +124,10 @@ await emailQueue.add("welcome-email", {
   ],
 
   skillImprovement: {
-    skill: "Backend Performance",
-    increase: 1,
+    skillId: "request-performance",
     description:
       "You improved your ability to find and fix performance issues in backend systems.",
   },
-
-  encouragement: "Keep going! You're building real incident response skills.",
 };
 
 /* ------------------------------- Registry ------------------------------- */
@@ -141,131 +147,55 @@ export function getResult(missionId: string): MissionResultConfig | undefined {
 
 export const RESULT_MISSION_IDS = Object.keys(resultsConfigs);
 
-/* ------------------------- Player progress (ledger) --------------------- */
+/* ------------------------------ Claiming -------------------------------- */
 
 /**
- * Total skill points before any mission rewards. Mission skill increases
- * accumulate on top of this, so "24 → 25" stays correct as missions are cleared.
+ * Per-mission claim marker. The ledger itself is idempotent, but this keeps the
+ * results screen from re-running the credit path on every refresh.
  */
-export const SKILL_POINTS_BASELINE = 24;
-
-const PLAYER_PROGRESS_KEY = "coderaid:player:progress";
-
-type PlayerProgress = {
-  xpFromMissions: number;
-  skillPoints: number;
-  claimedMissions: string[];
+export type ResultsState = {
+  claimed: boolean;
+  /** The graded score that was credited, for a stable display across refresh. */
+  score: number;
 };
-
-function defaultProgress(): PlayerProgress {
-  return {
-    xpFromMissions: 0,
-    skillPoints: SKILL_POINTS_BASELINE,
-    claimedMissions: [],
-  };
-}
-
-function loadProgress(): PlayerProgress {
-  if (typeof window === "undefined") return defaultProgress();
-  try {
-    const raw = window.localStorage.getItem(PLAYER_PROGRESS_KEY);
-    if (!raw) return defaultProgress();
-    const parsed = JSON.parse(raw) as Partial<PlayerProgress>;
-    return {
-      xpFromMissions:
-        typeof parsed.xpFromMissions === "number" ? parsed.xpFromMissions : 0,
-      skillPoints:
-        typeof parsed.skillPoints === "number"
-          ? parsed.skillPoints
-          : SKILL_POINTS_BASELINE,
-      claimedMissions: Array.isArray(parsed.claimedMissions)
-        ? parsed.claimedMissions.filter((id): id is string => typeof id === "string")
-        : [],
-    };
-  } catch {
-    return defaultProgress();
-  }
-}
 
 export function resultsStorageKey(missionId: string): string {
   return `coderaid:${missionId}:results`;
 }
 
-/**
- * Read-only view of the reward ledger's claimed missions. Derived views (the
- * Achievements page) read progress through this rather than keeping a second
- * tally of what the player has finished. Empty during SSR — callers that need
- * it must read after mount.
- */
-export function claimedMissionIds(): string[] {
-  return loadProgress().claimedMissions;
+export function loadResultsState(missionId: string): ResultsState | null {
+  if (typeof window === "undefined") return null;
+  try {
+    const raw = window.localStorage.getItem(resultsStorageKey(missionId));
+    if (!raw) return null;
+    const parsed = JSON.parse(raw) as Partial<ResultsState>;
+    if (parsed.claimed !== true) return null;
+    return {
+      claimed: true,
+      score: typeof parsed.score === "number" ? parsed.score : 0,
+    };
+  } catch {
+    return null;
+  }
 }
 
-/**
- * Credits the mission's XP and skill points exactly once, then returns the
- * before/after skill totals to display. Idempotent: the global ledger's claimed
- * set and the per-mission snapshot both guard against a refresh re-applying the
- * reward.
- */
-export function claimMissionRewards(config: MissionResultConfig): ResultsState {
-  if (typeof window === "undefined") {
-    return {
-      claimed: false,
-      skillBefore: SKILL_POINTS_BASELINE,
-      skillAfter: SKILL_POINTS_BASELINE + config.skillImprovement.increase,
-    };
-  }
-
-  // Already claimed on a previous visit — return the stored snapshot untouched.
-  try {
-    const existing = window.localStorage.getItem(resultsStorageKey(config.missionId));
-    if (existing) {
-      const parsed = JSON.parse(existing) as Partial<ResultsState>;
-      if (parsed.claimed) {
-        return {
-          claimed: true,
-          skillBefore: parsed.skillBefore ?? SKILL_POINTS_BASELINE,
-          skillAfter:
-            parsed.skillAfter ??
-            SKILL_POINTS_BASELINE + config.skillImprovement.increase,
-        };
-      }
-    }
-  } catch {
-    /* fall through and re-derive */
-  }
-
-  const progress = loadProgress();
-  const increase = config.skillImprovement.increase;
-
-  let skillBefore: number;
-  let skillAfter: number;
-
-  if (progress.claimedMissions.includes(config.missionId)) {
-    // Ledger already counted it (per-mission snapshot was lost) — don't re-add.
-    skillAfter = progress.skillPoints;
-    skillBefore = skillAfter - increase;
-  } else {
-    skillBefore = progress.skillPoints;
-    skillAfter = skillBefore + increase;
-    progress.skillPoints = skillAfter;
-    progress.xpFromMissions += config.xpEarned;
-    progress.claimedMissions.push(config.missionId);
-    try {
-      window.localStorage.setItem(PLAYER_PROGRESS_KEY, JSON.stringify(progress));
-    } catch {
-      /* ignore quota / privacy-mode errors */
-    }
-  }
-
-  const state: ResultsState = { claimed: true, skillBefore, skillAfter };
+export function saveResultsState(missionId: string, state: ResultsState): void {
+  if (typeof window === "undefined") return;
   try {
     window.localStorage.setItem(
-      resultsStorageKey(config.missionId),
+      resultsStorageKey(missionId),
       JSON.stringify(state),
     );
   } catch {
     /* ignore quota / privacy-mode errors */
   }
-  return state;
 }
+
+/** The narrative half of the results screen, chosen by the run's verdict. */
+export function narrativeFor(
+  config: MissionResultConfig,
+  resolved: boolean,
+): ResultNarrative {
+  return resolved ? config.resolved : config.unresolved;
+}
+

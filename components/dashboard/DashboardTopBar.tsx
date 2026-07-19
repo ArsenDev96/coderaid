@@ -2,8 +2,7 @@
 
 import type { ReactNode } from "react";
 import { BarChart3, ChevronDown, Flame, Menu, Zap } from "lucide-react";
-import { DEMO_PLAYER } from "@/lib/dashboard";
-import { usePlayer } from "./usePlayer";
+import { useProgress } from "@/components/progress/ProgressProvider";
 
 function StatPill({
   icon,
@@ -36,7 +35,7 @@ export function DashboardTopBar({
   onMenu?: () => void;
   left?: ReactNode;
 }) {
-  const { avatar } = usePlayer();
+  const { avatar, player } = useProgress();
   const AvatarIcon = avatar.icon;
 
   return (
@@ -57,20 +56,20 @@ export function DashboardTopBar({
         <div className="flex shrink-0 items-center gap-2.5">
           <StatPill
             icon={<Flame className="h-4 w-4 text-amber-400" />}
-            value={String(DEMO_PLAYER.streakDays)}
+            value={String(player.streakDays)}
             label="Day Streak"
             tone="border border-amber-400/25 bg-amber-500/10"
           />
           <StatPill
             icon={<Zap className="h-4 w-4 text-amber-300" fill="currentColor" />}
-            value={DEMO_PLAYER.totalXp.toLocaleString("en-US")}
+            value={player.totalXp.toLocaleString("en-US")}
             label="Total XP"
             tone="border border-amber-400/25 bg-amber-500/10"
           />
           <StatPill
             icon={<BarChart3 className="h-4 w-4 text-violet-300" />}
-            value={DEMO_PLAYER.rank}
-            label={`Level ${DEMO_PLAYER.level}`}
+            value={player.rank}
+            label={`Level ${player.level}`}
             tone="border border-violet-400/25 bg-violet-500/10"
           />
 

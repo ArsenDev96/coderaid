@@ -57,10 +57,19 @@ function Sparkline({
   );
 }
 
+/**
+ * Before/after impact of the correct fix.
+ *
+ * On an unresolved run there is no improvement to show — nothing changed — so
+ * the panel reports the target the fix would have hit instead of claiming
+ * numbers the player's change didn't produce.
+ */
 export function PerformanceImprovement({
   metrics,
+  resolved,
 }: {
   metrics: MissionResultMetric[];
+  resolved: boolean;
 }) {
   const [featured, ...rest] = metrics;
 
@@ -68,8 +77,11 @@ export function PerformanceImprovement({
     <section className="flex h-full flex-col rounded-2xl border border-white/[0.06] bg-white/[0.02] p-5 sm:p-6">
       <div className="flex items-center justify-between gap-3">
         <h3 className="flex items-center gap-2 text-sm font-semibold text-white sm:text-base">
-          <LineChart className="h-4 w-4 text-emerald-400" strokeWidth={2.2} />
-          Performance improvement
+          <LineChart
+            className={`h-4 w-4 ${resolved ? "text-emerald-400" : "text-slate-500"}`}
+            strokeWidth={2.2}
+          />
+          {resolved ? "Performance improvement" : "Impact you missed"}
         </h3>
         <span className="flex items-center gap-3 text-[0.68rem] text-slate-400">
           <span className="flex items-center gap-1.5">
@@ -78,7 +90,7 @@ export function PerformanceImprovement({
           </span>
           <span className="flex items-center gap-1.5">
             <span aria-hidden className="h-1.5 w-1.5 rounded-full bg-emerald-400" />
-            After Fix
+            {resolved ? "After Fix" : "Target"}
           </span>
         </span>
       </div>

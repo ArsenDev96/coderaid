@@ -1,3 +1,5 @@
+"use client";
+
 import Link from "next/link";
 import {
   AlertTriangle,
@@ -7,16 +9,36 @@ import {
   Search,
   Target,
 } from "lucide-react";
-import { NEXT_ACTION, RESPONSE_SERIES } from "@/lib/dashboard";
+import { recommendedMission } from "@/lib/availability";
+import { useProgress } from "@/components/progress/ProgressProvider";
+import { nextActionFor, RESPONSE_SERIES } from "@/lib/dashboard";
+import type { Mission } from "@/lib/missions";
+import { useMissionResume } from "@/components/missions/map/useMissionResume";
 
 const TONE: Record<string, string> = {
   comment: "text-slate-500",
   warn: "text-rose-200",
 };
 
+/**
+ * The mission is resolved from `recommendedMission()`, never a hardcoded id, so
+ * this card can only ever point at a Node.js incident that is playable end to
+ * end. When nothing is playable it degrades to an explanatory empty state
+ * rather than a dead CTA.
+ */
 export function NextAction() {
-  const a = NEXT_ACTION;
-  const pct = Math.round((a.step / a.totalSteps) * 100);
+  const { view } = useProgress();
+  const mission = recommendedMission(view);
+  if (!mission) return <NoMissionAvailable />;
+  return <NextActionCard mission={mission} />;
+}
+
+function NextActionCard({ mission }: { mission: Mission }) {
+  const a = nextActionFor(mission);
+  // Saved stage, read after mount by the shared resume hook — same logic the
+  // mission map uses, so the dashboard and the map never disagree.
+  const resume = useMissionResume(mission.id);
+  const pct = Math.round((resume.step / resume.totalSteps) * 100);
 
   return (
     <div className="relative overflow-hidden rounded-2xl border border-violet-400/50 bg-base-900/60 p-5 shadow-neon sm:p-6">
@@ -26,12 +48,14 @@ export function NextAction() {
           <div className="flex items-center gap-2 text-violet-300">
             <Target className="h-4 w-4" strokeWidth={2.2} />
             <span className="text-xs font-semibold uppercase tracking-[0.16em]">
-              Your Next Action
+              {resume.started
+                ? "Continue Your Node.js Mission"
+                : "Start Your Node.js Mission"}
             </span>
           </div>
 
           <h2 className="mt-3 text-3xl font-bold leading-[1.15] tracking-tight text-white sm:text-4xl">
-            Continue: {a.title}
+            {a.title}
           </h2>
           <p className="mt-3 max-w-md text-sm leading-relaxed text-slate-400">
             {a.description}
@@ -41,10 +65,10 @@ export function NextAction() {
           <div className="mt-5 max-w-md">
             <div className="flex items-center gap-2 text-sm">
               <span className="font-semibold text-white">
-                Step {a.step} of {a.totalSteps}
+                Step {resume.step} of {resume.totalSteps}
               </span>
               <span className="text-slate-600">•</span>
-              <span className="text-slate-400">{a.phase}</span>
+              <span className="text-slate-400">{resume.stage}</span>
             </div>
             <div className="mt-2 h-1.5 w-full overflow-hidden rounded-full bg-white/[0.08]">
               <div
@@ -62,7 +86,9 @@ export function NextAction() {
               </span>
               <div className="min-w-0">
                 <div className="text-xs font-medium text-slate-300">
-                  What you&apos;ve found so far:
+                  {resume.started
+                    ? "What you've found so far:"
+                    : "What the incident report says:"}
                 </div>
                 <ul className="mt-1 space-y-0.5">
                   {a.findings.map((f) => (
@@ -78,10 +104,10 @@ export function NextAction() {
           {/* Actions */}
           <div className="mt-5 flex flex-col gap-3 sm:flex-row">
             <Link
-              href={a.href}
+              href={resume.href}
               className="group inline-flex items-center justify-center gap-2 rounded-xl border border-violet-400/40 bg-gradient-to-r from-violet-600 to-violet-500 px-6 py-3.5 text-sm font-semibold text-white shadow-neon transition-transform hover:scale-[1.02]"
             >
-              Continue Mission
+              {resume.started ? "Continue Mission" : "Start Mission"}
               <ArrowRight className="h-4 w-4 transition-transform group-hover:translate-x-0.5" />
             </Link>
             <Link
@@ -171,8 +197,8 @@ export function NextAction() {
                   Clues Found
                 </div>
                 <div className="text-base font-bold text-white">
-                  <span className="text-violet-300">{a.cluesFound}</span> /{" "}
-                  {a.cluesTotal}
+                  <span className="text-violet-300">{resume.cluesFound}</span> /{" "}
+                  {resume.cluesTotal}
                 </div>
               </div>
             </div>
@@ -183,12 +209,45 @@ export function NextAction() {
                   Est. Time Left
                 </div>
                 <div className="text-base font-bold text-white">
-                  {a.estTimeLeft}
+                  {resume.timeLeftLabel}
                 </div>
               </div>
             </div>
           </div>
         </div>
+      </div>
+    </div>
+  );
+}
+
+/** Shown when no Node.js mission is playable — a real message, not a dead CTA. */
+function NoMissionAvailable() {
+  return (
+    <div className="relative overflow-hidden rounded-2xl border border-violet-400/50 bg-base-900/60 p-5 shadow-neon sm:p-6">
+      <div className="flex items-center gap-2 text-violet-300">
+        <Target className="h-4 w-4" strokeWidth={2.2} />
+        <span className="text-xs font-semibold uppercase tracking-[0.16em]">
+          Continue Your Node.js Mission
+        </span>
+      </div>
+
+      <h2 className="mt-3 text-2xl font-bold leading-tight tracking-tight text-white sm:text-3xl">
+        No Node.js mission is ready right now
+      </h2>
+      <p className="mt-3 max-w-md text-sm leading-relaxed text-slate-400">
+        More Node.js incidents are currently being prepared. Browse the mission
+        list to see what&apos;s coming next.
+      </p>
+
+      <div className="mt-5">
+        <Link
+          href="/missions"
+          className="group inline-flex items-center justify-center gap-2 rounded-xl border border-white/12 bg-white/[0.03] px-6 py-3.5 text-sm font-semibold text-slate-200 transition-colors hover:border-white/25 hover:text-white"
+        >
+          <ListChecks className="h-4 w-4" />
+          Browse Missions
+          <ArrowRight className="h-4 w-4 transition-transform group-hover:translate-x-0.5" />
+        </Link>
       </div>
     </div>
   );

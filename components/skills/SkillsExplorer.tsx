@@ -3,11 +3,9 @@
 import { useMemo, useState } from "react";
 import Link from "next/link";
 import { Sparkles } from "lucide-react";
-import {
-  SKILL_CATEGORIES,
-  SKILLS,
-  type Skill,
-} from "@/lib/skills";
+import { useProgress } from "@/components/progress/ProgressProvider";
+import { SKILL_CATEGORIES, skillsFor } from "@/lib/skills";
+import { FutureTracks } from "./FutureTracks";
 import { SkillCard } from "./SkillCard";
 import { SkillDetailDrawer } from "./SkillDetailDrawer";
 import {
@@ -24,10 +22,15 @@ export function SkillsExplorer() {
   const [query, setQuery] = useState("");
   const [level, setLevel] = useState<LevelFilter>("All");
   const [selectedId, setSelectedId] = useState<string | null>(null);
+  const { ledger } = useProgress();
+
+  // Levels and XP come from the player's ledger, so the list re-sorts and
+  // re-filters as they actually earn skill XP.
+  const skills = useMemo(() => skillsFor(ledger), [ledger]);
 
   const filtered = useMemo(() => {
     const q = query.trim().toLowerCase();
-    return SKILLS.filter((s) => {
+    return skills.filter((s) => {
       if (tab === "core" && s.tier !== "core") return false;
       if (tab === "advanced" && s.tier !== "advanced") return false;
       if (!matchesLevel(s.level, level)) return false;
@@ -35,9 +38,9 @@ export function SkillsExplorer() {
         return false;
       return true;
     });
-  }, [tab, query, level]);
+  }, [skills, tab, query, level]);
 
-  const selected = selectedId ? SKILLS.find((s) => s.id === selectedId) ?? null : null;
+  const selected = selectedId ? skills.find((s) => s.id === selectedId) ?? null : null;
 
   // Group into category sections; "By Category" is the same data, just always
   // sectioned — the other tabs also section so the grouping stays readable.
@@ -96,6 +99,11 @@ export function SkillsExplorer() {
         <aside className="xl:sticky xl:top-24 xl:self-start">
           <SkillsAside />
         </aside>
+      </div>
+
+      {/* Roadmap only — never filtered, counted or charted with the skills above. */}
+      <div className="mt-8">
+        <FutureTracks />
       </div>
 
       {selected && (

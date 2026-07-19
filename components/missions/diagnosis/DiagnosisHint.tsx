@@ -2,16 +2,33 @@
 
 import { useState } from "react";
 import { Lightbulb } from "lucide-react";
+import { recordHint } from "@/lib/run";
 
-/** Opt-in nudge. The copy points at the reasoning, never at the answer. */
-export function DiagnosisHint({ hint }: { hint: string }) {
+/**
+ * Opt-in nudge. The copy points at the reasoning, never at the answer — but
+ * opening it is recorded against the run, because it costs score.
+ */
+export function DiagnosisHint({
+  hint,
+  missionId,
+}: {
+  hint: string;
+  missionId: string;
+}) {
   const [open, setOpen] = useState(false);
+
+  // Recorded the first time only: closing and re-opening isn't a second hint.
+  const toggle = () =>
+    setOpen((isOpen) => {
+      if (!isOpen) recordHint(missionId, "diagnosis");
+      return !isOpen;
+    });
 
   return (
     <div className="sm:text-right">
       <button
         type="button"
-        onClick={() => setOpen((v) => !v)}
+        onClick={toggle}
         aria-expanded={open}
         aria-controls="diagnosis-hint"
         className={`inline-flex items-center gap-2 rounded-xl border px-4 py-2.5 text-sm font-semibold transition-colors ${

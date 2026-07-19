@@ -1,8 +1,12 @@
+"use client";
+
+import { useProgress } from "@/components/progress/ProgressProvider";
 import { radarData } from "@/lib/skills";
 
 /** A single small hexagon radar of category averages — the only chart on the page. */
 export function SkillRadar() {
-  const axes = radarData();
+  const { ledger } = useProgress();
+  const axes = radarData(ledger);
   const n = axes.length;
   const cx = 100;
   const cy = 100;

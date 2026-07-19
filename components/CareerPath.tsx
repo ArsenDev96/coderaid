@@ -12,10 +12,11 @@ export function CareerPath() {
           {/* Copy */}
           <div>
             <h2 className="text-xl font-semibold text-white sm:text-2xl">
-              Level Up Your Career
+              Your Node.js Progression
             </h2>
             <p className="mt-2 text-sm leading-relaxed text-slate-400">
-              Complete missions, earn XP and climb the ranks.
+              Resolve Node.js incidents, earn XP and climb from first-time
+              explorer to Node.js specialist.
             </p>
           </div>
 

@@ -5,6 +5,8 @@ import {
   type Mission,
   type ResolvedBriefing,
 } from "@/lib/missions";
+import type { Availability } from "@/lib/availability";
+import { AvailabilityBadge } from "@/components/ui/AvailabilityBadge";
 
 // Tags outside the known stack (Backend, Async, Auth…) still get a chip.
 const FALLBACK_TECH = {
@@ -15,20 +17,26 @@ const FALLBACK_TECH = {
 export function MissionOverview({
   mission,
   briefing,
+  availability,
 }: {
   mission: Mission;
   briefing: ResolvedBriefing;
+  /** Shown beside severity so the briefing reads the same as the list rows. */
+  availability?: Availability;
 }) {
   const severity = SEVERITY_BADGE[briefing.severity];
 
   return (
     <div>
-      <span
-        className={`inline-flex items-center gap-2 rounded-lg border px-3 py-1.5 text-[0.68rem] font-bold uppercase tracking-[0.12em] ${severity.cls}`}
-      >
-        <AlertTriangle className="h-3.5 w-3.5" />
-        {severity.label}
-      </span>
+      <div className="flex flex-wrap items-center gap-2">
+        <span
+          className={`inline-flex items-center gap-2 rounded-lg border px-3 py-1.5 text-[0.68rem] font-bold uppercase tracking-[0.12em] ${severity.cls}`}
+        >
+          <AlertTriangle className="h-3.5 w-3.5" />
+          {severity.label}
+        </span>
+        {availability && <AvailabilityBadge status={availability} size="md" />}
+      </div>
 
       <h2 className="mt-4 text-3xl font-bold leading-[1.1] tracking-tight text-white sm:text-4xl">
         {mission.title}

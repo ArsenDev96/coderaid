@@ -1,52 +1,85 @@
 import {
-  Boxes,
-  Braces,
+  Activity,
   Bug,
+  Cloud,
   Database,
-  FlaskConical,
+  FileSearch,
   Gauge,
-  GitBranch,
   Hexagon,
   Layers,
   Network,
+  Radar,
   Repeat,
   Server,
-  Terminal,
-  Webhook,
+  ShieldCheck,
+  Timer,
+  Waves,
+  Workflow,
   Zap,
   type LucideIcon,
 } from "lucide-react";
+import {
+  EMPTY_VIEW,
+  canStart as canStartMission,
+  type PlayerView,
+} from "./availability";
 import { getMission, type Mission } from "./missions";
+import {
+  EMPTY_LEDGER,
+  MAX_SKILL_LEVEL,
+  SKILL_XP_PER_LEVEL,
+  skillLevelProgress,
+  skillXpFor,
+  type Ledger,
+} from "./progress";
 
 /* -------------------------------- Types --------------------------------- */
 
-export type SkillCategoryId =
-  | "language"
-  | "backend"
-  | "database"
-  | "performance"
-  | "architecture"
-  | "testing";
+/**
+ * The canonical Node.js MVP skill taxonomy. This module is the single source
+ * of truth: the Skills page, the dashboard summary and mission reward
+ * references all read from here, and every reference uses a stable skill `id`
+ * rather than a display name.
+ */
+export type SkillCategoryId = "runtime" | "node-core" | "apis" | "debugging";
 
 export type SkillTier = "core" | "advanced";
-export type SkillLevelLabel = "Beginner" | "Intermediate" | "Advanced" | "Expert";
+export type SkillLevelLabel =
+  | "Not Started"
+  | "Beginner"
+  | "Intermediate"
+  | "Advanced"
+  | "Expert";
 export type SkillStrength = "Strong" | "Good" | "Learning";
 
-export type Skill = {
+/** The authored half of a skill: what it is, never how far the player got. */
+export type SkillDef = {
   id: string;
   name: string;
   category: SkillCategoryId;
   tier: SkillTier;
-  level: number;
-  progress: number; // 0–100, kept in sync with currentXp / nextLevelXp
-  currentXp: number;
-  nextLevelXp: number;
   description: string;
   /** Missions that build this skill — reused from the shared mission library. */
   missionIds: string[];
   icon: LucideIcon;
   /** Icon-tile accent classes. */
   accent: string;
+};
+
+/**
+ * A skill as the player has it: the definition plus their real standing in it,
+ * derived from the skill XP the grading engine has credited to the ledger.
+ */
+export type Skill = SkillDef & {
+  level: number;
+  /** 0–100 progress through the current level. */
+  progress: number;
+  /** XP earned toward the next level. */
+  currentXp: number;
+  /** XP the current level costs. */
+  nextLevelXp: number;
+  /** Lifetime XP in this skill, across every level. */
+  totalXp: number;
 };
 
 export type SkillCategory = {
@@ -59,307 +92,343 @@ export type SkillCategory = {
 
 export const SKILL_CATEGORIES: SkillCategory[] = [
   {
-    id: "language",
-    name: "Programming Languages",
-    description: "Core language runtimes and their execution models.",
+    id: "runtime",
+    name: "JavaScript Runtime",
+    description: "How JavaScript actually executes inside the Node.js runtime.",
   },
   {
-    id: "backend",
-    name: "Backend Development",
-    description: "Frameworks and APIs that power backend services.",
+    id: "node-core",
+    name: "Node.js Core",
+    description: "The runtime primitives every backend service is built on.",
   },
   {
-    id: "database",
-    name: "Databases",
-    description: "Relational and document stores, and how to query them well.",
+    id: "apis",
+    name: "Backend APIs",
+    description: "Request handling, auth, validation and background work.",
   },
   {
-    id: "performance",
-    name: "Performance & Scale",
-    description: "Latency, caching, and background processing.",
-  },
-  {
-    id: "architecture",
-    name: "Architecture",
-    description: "Designing resilient, scalable systems.",
-  },
-  {
-    id: "testing",
-    name: "Quality & Testing",
-    description: "Finding, reproducing, and preventing defects.",
+    id: "debugging",
+    name: "Production Debugging",
+    description: "Reading real signals and finding the true root cause.",
   },
 ];
 
 /* -------------------------------- Skills -------------------------------- */
 
-// Progress and XP are held as static profile data — the Skills page reads them,
-// it never mutates or re-accumulates, so a refresh always shows the same values.
-const raw: Omit<Skill, "progress">[] = [
-  // Programming Languages
+// Definitions only. A skill's level and XP are not authored anywhere — they are
+// earned, mission by mission, and read back out of the progression ledger by
+// `skillsFor(ledger)`. A new player sees every skill at level 0, "Not Started",
+// because that is the truth.
+export const SKILL_DEFS: SkillDef[] = [
+  /* ------------------------- JavaScript Runtime ------------------------- */
   {
-    id: "javascript",
-    name: "JavaScript",
-    category: "language",
+    id: "async-javascript",
+    name: "Async JavaScript",
+    category: "runtime",
     tier: "core",
-    level: 6,
-    currentXp: 800,
-    nextLevelXp: 1000,
     description:
-      "The event loop, closures, prototypes, and modern async patterns.",
-    missionIds: ["event-loop-overload", "jwt-session-expiry"],
-    icon: Braces,
-    accent: "border-amber-400/25 bg-amber-500/10 text-amber-300",
-  },
-  {
-    id: "typescript",
-    name: "TypeScript",
-    category: "language",
-    tier: "core",
-    level: 5,
-    currentXp: 650,
-    nextLevelXp: 1000,
-    description: "Static typing, generics, and safer service interfaces.",
-    missionIds: ["user-signup-latency-spike"],
-    icon: Braces,
-    accent: "border-electric-400/25 bg-electric-500/10 text-electric-300",
-  },
-  {
-    id: "nodejs",
-    name: "Node.js",
-    category: "language",
-    tier: "core",
-    level: 7,
-    currentXp: 750,
-    nextLevelXp: 1000,
-    description: "Non-blocking I/O, streams, and the runtime under your APIs.",
-    missionIds: ["slow-api-incident", "health-check-flapping", "graceful-shutdown-bug"],
-    icon: Hexagon,
-    accent: "border-emerald-400/25 bg-emerald-500/10 text-emerald-300",
-  },
-  {
-    id: "async-concurrency",
-    name: "Async & Concurrency",
-    category: "language",
-    tier: "advanced",
-    level: 5,
-    currentXp: 550,
-    nextLevelXp: 1000,
-    description: "Promises, race conditions, and safe concurrent work.",
-    missionIds: ["promise-all-cascade", "rate-limiter-race", "unhandled-rejection-storm"],
+      "async/await, control flow, and the mistakes that silently skip work.",
+    missionIds: ["promise-all-cascade", "async-map-trap", "overlapping-scheduler-runs"],
     icon: Repeat,
     accent: "border-violet-400/25 bg-violet-500/10 text-violet-300",
   },
-
-  // Backend Development
   {
-    id: "express",
-    name: "Express.js",
-    category: "backend",
+    id: "promises",
+    name: "Promises",
+    category: "runtime",
     tier: "core",
-    level: 6,
-    currentXp: 700,
-    nextLevelXp: 1000,
-    description: "Routing, middleware, and request lifecycle handling.",
-    missionIds: ["slow-api-incident"],
-    icon: Server,
-    accent: "border-slate-400/25 bg-slate-500/10 text-slate-300",
-  },
-  {
-    id: "nestjs",
-    name: "NestJS",
-    category: "backend",
-    tier: "advanced",
-    level: 7,
-    currentXp: 800,
-    nextLevelXp: 1000,
-    description: "Modules, providers, and structured service architecture.",
-    missionIds: ["user-signup-latency-spike"],
-    icon: Hexagon,
-    accent: "border-rose-400/25 bg-rose-500/10 text-rose-300",
-  },
-  {
-    id: "api-design",
-    name: "REST APIs",
-    category: "backend",
-    tier: "core",
-    level: 8,
-    currentXp: 850,
-    nextLevelXp: 1000,
-    description: "Resource modelling, status codes, and versioning.",
-    missionIds: ["slow-api-incident", "health-check-flapping"],
-    icon: Webhook,
+    description:
+      "Chaining, combinators, and how one rejection cascades through a batch.",
+    missionIds: ["promise-all-cascade", "unhandled-rejection-storm"],
+    icon: Workflow,
     accent: "border-electric-400/25 bg-electric-500/10 text-electric-300",
   },
   {
-    id: "graphql",
-    name: "GraphQL",
-    category: "backend",
-    tier: "advanced",
-    level: 5,
-    currentXp: 600,
-    nextLevelXp: 1000,
-    description: "Schemas, resolvers, and avoiding over-fetching.",
-    missionIds: ["n-plus-one-carnage"],
-    icon: GitBranch,
-    accent: "border-fuchsia-400/25 bg-fuchsia-500/10 text-fuchsia-300",
-  },
-
-  // Databases
-  {
-    id: "postgresql",
-    name: "PostgreSQL",
-    category: "database",
+    id: "event-loop",
+    name: "Event Loop",
+    category: "runtime",
     tier: "core",
-    level: 6,
-    currentXp: 700,
-    nextLevelXp: 1000,
-    description: "Query planning, indexes, and transactional integrity.",
-    missionIds: ["index-miss-investigation", "db-deadlocks-checkout"],
-    icon: Database,
-    accent: "border-electric-400/25 bg-electric-500/10 text-electric-300",
-  },
-  {
-    id: "mysql",
-    name: "MySQL",
-    category: "database",
-    tier: "core",
-    level: 5,
-    currentXp: 650,
-    nextLevelXp: 1000,
-    description: "Schema design and query tuning for relational data.",
-    missionIds: ["index-miss-investigation"],
-    icon: Database,
-    accent: "border-amber-400/25 bg-amber-500/10 text-amber-300",
-  },
-  {
-    id: "mongodb",
-    name: "MongoDB",
-    category: "database",
-    tier: "advanced",
-    level: 4,
-    currentXp: 500,
-    nextLevelXp: 1000,
-    description: "Document modelling, aggregation, and read patterns.",
-    missionIds: [],
-    icon: Database,
-    accent: "border-emerald-400/25 bg-emerald-500/10 text-emerald-300",
-  },
-  {
-    id: "redis",
-    name: "Redis",
-    category: "database",
-    tier: "advanced",
-    level: 5,
-    currentXp: 600,
-    nextLevelXp: 1000,
-    description: "Caching, eviction, and in-memory data structures.",
-    missionIds: ["redis-cache-meltdown"],
-    icon: Layers,
-    accent: "border-rose-400/25 bg-rose-500/10 text-rose-300",
-  },
-
-  // Performance & Scale
-  {
-    id: "performance",
-    name: "Performance Optimization",
-    category: "performance",
-    tier: "advanced",
-    level: 6,
-    currentXp: 720,
-    nextLevelXp: 1000,
-    description: "Profiling, bottleneck analysis, and latency reduction.",
-    missionIds: ["slow-api-incident", "user-signup-latency-spike", "n-plus-one-carnage"],
-    icon: Gauge,
-    accent: "border-emerald-400/25 bg-emerald-500/10 text-emerald-300",
-  },
-  {
-    id: "caching",
-    name: "Caching",
-    category: "performance",
-    tier: "advanced",
-    level: 4,
-    currentXp: 420,
-    nextLevelXp: 1000,
-    description: "Cache strategies, invalidation, and stampede protection.",
-    missionIds: ["redis-cache-meltdown"],
+    description:
+      "Phases, microtasks, and what blocking the loop does to your latency.",
+    missionIds: ["event-loop-overload"],
     icon: Zap,
     accent: "border-amber-400/25 bg-amber-500/10 text-amber-300",
   },
   {
-    id: "queues",
-    name: "Queues & Background Jobs",
-    category: "performance",
+    id: "closures-memory",
+    name: "Closures and Memory",
+    category: "runtime",
     tier: "advanced",
-    level: 3,
-    currentXp: 300,
-    nextLevelXp: 1000,
-    description: "Offloading slow work to reliable background processing.",
-    missionIds: ["worker-queue-backlog", "user-signup-latency-spike"],
-    icon: Boxes,
-    accent: "border-violet-400/25 bg-violet-500/10 text-violet-300",
+    description: "Retained references, heap growth, and reading a snapshot.",
+    missionIds: ["memory-leak-worker"],
+    icon: Layers,
+    accent: "border-rose-400/25 bg-rose-500/10 text-rose-300",
+  },
+  {
+    id: "error-handling",
+    name: "Error Handling",
+    category: "runtime",
+    tier: "core",
+    description:
+      "Boundaries, unhandled rejections, and keeping failures observable.",
+    missionIds: ["promise-all-cascade", "unhandled-rejection-storm"],
+    icon: ShieldCheck,
+    accent: "border-emerald-400/25 bg-emerald-500/10 text-emerald-300",
   },
 
-  // Architecture
+  /* ---------------------------- Node.js Core ---------------------------- */
   {
-    id: "system-design",
-    name: "System Design",
-    category: "architecture",
+    id: "nodejs-runtime",
+    name: "Node.js Runtime",
+    category: "node-core",
+    tier: "core",
+    description: "Non-blocking I/O and the runtime sitting under your APIs.",
+    missionIds: ["slow-api-incident", "user-signup-latency-spike"],
+    icon: Hexagon,
+    accent: "border-emerald-400/25 bg-emerald-500/10 text-emerald-300",
+  },
+  {
+    id: "streams",
+    name: "Streams",
+    category: "node-core",
     tier: "advanced",
-    level: 2,
-    currentXp: 200,
-    nextLevelXp: 1000,
-    description: "Scaling services, data flow, and resilient architectures.",
-    missionIds: ["payment-service-meltdown", "read-replica-lag"],
+    description: "Backpressure, piping, and processing data without buffering it all.",
+    missionIds: [],
+    icon: Waves,
+    accent: "border-electric-400/25 bg-electric-500/10 text-electric-300",
+  },
+  {
+    id: "event-emitter",
+    name: "EventEmitter",
+    category: "node-core",
+    tier: "advanced",
+    description: "Listener lifecycles, leaks, and event-driven service design.",
+    missionIds: [],
+    icon: Activity,
+    accent: "border-violet-400/25 bg-violet-500/10 text-violet-300",
+  },
+  {
+    id: "process-lifecycle",
+    name: "Process Lifecycle",
+    category: "node-core",
+    tier: "core",
+    description: "Signals, health, readiness, and draining work before exit.",
+    missionIds: ["health-check-flapping", "graceful-shutdown-bug"],
+    icon: Server,
+    accent: "border-slate-400/25 bg-slate-500/10 text-slate-300",
+  },
+  {
+    id: "worker-threads",
+    name: "Worker Threads",
+    category: "node-core",
+    tier: "advanced",
+    description: "Offloading CPU work without starving the main thread.",
+    missionIds: ["memory-leak-worker"],
+    icon: Layers,
+    accent: "border-fuchsia-400/25 bg-fuchsia-500/10 text-fuchsia-300",
+  },
+
+  /* ---------------------------- Backend APIs ---------------------------- */
+  {
+    id: "api-design",
+    name: "API Design",
+    category: "apis",
+    tier: "core",
+    description: "Resource modelling, status codes, and predictable contracts.",
+    missionIds: ["slow-api-incident", "health-check-flapping"],
     icon: Network,
     accent: "border-electric-400/25 bg-electric-500/10 text-electric-300",
   },
   {
-    id: "microservices",
-    name: "Microservices",
-    category: "architecture",
-    tier: "advanced",
-    level: 2,
-    currentXp: 250,
-    nextLevelXp: 1000,
-    description: "Service boundaries, communication, and failure isolation.",
-    missionIds: ["payment-service-meltdown"],
-    icon: Boxes,
-    accent: "border-fuchsia-400/25 bg-fuchsia-500/10 text-fuchsia-300",
-  },
-
-  // Quality & Testing
-  {
-    id: "debugging",
-    name: "Debugging",
-    category: "testing",
+    id: "authentication",
+    name: "Authentication",
+    category: "apis",
     tier: "core",
-    level: 7,
-    currentXp: 780,
-    nextLevelXp: 1000,
-    description: "Logs, traces, profiling, and production root-cause analysis.",
-    missionIds: ["memory-leak-worker", "connection-pool-exhaustion", "slow-api-incident"],
-    icon: Bug,
+    description: "Tokens, expiry windows, and sessions that behave correctly.",
+    missionIds: ["jwt-session-expiry"],
+    icon: ShieldCheck,
     accent: "border-violet-400/25 bg-violet-500/10 text-violet-300",
   },
   {
-    id: "testing",
-    name: "Testing",
-    category: "testing",
+    id: "validation",
+    name: "Validation",
+    category: "apis",
     tier: "core",
-    level: 4,
-    currentXp: 380,
-    nextLevelXp: 1000,
-    description: "Verifying behaviour and guarding against regressions.",
-    missionIds: ["promise-all-cascade"],
-    icon: FlaskConical,
+    description: "Rejecting bad input early, before it reaches your data layer.",
+    missionIds: [],
+    icon: ShieldCheck,
     accent: "border-amber-400/25 bg-amber-500/10 text-amber-300",
+  },
+  {
+    id: "request-performance",
+    name: "Request Performance",
+    category: "apis",
+    tier: "advanced",
+    description: "Finding the work on the critical path and taking it off.",
+    missionIds: [
+      "user-signup-latency-spike",
+      "slow-api-incident",
+      "rate-limiter-race",
+    ],
+    icon: Gauge,
+    accent: "border-emerald-400/25 bg-emerald-500/10 text-emerald-300",
+  },
+  {
+    id: "background-jobs",
+    name: "Background Jobs",
+    category: "apis",
+    tier: "advanced",
+    description: "Queues, workers, and moving slow work out of the request.",
+    missionIds: [
+      "worker-queue-backlog",
+      "overlapping-scheduler-runs",
+      "user-signup-latency-spike",
+    ],
+    icon: Timer,
+    accent: "border-electric-400/25 bg-electric-500/10 text-electric-300",
+  },
+
+  /* ------------------------- Production Debugging ----------------------- */
+  {
+    id: "log-analysis",
+    name: "Log Analysis",
+    category: "debugging",
+    tier: "core",
+    description: "Reading a noisy stream and pulling the signal out of it.",
+    missionIds: ["slow-api-incident", "user-signup-latency-spike"],
+    icon: FileSearch,
+    accent: "border-violet-400/25 bg-violet-500/10 text-violet-300",
+  },
+  {
+    id: "metrics-analysis",
+    name: "Metrics Analysis",
+    category: "debugging",
+    tier: "core",
+    description: "Percentiles, deploy markers, and what a spike actually means.",
+    missionIds: ["user-signup-latency-spike", "connection-pool-exhaustion"],
+    icon: Activity,
+    accent: "border-electric-400/25 bg-electric-500/10 text-electric-300",
+  },
+  {
+    id: "distributed-tracing",
+    name: "Distributed Tracing",
+    category: "debugging",
+    tier: "advanced",
+    description: "Span timings that show exactly where a request spends itself.",
+    missionIds: ["user-signup-latency-spike"],
+    icon: Radar,
+    accent: "border-fuchsia-400/25 bg-fuchsia-500/10 text-fuchsia-300",
+  },
+  {
+    id: "root-cause-analysis",
+    name: "Root-Cause Analysis",
+    category: "debugging",
+    tier: "core",
+    description: "Turning correlated evidence into a defensible diagnosis.",
+    missionIds: [
+      "user-signup-latency-spike",
+      "slow-api-incident",
+      "connection-pool-exhaustion",
+    ],
+    icon: Bug,
+    accent: "border-amber-400/25 bg-amber-500/10 text-amber-300",
+  },
+  {
+    id: "performance-debugging",
+    name: "Performance Debugging",
+    category: "debugging",
+    tier: "advanced",
+    description: "Profiling hot paths and proving the fix with real numbers.",
+    missionIds: [
+      "slow-api-incident",
+      "memory-leak-worker",
+      "connection-pool-exhaustion",
+    ],
+    icon: Gauge,
+    accent: "border-emerald-400/25 bg-emerald-500/10 text-emerald-300",
   },
 ];
 
-export const SKILLS: Skill[] = raw.map((s) => ({
-  ...s,
-  progress: Math.round((s.currentXp / s.nextLevelXp) * 100),
-}));
+/* --------------------------- Derived from play -------------------------- */
+
+/** A skill definition resolved against the XP the player has earned in it. */
+export function resolveSkill(def: SkillDef, ledger: Ledger): Skill {
+  const totalXp = skillXpFor(ledger, def.id);
+  const { level, into, needed, pct } = skillLevelProgress(totalXp);
+  return {
+    ...def,
+    level,
+    progress: pct,
+    currentXp: into,
+    nextLevelXp: needed,
+    totalXp,
+  };
+}
+
+/** Every skill, as this player has it. The zero ledger yields the zero state. */
+export function skillsFor(ledger: Ledger = EMPTY_LEDGER): Skill[] {
+  return SKILL_DEFS.map((def) => resolveSkill(def, ledger));
+}
+
+export function getSkillDef(id: string): SkillDef | undefined {
+  return SKILL_DEFS.find((s) => s.id === id);
+}
+
+export function getSkill(id: string, ledger: Ledger = EMPTY_LEDGER): Skill | undefined {
+  const def = getSkillDef(id);
+  return def ? resolveSkill(def, ledger) : undefined;
+}
+
+/** Level for a skill id, 0 when the skill doesn't exist or isn't started. */
+export function skillLevel(id: string, ledger: Ledger = EMPTY_LEDGER): number {
+  return getSkill(id, ledger)?.level ?? 0;
+}
+
+/* ---------------------------- Future tracks ----------------------------- */
+
+export type FutureTrack = {
+  id: string;
+  name: string;
+  description: string;
+  icon: LucideIcon;
+  accent: string;
+};
+
+/**
+ * Roadmap-only tracks. Rendered muted with a Coming Soon badge and no detail
+ * drawer — they are deliberately not `Skill`s, so nothing can accidentally
+ * count them toward progress, radar axes or recommendations.
+ */
+export const FUTURE_TRACKS: FutureTrack[] = [
+  {
+    id: "sql-databases",
+    name: "SQL and Databases",
+    description: "Query plans, indexes, N+1 patterns and transactional integrity.",
+    icon: Database,
+    accent: "border-white/10 bg-white/[0.03] text-slate-400",
+  },
+  {
+    id: "redis-caching",
+    name: "Redis and Caching",
+    description: "Cache strategies, eviction, TTLs and stampede protection.",
+    icon: Layers,
+    accent: "border-white/10 bg-white/[0.03] text-slate-400",
+  },
+  {
+    id: "system-design",
+    name: "System Design",
+    description: "Service boundaries, data flow and resilient architectures.",
+    icon: Network,
+    accent: "border-white/10 bg-white/[0.03] text-slate-400",
+  },
+  {
+    id: "cloud-reliability",
+    name: "Cloud and Reliability",
+    description: "Deploys, autoscaling, SLOs and staying up under pressure.",
+    icon: Cloud,
+    accent: "border-white/10 bg-white/[0.03] text-slate-400",
+  },
+];
 
 /* ------------------------------- Helpers -------------------------------- */
 
@@ -367,8 +436,17 @@ export function levelLabel(level: number): SkillLevelLabel {
   if (level >= 9) return "Expert";
   if (level >= 7) return "Advanced";
   if (level >= 4) return "Intermediate";
-  return "Beginner";
+  if (level >= 1) return "Beginner";
+  return "Not Started";
 }
+
+export const LEVEL_LABELS: SkillLevelLabel[] = [
+  "Not Started",
+  "Beginner",
+  "Intermediate",
+  "Advanced",
+  "Expert",
+];
 
 export function strengthFor(progress: number): SkillStrength {
   if (progress >= 75) return "Strong";
@@ -386,26 +464,47 @@ export function categoryName(id: SkillCategoryId): string {
   return SKILL_CATEGORIES.find((c) => c.id === id)?.name ?? id;
 }
 
-export function skillsInCategory(id: SkillCategoryId): Skill[] {
-  return SKILLS.filter((s) => s.category === id);
+export function skillsInCategory(
+  id: SkillCategoryId,
+  ledger: Ledger = EMPTY_LEDGER,
+): Skill[] {
+  return skillsFor(ledger).filter((s) => s.category === id);
 }
 
 function avg(nums: number[]): number {
   return nums.length ? Math.round(nums.reduce((a, b) => a + b, 0) / nums.length) : 0;
 }
 
-export function categoryAverage(id: SkillCategoryId): number {
-  return avg(skillsInCategory(id).map((s) => s.progress));
+/**
+ * How far a skill has come toward being maxed, 0–100.
+ *
+ * Deliberately not `skill.progress`, which measures progress *within* the
+ * current level: a level-8 skill one point past its threshold would read as 2%
+ * and drag the radar down. Mastery measures the whole climb.
+ */
+export function masteryPct(skill: Skill): number {
+  const ceiling = MAX_SKILL_LEVEL * SKILL_XP_PER_LEVEL;
+  return Math.min(100, Math.round((skill.totalXp / ceiling) * 100));
 }
 
-/** Compact summary shown at the top — derived from the skills, never hardcoded. */
-export function skillsSummary() {
-  const overall = avg(SKILLS.map((s) => s.progress));
-  const mastered = SKILLS.filter((s) => s.progress >= 70).length;
+export function categoryAverage(
+  id: SkillCategoryId,
+  ledger: Ledger = EMPTY_LEDGER,
+): number {
+  return avg(skillsInCategory(id, ledger).map(masteryPct));
+}
+
+/** Compact summary shown at the top — derived from real skill XP, never authored. */
+export function skillsSummary(ledger: Ledger = EMPTY_LEDGER) {
+  const skills = skillsFor(ledger);
+  const overall = avg(skills.map(masteryPct));
+  // "Mastered" means a skill the player has actually taken to Advanced.
+  const mastered = skills.filter((s) => s.level >= 7).length;
+  const started = skills.filter((s) => s.totalXp > 0).length;
 
   const ranked = SKILL_CATEGORIES.map((c) => ({
     category: c,
-    average: categoryAverage(c.id),
+    average: categoryAverage(c.id, ledger),
   })).sort((a, b) => b.average - a.average);
 
   const top = ranked[0];
@@ -413,58 +512,80 @@ export function skillsSummary() {
 
   return {
     overall,
-    overallLabel: levelLabel(Math.round(overall / 12.5)),
+    overallLabel: levelLabel(avg(skills.map((s) => s.level))),
     mastered,
-    total: SKILLS.length,
-    progressDelta: 12, // static month-over-month figure
+    started,
+    total: skills.length,
     topCategory: top.category,
     topAverage: top.average,
     focusCategory: focus.category,
   };
 }
 
-/** Lowest-progress skills — a simple, honest "what to work on next". */
-export function skillsToImprove(limit = 4): Skill[] {
-  return [...SKILLS].sort((a, b) => a.progress - b.progress).slice(0, limit);
+/**
+ * What to work on next: the least-developed skills that a playable mission can
+ * actually improve. Suggesting a skill with no written incident behind it would
+ * be advice the player can't act on.
+ */
+export function skillsToImprove(
+  ledger: Ledger = EMPTY_LEDGER,
+  view: PlayerView = EMPTY_VIEW,
+  limit = 4,
+): Skill[] {
+  const actionable = skillsFor(ledger).filter((s) =>
+    relatedMissions(s).some((m) => canStartMission(m, view)),
+  );
+  const pool = actionable.length > 0 ? actionable : skillsFor(ledger);
+  return [...pool].sort((a, b) => a.totalXp - b.totalXp).slice(0, limit);
 }
 
-export function relatedMissions(skill: Skill): Mission[] {
+export function relatedMissions(skill: SkillDef): Mission[] {
   return skill.missionIds
     .map(getMission)
     .filter((m): m is Mission => Boolean(m));
 }
 
-export function completedMissions(skill: Skill): Mission[] {
-  return relatedMissions(skill).filter((m) => m.status === "completed");
+/** Missions building this skill that the player has actually finished. */
+export function completedMissions(
+  skill: SkillDef,
+  view: PlayerView = EMPTY_VIEW,
+): Mission[] {
+  return relatedMissions(skill).filter((m) => m.id in view.ledger.missions);
 }
 
-/** The mission to point a "Practice" action at: the first not-yet-completed one. */
-export function recommendedMission(skill: Skill): Mission | undefined {
-  const related = relatedMissions(skill);
-  return related.find((m) => m.status !== "completed") ?? related[0];
+/**
+ * The mission to point a "Practice" action at. Only ever a mission the player
+ * can actually start, so the Skills page can't hand out a dead CTA.
+ */
+export function recommendedMission(
+  skill: SkillDef,
+  view: PlayerView = EMPTY_VIEW,
+): Mission | undefined {
+  const related = relatedMissions(skill).filter((m) => canStartMission(m, view));
+  return related.find((m) => !(m.id in view.ledger.missions)) ?? related[0];
 }
 
-/** Radar axes: one per category, valued by its average progress. */
-export function radarData(): { label: string; short: string; value: number }[] {
+/** Radar axes: one per category, valued by its average mastery. */
+export function radarData(
+  ledger: Ledger = EMPTY_LEDGER,
+): { label: string; short: string; value: number }[] {
   return SKILL_CATEGORIES.map((c) => ({
     label: c.name,
     short: RADAR_SHORT[c.id],
-    value: categoryAverage(c.id),
+    value: categoryAverage(c.id, ledger),
   }));
 }
 
 const RADAR_SHORT: Record<SkillCategoryId, string> = {
-  language: "Languages",
-  backend: "Backend",
-  database: "Database",
-  performance: "Performance",
-  architecture: "Architecture",
-  testing: "Testing",
+  runtime: "Runtime",
+  "node-core": "Node Core",
+  apis: "APIs",
+  debugging: "Debugging",
 };
 
-/* ---------------------------- Achievements ------------------------------ */
+/* -------------------------- Recent skill activity ----------------------- */
 
-export type SkillAchievement = {
+export type SkillActivity = {
   id: string;
   title: string;
   detail: string;
@@ -473,21 +594,51 @@ export type SkillAchievement = {
   accent: string;
 };
 
-export const RECENT_ACHIEVEMENTS: SkillAchievement[] = [
-  {
-    id: "backend-builder",
-    title: "Backend Builder",
-    detail: "Reached 70% average in the Backend category",
-    when: "2 days ago",
-    icon: Hexagon,
-    accent: "border-violet-400/25 bg-violet-500/10 text-violet-300",
-  },
-  {
-    id: "javascript-pro",
-    title: "JavaScript Pro",
-    detail: "Reached 80% in JavaScript",
-    when: "1 week ago",
-    icon: Braces,
-    accent: "border-amber-400/25 bg-amber-500/10 text-amber-300",
-  },
+const ACTIVITY_ACCENTS = [
+  "border-violet-400/25 bg-violet-500/10 text-violet-300",
+  "border-amber-400/25 bg-amber-500/10 text-amber-300",
+  "border-electric-400/25 bg-electric-500/10 text-electric-300",
 ];
+
+/** "2 days ago" from a real completion timestamp. */
+export function relativeTime(iso: string, now: Date = new Date()): string {
+  const then = new Date(iso).getTime();
+  if (!Number.isFinite(then)) return "recently";
+  const minutes = Math.max(0, Math.round((now.getTime() - then) / 60000));
+  if (minutes < 1) return "just now";
+  if (minutes < 60) return `${minutes} min ago`;
+  const hours = Math.round(minutes / 60);
+  if (hours < 24) return hours === 1 ? "1 hour ago" : `${hours} hours ago`;
+  const days = Math.round(hours / 24);
+  if (days < 7) return days === 1 ? "yesterday" : `${days} days ago`;
+  const weeks = Math.round(days / 7);
+  return weeks === 1 ? "1 week ago" : `${weeks} weeks ago`;
+}
+
+/**
+ * The player's most recent skill gains, newest first — real completions with
+ * the XP they actually earned, replacing the two authored "recent achievement"
+ * cards that used to sit here regardless of whether anything had happened.
+ */
+export function recentSkillActivity(
+  ledger: Ledger = EMPTY_LEDGER,
+  limit = 3,
+): SkillActivity[] {
+  return Object.values(ledger.missions)
+    .sort((a, b) => b.completedAt.localeCompare(a.completedAt))
+    .slice(0, limit)
+    .map((record, i) => {
+      const mission = getMission(record.missionId);
+      const skill = mission?.rewardSkillId
+        ? getSkill(mission.rewardSkillId, ledger)
+        : undefined;
+      return {
+        id: record.missionId,
+        title: skill ? `${skill.name} level ${skill.level}` : "Incident resolved",
+        detail: `${mission?.title ?? record.missionId} · scored ${record.score}`,
+        when: relativeTime(record.completedAt),
+        icon: skill?.icon ?? Bug,
+        accent: skill?.accent ?? ACTIVITY_ACCENTS[i % ACTIVITY_ACCENTS.length],
+      };
+    });
+}

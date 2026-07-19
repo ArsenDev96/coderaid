@@ -11,6 +11,7 @@ import {
   type InvestigationToolId,
 } from "@/lib/investigation";
 import type { Severity } from "@/lib/missions";
+import { touchRun } from "@/lib/run";
 import { CodeInspectionPanel } from "./CodeInspectionPanel";
 import { CollectedEvidencePanel } from "./CollectedEvidencePanel";
 import { DatabasePanel } from "./DatabasePanel";
@@ -49,6 +50,8 @@ export function InvestigationWorkspace({
   // switching missions starts from that mission's own saved state.
   useEffect(() => {
     setHydrated(false);
+    // Starts the run clock on first contact with the mission.
+    touchRun(investigation.missionId);
     const saved = loadInvestigationState(
       investigation.missionId,
       investigation.tools,

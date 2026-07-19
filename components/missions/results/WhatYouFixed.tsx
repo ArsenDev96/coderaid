@@ -39,12 +39,26 @@ function highlight(line: string) {
 
 /* -------------------------------- Panel --------------------------------- */
 
-export function WhatYouFixed({ fix }: { fix: MissionResultConfig["fix"] }) {
+/**
+ * The correct fix for this incident. When the player found it, this is what
+ * they did; when they didn't, it is presented as the answer rather than as
+ * their work — the panel must never credit them with a fix they didn't apply.
+ */
+export function WhatYouFixed({
+  fix,
+  resolved,
+}: {
+  fix: MissionResultConfig["fix"];
+  resolved: boolean;
+}) {
   return (
     <section className="flex h-full flex-col rounded-2xl border border-white/[0.06] bg-white/[0.02] p-5 sm:p-6">
       <h3 className="flex items-center gap-2 text-sm font-semibold text-white sm:text-base">
-        <CircleCheckBig className="h-4 w-4 text-emerald-400" strokeWidth={2.2} />
-        What you fixed
+        <CircleCheckBig
+          className={`h-4 w-4 ${resolved ? "text-emerald-400" : "text-slate-500"}`}
+          strokeWidth={2.2}
+        />
+        {resolved ? "What you fixed" : "What would have fixed it"}
       </h3>
 
       <p className="mt-4 text-sm leading-relaxed text-slate-400">{fix.problem}</p>
@@ -68,7 +82,9 @@ export function WhatYouFixed({ fix }: { fix: MissionResultConfig["fix"] }) {
       <p className="mt-4 flex items-start gap-2.5 text-sm text-slate-300">
         <CircleCheckBig
           aria-hidden
-          className="mt-0.5 h-4 w-4 shrink-0 text-emerald-400"
+          className={`mt-0.5 h-4 w-4 shrink-0 ${
+            resolved ? "text-emerald-400" : "text-slate-500"
+          }`}
           strokeWidth={2.2}
         />
         {fix.note}

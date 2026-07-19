@@ -1,9 +1,13 @@
+"use client";
+
 import { Target, TrendingUp, Trophy } from "lucide-react";
+import { useProgress } from "@/components/progress/ProgressProvider";
 import { skillsSummary } from "@/lib/skills";
 
 /** One card, a few compact stats — not a wall of statistic tiles. */
 export function SkillSummaryBar() {
-  const s = skillsSummary();
+  const { ledger } = useProgress();
+  const s = skillsSummary(ledger);
   const circumference = 2 * Math.PI * 26;
   const dash = (s.overall / 100) * circumference;
 
@@ -43,14 +47,14 @@ export function SkillSummaryBar() {
         </div>
       </div>
 
-      {/* Progress delta */}
+      {/* Skills the player has actually put XP into */}
       <Stat
         icon={<TrendingUp className="h-5 w-5 text-emerald-300" />}
         tone="border-emerald-400/25 bg-emerald-500/10"
-        label="Skills Progress"
-        value={`+${s.progressDelta}%`}
+        label="Skills Started"
+        value={`${s.started} of ${s.total}`}
         valueClass="text-emerald-300"
-        sub="vs last month"
+        sub="have earned XP"
       />
 
       {/* Top category */}

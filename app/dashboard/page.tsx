@@ -8,7 +8,8 @@ import { SkillsSummary } from "@/components/dashboard/SkillsSummary";
 
 export const metadata = {
   title: "Dashboard — CodeRaid",
-  description: "Your engineering career HQ: missions, XP, skills, and ranks.",
+  description:
+    "Your Node.js debugging HQ: real backend incidents, Node.js skills, XP and ranks.",
 };
 
 export default function DashboardPage() {

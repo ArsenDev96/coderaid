@@ -2,8 +2,8 @@ import {
   Bot,
   Braces,
   Bug,
-  Database,
-  GitBranch,
+  MessagesSquare,
+  Server,
   User,
   UserRound,
   type LucideIcon,
@@ -25,16 +25,16 @@ export type ProfileDraft = {
 export const DEFAULT_DRAFT: ProfileDraft = {
   name: "",
   avatarId: "nova",
-  slogan: "Code. Debug. Deploy. Repeat.",
-  pathId: "backend",
-  experienceId: "intern",
+  slogan: "I debug before I guess",
+  pathId: "fundamentals",
+  experienceId: "beginner",
   step: 0,
   completed: false,
 };
 
 export const STEPS = [
   "Your Identity",
-  "Choose Path",
+  "Learning Goal",
   "Experience Level",
   "Confirm",
 ] as const;
@@ -80,14 +80,14 @@ export const AVATARS: Avatar[] = [
 ];
 
 export const SLOGANS: string[] = [
-  "Code. Debug. Deploy. Repeat.",
-  "Ship it. Fix it. Own it.",
-  "Root cause or bust.",
-  "Turning incidents into XP.",
-  "Always on call, always leveling up.",
+  "I debug before I guess",
+  "Async problems fear me",
+  "Logs tell the truth",
+  "Ship, observe, improve",
+  "Find the root cause",
 ];
 
-export type EngineerPath = {
+export type LearningGoal = {
   id: string;
   title: string;
   description: string;
@@ -95,34 +95,38 @@ export type EngineerPath = {
   focus: string;
 };
 
-export const PATHS: EngineerPath[] = [
+export const PATHS: LearningGoal[] = [
   {
-    id: "backend",
-    title: "Backend Engineering",
-    description: "APIs, services, and async workloads on Node.js.",
+    id: "fundamentals",
+    title: "Node.js Fundamentals",
+    description:
+      "Build confidence with async JavaScript, the event loop, promises, and errors.",
     icon: Braces,
-    focus: "JavaScript · Node.js",
+    focus: "Async JavaScript · Event loop",
   },
   {
-    id: "data",
-    title: "Data & SQL",
-    description: "Query performance, schema design, and N+1 hunting.",
-    icon: Database,
-    focus: "SQL · Databases",
+    id: "apis",
+    title: "Backend APIs",
+    description:
+      "Practice debugging APIs, authentication, validation, and request performance.",
+    icon: Server,
+    focus: "APIs · Auth · Validation",
   },
   {
-    id: "reliability",
-    title: "Debugging & Incidents",
-    description: "Read traces, chase root causes, resolve production fires.",
+    id: "debugging",
+    title: "Production Debugging",
+    description:
+      "Investigate realistic logs, metrics, traces, memory, and worker failures.",
     icon: Bug,
-    focus: "Debugging · Observability",
+    focus: "Logs · Metrics · Traces",
   },
   {
-    id: "architecture",
-    title: "System Design",
-    description: "Scale services and design resilient architectures.",
-    icon: GitBranch,
-    focus: "Architecture · Scale",
+    id: "interview",
+    title: "Node.js Interview Prep",
+    description:
+      "Prepare for practical Node.js and backend interview scenarios.",
+    icon: MessagesSquare,
+    focus: "Interview scenarios",
   },
 ];
 
@@ -130,29 +134,62 @@ export type ExperienceLevel = {
   id: string;
   title: string;
   description: string;
-  startingRank: string;
+  /**
+   * Experience is not a rank — it only tunes which Node.js incidents we
+   * recommend first and how much guidance each one carries.
+   */
+  personalization: string;
 };
 
 export const EXPERIENCE_LEVELS: ExperienceLevel[] = [
   {
-    id: "intern",
-    title: "New to backend",
-    description: "I'm just getting started with servers, APIs, and databases.",
-    startingRank: "Intern Engineer",
+    id: "beginner",
+    title: "Beginner",
+    description: "I'm new to Node.js and backend debugging.",
+    personalization: "We'll start you on the gentlest incidents.",
   },
   {
     id: "junior",
-    title: "Some experience",
-    description: "I'm comfortable with Node.js and basic SQL.",
-    startingRank: "Junior Backend Engineer",
+    title: "Junior",
+    description: "I've built Node.js services and want more practice.",
+    personalization: "We'll recommend incidents with a bit more moving parts.",
   },
   {
     id: "mid",
-    title: "Experienced",
-    description: "I ship backend code and want to sharpen my edge.",
-    startingRank: "Mid-Level Engineer",
+    title: "Mid-Level+",
+    description: "I ship Node.js backends and want a sharper edge.",
+    personalization: "We'll point you at the messier production incidents.",
   },
 ];
+
+/* ------------------------- Recommended first mission -------------------- */
+
+export type RecommendedMission = { id: string; title: string };
+
+const RECOMMENDED_BY_EXPERIENCE: Record<string, RecommendedMission> = {
+  beginner: { id: "event-loop-overload", title: "Event Loop Overload" },
+  junior: {
+    id: "promise-all-cascade",
+    title: "Promise.all Failure Cascade",
+  },
+  mid: {
+    id: "user-signup-latency-spike",
+    title: "User Signup Latency Spike",
+  },
+};
+
+/**
+ * A small static suggestion — not personalization. Unknown ids (including
+ * experience levels saved by older builds) fall back to the beginner mission.
+ */
+export function recommendedStartingMission(
+  experienceId: string,
+): RecommendedMission {
+  return (
+    RECOMMENDED_BY_EXPERIENCE[experienceId] ??
+    RECOMMENDED_BY_EXPERIENCE.beginner
+  );
+}
 
 // ---- localStorage helpers (guarded for SSR) ----
 

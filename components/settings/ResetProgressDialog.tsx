@@ -64,18 +64,24 @@ export function ResetProgressDialog({
         </div>
 
         <div id="reset-body" className="mt-4 text-sm leading-relaxed text-slate-400">
-          This clears your progress through every mission — investigations,
-          diagnoses, fixes and claimed rewards. It cannot be undone.
+          This clears your progress through every Node.js incident —
+          investigations, diagnoses, fixes and the rewards they earned. It
+          cannot be undone.
         </div>
 
         <ul className="mt-4 space-y-1.5 rounded-xl border border-white/[0.06] bg-white/[0.02] p-3.5 text-xs">
+          <li className="text-slate-300">
+            <span className="font-semibold text-white">Cleared:</span> your XP,
+            level, rank, streak, every skill&apos;s XP, and every completed
+            incident. You start again from zero.
+          </li>
           <li className="text-slate-300">
             <span className="font-semibold text-white">Kept:</span> your profile
             name, avatar, and these settings.
           </li>
           <li className="text-slate-300">
             <span className="font-semibold text-white">Recalculated:</span>{" "}
-            achievements, which follow your mission progress.
+            achievements and leaderboard position, which follow your progress.
           </li>
         </ul>
 

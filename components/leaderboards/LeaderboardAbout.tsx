@@ -4,20 +4,20 @@ const POINTS = [
   {
     icon: Sparkles,
     accent: "border-violet-400/25 bg-violet-500/10 text-violet-300",
-    title: "Earn XP by completing missions",
-    detail: "Harder missions give more XP.",
+    title: "Earn XP by resolving incidents",
+    detail: "Harder Node.js missions give more XP.",
   },
   {
     icon: Trophy,
     accent: "border-amber-400/25 bg-amber-500/10 text-amber-300",
-    title: "Climb the ranks",
-    detail: "Compete with developers worldwide.",
+    title: "Climb the Node.js ranks",
+    detail: "Compare yourself with backend developers worldwide.",
   },
   {
     icon: ShieldCheck,
     accent: "border-emerald-400/25 bg-emerald-500/10 text-emerald-300",
     title: "New season every month",
-    detail: "Fresh start. New champions.",
+    detail: "Fresh start. New on-call champions.",
   },
 ];
 

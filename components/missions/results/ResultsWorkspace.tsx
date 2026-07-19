@@ -1,64 +1,179 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import { ArrowLeft, ArrowRight, Sparkles, Zap } from "lucide-react";
+import { useProgress } from "@/components/progress/ProgressProvider";
+import { canStart, nextMissionId } from "@/lib/availability";
+import { getDiagnosis, loadDiagnosisState } from "@/lib/diagnosis";
+import { getFix, loadFixState } from "@/lib/fix";
 import {
-  SKILL_POINTS_BASELINE,
-  claimMissionRewards,
-  type MissionResultConfig,
-} from "@/lib/results";
-import { ResultsHeader, ResultsMissionRecap } from "./ResultsHeader";
+  gradeMission,
+  rewardFor,
+  skillRewardFor,
+  type MissionGrade,
+} from "@/lib/grading";
+import { MISSION_FLOW, getMission, type Mission } from "@/lib/missions";
+import { creditRun, skillLevelFromXp, skillXpFor } from "@/lib/progress";
+import { loadResultsState, narrativeFor, saveResultsState, type MissionResultConfig } from "@/lib/results";
+import { completeStage, loadRun } from "@/lib/run";
+import { getSkill } from "@/lib/skills";
+import { ResultsHeader, ResultsMissionRecap, ScoreBreakdown } from "./ResultsHeader";
 import { PerformanceImprovement } from "./PerformanceImprovement";
-import { SkillsImproved } from "./SkillsImproved";
+import { SkillsImproved, type SkillGain } from "./SkillsImproved";
 import { WhatYouFixed } from "./WhatYouFixed";
 import { WhatYouLearned } from "./WhatYouLearned";
 
+/**
+ * The results screen.
+ *
+ * Everything shown here is produced from the run the player just finished: the
+ * grading engine reads their diagnosis, evidence and fix against the mission's
+ * authored answers, and the resulting score, XP and skill gains are credited to
+ * the progression ledger exactly once.
+ *
+ * Grading happens after mount because the run lives in `localStorage`. Until
+ * then the screen renders nothing rather than a placeholder score — a fake 0
+ * flashing before the real number would be worse than a moment of blank.
+ */
 export function ResultsWorkspace({
+  mission,
   config,
-  missionTitle,
-  difficulty,
-  nextHref,
 }: {
+  mission: Mission;
   config: MissionResultConfig;
-  missionTitle: string;
-  difficulty: string;
-  nextHref: string;
 }) {
-  // Rewards are credited to the persisted ledger exactly once; the returned
-  // snapshot drives the skill before/after and stays stable across refresh.
-  const [skill, setSkill] = useState({
-    before: SKILL_POINTS_BASELINE,
-    after: SKILL_POINTS_BASELINE + config.skillImprovement.increase,
-  });
+  const { view, hydrated, update } = useProgress();
+  const [grade, setGrade] = useState<MissionGrade | null>(null);
+  const [gains, setGains] = useState<SkillGain[]>([]);
+  const [xpAdded, setXpAdded] = useState(0);
+  const credited = useRef(false);
 
   useEffect(() => {
-    const state = claimMissionRewards(config);
-    setSkill({ before: state.skillBefore, after: state.skillAfter });
-  }, [config]);
+    if (!hydrated || credited.current) return;
+    credited.current = true;
+
+    // Reaching this screen is itself the last stage of the flow.
+    completeStage(mission.id, "Complete");
+
+    const diagnosisConfig = getDiagnosis(mission.id);
+    const fixConfig = getFix(mission.id);
+    const result = gradeMission({
+      mission,
+      diagnosis: diagnosisConfig
+        ? {
+            config: diagnosisConfig,
+            state: loadDiagnosisState(diagnosisConfig) ?? {
+              rootCauseId: null,
+              evidenceIds: [],
+              confirmed: false,
+            },
+          }
+        : null,
+      fix: fixConfig
+        ? {
+            config: fixConfig,
+            state: loadFixState(fixConfig) ?? { fixId: null, applied: false },
+          }
+        : null,
+      run: loadRun(mission.id),
+    });
+    setGrade(result);
+
+    // Skill levels are read before crediting so the before/after is honest.
+    const reward = skillRewardFor(mission, result);
+    const before = Object.fromEntries(
+      Object.keys(reward).map((id) => [id, 0]),
+    ) as Record<string, number>;
+
+    update((ledger) => {
+      for (const id of Object.keys(reward)) {
+        before[id] = skillXpFor(ledger, id);
+      }
+      const credit = creditRun(ledger, rewardFor(mission, result));
+      setXpAdded(credit.xpAdded);
+      setGains(
+        Object.entries(credit.skillXpAdded)
+          .map(([id, xp]) => {
+            const skill = getSkill(id, credit.ledger);
+            if (!skill) return null;
+            return {
+              skill,
+              xp,
+              levelBefore: skillLevelFromXp(before[id] ?? 0),
+              levelAfter: skill.level,
+            };
+          })
+          .filter((g): g is SkillGain => g !== null)
+          .sort((a, b) => b.xp - a.xp),
+      );
+      return credit.ledger;
+    });
+
+    saveResultsState(mission.id, { claimed: true, score: result.score });
+  }, [hydrated, mission, update]);
+
+  // A revisit after the reward was already credited still shows the run's grade.
+  useEffect(() => {
+    if (grade || !hydrated) return;
+    const saved = loadResultsState(mission.id);
+    if (!saved) return;
+    setXpAdded(0);
+  }, [grade, hydrated, mission.id]);
+
+  // Next mission: an authored override wins, but only if it's actually
+  // playable — otherwise the derived next one, then the catalogue.
+  const { nextHref, hasNext } = useMemo(() => {
+    const override = config.nextMissionId
+      ? getMission(config.nextMissionId)
+      : undefined;
+    const nextId =
+      override && canStart(override, view)
+        ? override.id
+        : nextMissionId(mission.id, view);
+    return {
+      nextHref: nextId ? `/missions/${nextId}/briefing` : "/missions",
+      hasNext: Boolean(nextId),
+    };
+  }, [config.nextMissionId, mission.id, view]);
+
+  if (!grade) {
+    return (
+      <div className="py-20 text-center text-sm text-slate-500">
+        Grading your run…
+      </div>
+    );
+  }
+
+  const narrative = narrativeFor(config, grade.resolved);
 
   return (
     <div className="flex flex-col gap-6">
-      <ResultsHeader config={config} />
+      <ResultsHeader grade={grade} summary={narrative.summary} />
 
       <ResultsMissionRecap
-        title={missionTitle}
-        blurb={config.missionBlurb}
-        difficulty={difficulty}
-        resolved={config.status === "resolved"}
+        title={mission.title}
+        blurb={narrative.missionBlurb}
+        difficulty={mission.difficulty}
+        resolved={grade.resolved}
       />
 
+      <ScoreBreakdown grade={grade} />
+
       <div className="grid grid-cols-1 items-stretch gap-5 lg:grid-cols-2">
-        <WhatYouFixed fix={config.fix} />
-        <PerformanceImprovement metrics={config.metrics} />
+        <WhatYouFixed fix={config.fix} resolved={grade.resolved} />
+        {/* Impact is the correct fix's impact — only real once it was applied. */}
+        <PerformanceImprovement
+          metrics={config.metrics}
+          resolved={grade.resolved}
+        />
       </div>
 
       <div className="grid grid-cols-1 items-stretch gap-5 lg:grid-cols-2">
         <WhatYouLearned lessons={config.lessons} />
         <SkillsImproved
-          skill={config.skillImprovement}
-          skillBefore={skill.before}
-          skillAfter={skill.after}
+          gains={gains}
+          description={config.skillImprovement.description}
         />
       </div>
 
@@ -75,14 +190,19 @@ export function ResultsWorkspace({
           </span>
           <div>
             <div className="text-xs font-medium uppercase tracking-[0.14em] text-slate-400">
-              You earned
+              {xpAdded > 0 ? "You earned" : "Already credited"}
             </div>
             <div className="text-3xl font-bold text-white">
-              +{config.xpEarned} XP
+              +{xpAdded > 0 ? xpAdded : grade.xpEarned} XP
             </div>
+            {xpAdded === 0 && (
+              <div className="mt-1 text-xs text-violet-200/70">
+                A replay only adds XP when it beats your best score.
+              </div>
+            )}
           </div>
           <p className="text-sm leading-relaxed text-violet-200/80 sm:ml-auto sm:max-w-xs">
-            {config.encouragement}
+            {narrative.encouragement}
           </p>
         </div>
       </div>
@@ -97,15 +217,33 @@ export function ResultsWorkspace({
             <ArrowLeft className="h-4 w-4" />
             Back to Missions
           </Link>
+          {/* An unresolved incident is worth another attempt before moving on. */}
+          {!grade.resolved && (
+            <Link
+              href={`/missions/${mission.id}/briefing`}
+              className="inline-flex items-center justify-center gap-2 rounded-xl border border-amber-400/40 bg-amber-500/10 px-8 py-3.5 text-sm font-semibold text-amber-200 transition-colors hover:border-amber-400/60"
+            >
+              Run It Again
+            </Link>
+          )}
           <Link
             href={nextHref}
             className="group inline-flex items-center justify-center gap-2.5 rounded-xl border border-violet-400/40 bg-gradient-to-r from-violet-600 to-violet-500 px-8 py-3.5 text-sm font-semibold text-white shadow-neon transition-transform hover:scale-[1.02]"
           >
-            Next Mission
+            {hasNext ? "Next Mission" : "All Missions"}
             <ArrowRight className="h-4 w-4 transition-transform group-hover:translate-x-0.5" />
           </Link>
         </div>
       </div>
+
+      {!hasNext && (
+        <p className="text-center text-xs text-slate-500">
+          More Node.js incidents are currently being prepared.
+        </p>
+      )}
     </div>
   );
 }
+
+/** Re-exported so the flow's stage count has a single definition. */
+export const RESULTS_TOTAL_STEPS = MISSION_FLOW.length;

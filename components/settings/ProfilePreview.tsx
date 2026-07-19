@@ -1,29 +1,21 @@
+"use client";
+
 import { Settings as SettingsIcon, ShieldCheck } from "lucide-react";
-import { CAREER_RANKS } from "@/lib/data";
-import { DEMO_PLAYER } from "@/lib/dashboard";
+import { useProgress } from "@/components/progress/ProgressProvider";
+import { DEFAULT_PLAYER_NAME } from "@/lib/dashboard";
 import { AVATARS } from "@/lib/onboarding";
 import type { ProfileValues } from "./ProfileSection";
 
 /**
- * The rank the player currently holds, read off the same XP ladder the landing
- * page and dashboard show — the last rank whose range they've reached.
- */
-function currentRank(totalXp: number): string {
-  const reached = CAREER_RANKS.filter(
-    (r) => totalXp >= Number(r.xpRange.split("–")[0].replace(/[^\d]/g, "")),
-  );
-  return reached[reached.length - 1]?.name ?? CAREER_RANKS[0].name;
-}
-
-/**
  * A small preview of how the profile reads, mirroring the form live so the
- * effect of a change is visible before it's saved. Progress values come from
- * the shared player record — this panel displays them, it never sets them.
+ * effect of a change is visible before it's saved. Level, XP and rank are read
+ * from the progression ledger — this panel displays them, it never sets them.
  */
 export function ProfilePreview({ profile }: { profile: ProfileValues }) {
+  const { player } = useProgress();
   const avatar = AVATARS.find((a) => a.id === profile.avatarId) ?? AVATARS[0];
   const Icon = avatar.icon;
-  const name = profile.name.trim() || DEMO_PLAYER.name;
+  const name = profile.name.trim() || DEFAULT_PLAYER_NAME;
 
   return (
     <div className="flex flex-col gap-4">
@@ -55,7 +47,7 @@ export function ProfilePreview({ profile }: { profile: ProfileValues }) {
             {name}
           </div>
           <div className="text-xs font-medium text-violet-300">
-            Level {DEMO_PLAYER.level}
+            Level {player.level}
           </div>
         </div>
 
@@ -63,13 +55,13 @@ export function ProfilePreview({ profile }: { profile: ProfileValues }) {
           <div>
             <div className="text-xs text-slate-500">Total XP</div>
             <div className="mt-0.5 font-mono text-sm font-bold text-violet-300">
-              {DEMO_PLAYER.totalXp.toLocaleString("en-US")} XP
+              {player.totalXp.toLocaleString("en-US")} XP
             </div>
           </div>
           <div>
             <div className="text-xs text-slate-500">Rank</div>
             <div className="mt-0.5 text-sm font-bold text-electric-300">
-              {currentRank(DEMO_PLAYER.totalXp)}
+              {player.rank}
             </div>
           </div>
         </div>
@@ -83,7 +75,8 @@ export function ProfilePreview({ profile }: { profile: ProfileValues }) {
           <h2 className="text-sm font-semibold text-white">About Settings</h2>
         </div>
         <p className="mt-3 text-xs leading-relaxed text-slate-400">
-          These settings affect your CodeRaid experience only.
+          These settings affect your CodeRaid experience only. Nothing here
+          changes how a Node.js incident is scored.
         </p>
         <p className="mt-2 text-xs leading-relaxed text-slate-400">
           Your profile and preferences are kept when you reset mission progress.

@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 import { Inter, JetBrains_Mono } from "next/font/google";
+import { ProgressProvider } from "@/components/progress/ProgressProvider";
 import { SettingsEffects } from "@/components/settings/SettingsEffects";
 import "./globals.css";
 
@@ -16,22 +17,23 @@ const jetbrains = JetBrains_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "CodeRaid — Play Like a Software Engineer",
+  title: "CodeRaid — Master Node.js Through Real Production Incidents",
   description:
-    "CodeRaid is a software engineer simulator. Investigate production incidents, diagnose bugs, apply real fixes, and level up your backend engineering skills.",
+    "CodeRaid is a Node.js backend debugging and interview-preparation simulator. Investigate logs, metrics, traces and backend code, diagnose the root cause of realistic production incidents, and ship the fix.",
   keywords: [
-    "software engineer simulator",
-    "backend engineering",
     "Node.js",
-    "JavaScript",
-    "SQL",
-    "debugging",
-    "interview preparation",
+    "Node.js debugging",
+    "backend engineering",
+    "production incidents",
+    "event loop",
+    "async JavaScript in Node.js",
+    "API performance",
+    "backend interview preparation",
   ],
   openGraph: {
-    title: "CodeRaid — Play Like a Software Engineer",
+    title: "CodeRaid — Master Node.js Through Real Production Incidents",
     description:
-      "Investigate incidents, diagnose bugs, apply fixes, and level up your engineering skills.",
+      "Debug realistic Node.js production incidents: investigate logs, metrics and traces, diagnose the root cause, apply the fix and verify the result.",
     type: "website",
   },
 };
@@ -45,7 +47,8 @@ export default function RootLayout({
     <html lang="en" className={`${inter.variable} ${jetbrains.variable}`}>
       <body>
         <SettingsEffects />
-        {children}
+        {/* One hydrated progression ledger for the whole app. */}
+        <ProgressProvider>{children}</ProgressProvider>
       </body>
     </html>
   );

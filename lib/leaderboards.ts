@@ -1,7 +1,14 @@
 import { Building2, Flag, Globe, Users, type LucideIcon } from "lucide-react";
 import { AVATARS, type Avatar } from "./onboarding";
 import type { Difficulty } from "./missions";
-import { SKILL_CATEGORIES, type SkillCategoryId } from "./skills";
+import {
+  levelFromXp,
+  missionsSince,
+  successRate,
+  xpSince,
+  type Ledger,
+} from "./progress";
+import { SKILL_CATEGORIES, categoryAverage, type SkillCategoryId } from "./skills";
 
 /* -------------------------------- Types --------------------------------- */
 
@@ -88,17 +95,15 @@ export const HOME_COMPANY = "Koreez";
  */
 export const TOTAL_PLAYERS = 12480;
 
-/** Positions gained since the previous period. Only the summary panel reads it. */
-export const RANK_CHANGE: Record<LeaderboardPeriod, number> = {
-  week: 1,
-  month: 2,
-  all: -1,
-};
-
 /* -------------------------------- Roster -------------------------------- */
 
-// Static demo standings. Deliberately separate from the player's real progress
-// (`DEMO_PLAYER` / the onboarding draft) so mock rankings never write over it.
+// Static demo standings for everyone *except* the player.
+//
+// There is no backend, so the other 12,479 players are necessarily fictional —
+// but the player's own row is not. It is built from their progression ledger by
+// `currentPlayerEntry()` and ranked against this roster with its real numbers,
+// so their position, percentile and period XP are all genuinely theirs. On a
+// fresh account that means starting at the bottom, which is the truth.
 const ROSTER: RosterEntry[] = [
   {
     id: "code-master",
@@ -108,7 +113,7 @@ const ROSTER: RosterEntry[] = [
     successRate: 91,
     country: "Germany",
     company: "Datadog",
-    focus: "architecture",
+    focus: "node-core",
     difficulty: "Expert",
     xp: { week: 3100, month: 12750, all: 61200 },
     missions: { week: 14, month: 52, all: 248 },
@@ -121,7 +126,7 @@ const ROSTER: RosterEntry[] = [
     successRate: 88,
     country: "United States",
     company: "Stripe",
-    focus: "database",
+    focus: "apis",
     difficulty: "Hard",
     isFriend: true,
     xp: { week: 2450, month: 9450, all: 38400 },
@@ -135,24 +140,10 @@ const ROSTER: RosterEntry[] = [
     successRate: 85,
     country: "Japan",
     company: "Shopify",
-    focus: "backend",
+    focus: "apis",
     difficulty: "Hard",
     xp: { week: 1980, month: 8100, all: 35900 },
     missions: { week: 9, month: 38, all: 164 },
-  },
-  {
-    id: "current-user",
-    username: "ArsDev",
-    avatar: "nova",
-    level: 24,
-    successRate: 82,
-    country: HOME_COUNTRY,
-    company: HOME_COMPANY,
-    focus: "testing",
-    difficulty: "Medium",
-    isCurrentUser: true,
-    xp: { week: 2050, month: 7500, all: 41300 },
-    missions: { week: 8, month: 34, all: 187 },
   },
   {
     id: "tech-wizard",
@@ -162,7 +153,7 @@ const ROSTER: RosterEntry[] = [
     successRate: 76,
     country: "Poland",
     company: "Vercel",
-    focus: "performance",
+    focus: "debugging",
     difficulty: "Hard",
     isFriend: true,
     xp: { week: 1620, month: 6230, all: 29800 },
@@ -176,7 +167,7 @@ const ROSTER: RosterEntry[] = [
     successRate: 74,
     country: HOME_COUNTRY,
     company: HOME_COMPANY,
-    focus: "language",
+    focus: "runtime",
     difficulty: "Hard",
     isFriend: true,
     xp: { week: 1740, month: 6100, all: 27450 },
@@ -190,7 +181,7 @@ const ROSTER: RosterEntry[] = [
     successRate: 70,
     country: "Brazil",
     company: "Freelance",
-    focus: "testing",
+    focus: "debugging",
     difficulty: "Medium",
     xp: { week: 1380, month: 5450, all: 24100 },
     missions: { week: 6, month: 24, all: 118 },
@@ -203,7 +194,7 @@ const ROSTER: RosterEntry[] = [
     successRate: 68,
     country: "India",
     company: "Datadog",
-    focus: "language",
+    focus: "node-core",
     difficulty: "Medium",
     isFriend: true,
     xp: { week: 1290, month: 5200, all: 23350 },
@@ -217,7 +208,7 @@ const ROSTER: RosterEntry[] = [
     successRate: 66,
     country: HOME_COUNTRY,
     company: HOME_COMPANY,
-    focus: "database",
+    focus: "apis",
     difficulty: "Medium",
     xp: { week: 1150, month: 4900, all: 21600 },
     missions: { week: 5, month: 21, all: 104 },
@@ -230,7 +221,7 @@ const ROSTER: RosterEntry[] = [
     successRate: 64,
     country: "Canada",
     company: "Stripe",
-    focus: "architecture",
+    focus: "node-core",
     difficulty: "Expert",
     xp: { week: 1080, month: 4650, all: 22900 },
     missions: { week: 5, month: 20, all: 109 },
@@ -243,7 +234,7 @@ const ROSTER: RosterEntry[] = [
     successRate: 79,
     country: "Spain",
     company: "Vercel",
-    focus: "performance",
+    focus: "apis",
     difficulty: "Hard",
     isFriend: true,
     xp: { week: 980, month: 4380, all: 19750 },
@@ -257,7 +248,7 @@ const ROSTER: RosterEntry[] = [
     successRate: 61,
     country: HOME_COUNTRY,
     company: HOME_COMPANY,
-    focus: "testing",
+    focus: "debugging",
     difficulty: "Medium",
     xp: { week: 1020, month: 4120, all: 18300 },
     missions: { week: 5, month: 18, all: 89 },
@@ -270,7 +261,7 @@ const ROSTER: RosterEntry[] = [
     successRate: 72,
     country: "Germany",
     company: "Shopify",
-    focus: "database",
+    focus: "apis",
     difficulty: "Hard",
     xp: { week: 870, month: 3940, all: 17800 },
     missions: { week: 4, month: 17, all: 86 },
@@ -283,7 +274,7 @@ const ROSTER: RosterEntry[] = [
     successRate: 58,
     country: "United Kingdom",
     company: "Freelance",
-    focus: "language",
+    focus: "runtime",
     difficulty: "Easy",
     xp: { week: 760, month: 3710, all: 15400 },
     missions: { week: 4, month: 17, all: 82 },
@@ -296,7 +287,7 @@ const ROSTER: RosterEntry[] = [
     successRate: 67,
     country: "Poland",
     company: "Datadog",
-    focus: "testing",
+    focus: "debugging",
     difficulty: "Medium",
     isFriend: true,
     xp: { week: 820, month: 3520, all: 16100 },
@@ -310,7 +301,7 @@ const ROSTER: RosterEntry[] = [
     successRate: 63,
     country: HOME_COUNTRY,
     company: HOME_COMPANY,
-    focus: "performance",
+    focus: "debugging",
     difficulty: "Hard",
     xp: { week: 690, month: 3340, all: 14750 },
     missions: { week: 3, month: 15, all: 74 },
@@ -323,7 +314,7 @@ const ROSTER: RosterEntry[] = [
     successRate: 60,
     country: "India",
     company: "Stripe",
-    focus: "architecture",
+    focus: "node-core",
     difficulty: "Expert",
     xp: { week: 640, month: 3180, all: 13900 },
     missions: { week: 3, month: 14, all: 71 },
@@ -336,7 +327,7 @@ const ROSTER: RosterEntry[] = [
     successRate: 71,
     country: "Brazil",
     company: "Vercel",
-    focus: "backend",
+    focus: "apis",
     difficulty: "Medium",
     xp: { week: 710, month: 3020, all: 12600 },
     missions: { week: 3, month: 14, all: 67 },
@@ -349,7 +340,7 @@ const ROSTER: RosterEntry[] = [
     successRate: 57,
     country: "Japan",
     company: "Shopify",
-    focus: "language",
+    focus: "runtime",
     difficulty: "Hard",
     xp: { week: 580, month: 2870, all: 11950 },
     missions: { week: 3, month: 13, all: 63 },
@@ -362,7 +353,7 @@ const ROSTER: RosterEntry[] = [
     successRate: 54,
     country: HOME_COUNTRY,
     company: HOME_COMPANY,
-    focus: "backend",
+    focus: "runtime",
     difficulty: "Medium",
     isFriend: true,
     xp: { week: 620, month: 2740, all: 11200 },
@@ -376,7 +367,7 @@ const ROSTER: RosterEntry[] = [
     successRate: 65,
     country: "Canada",
     company: "Datadog",
-    focus: "database",
+    focus: "apis",
     difficulty: "Medium",
     xp: { week: 540, month: 2610, all: 10400 },
     missions: { week: 2, month: 12, all: 56 },
@@ -389,7 +380,7 @@ const ROSTER: RosterEntry[] = [
     successRate: 52,
     country: "Spain",
     company: "Freelance",
-    focus: "architecture",
+    focus: "node-core",
     difficulty: "Expert",
     xp: { week: 490, month: 2480, all: 9850 },
     missions: { week: 2, month: 11, all: 52 },
@@ -402,7 +393,7 @@ const ROSTER: RosterEntry[] = [
     successRate: 59,
     country: "United States",
     company: "Stripe",
-    focus: "testing",
+    focus: "debugging",
     difficulty: "Easy",
     xp: { week: 520, month: 2350, all: 9100 },
     missions: { week: 2, month: 11, all: 49 },
@@ -415,7 +406,7 @@ const ROSTER: RosterEntry[] = [
     successRate: 55,
     country: HOME_COUNTRY,
     company: HOME_COMPANY,
-    focus: "performance",
+    focus: "node-core",
     difficulty: "Medium",
     xp: { week: 460, month: 2190, all: 8600 },
     missions: { week: 2, month: 10, all: 46 },
@@ -428,7 +419,7 @@ const ROSTER: RosterEntry[] = [
     successRate: 62,
     country: "Germany",
     company: "Vercel",
-    focus: "database",
+    focus: "apis",
     difficulty: "Easy",
     isFriend: true,
     xp: { week: 430, month: 2060, all: 7900 },
@@ -442,7 +433,7 @@ const ROSTER: RosterEntry[] = [
     successRate: 51,
     country: "Poland",
     company: "Shopify",
-    focus: "backend",
+    focus: "apis",
     difficulty: "Easy",
     xp: { week: 390, month: 1920, all: 7300 },
     missions: { week: 2, month: 9, all: 41 },
@@ -455,7 +446,7 @@ const ROSTER: RosterEntry[] = [
     successRate: 48,
     country: "India",
     company: "Freelance",
-    focus: "language",
+    focus: "runtime",
     difficulty: "Easy",
     xp: { week: 350, month: 1780, all: 6500 },
     missions: { week: 1, month: 9, all: 38 },
@@ -468,7 +459,7 @@ const ROSTER: RosterEntry[] = [
     successRate: 56,
     country: HOME_COUNTRY,
     company: HOME_COMPANY,
-    focus: "testing",
+    focus: "debugging",
     difficulty: "Easy",
     xp: { week: 320, month: 1640, all: 6100 },
     missions: { week: 1, month: 8, all: 35 },
@@ -481,7 +472,7 @@ const ROSTER: RosterEntry[] = [
     successRate: 45,
     country: "Brazil",
     company: "Datadog",
-    focus: "performance",
+    focus: "runtime",
     difficulty: "Easy",
     xp: { week: 280, month: 1490, all: 5400 },
     missions: { week: 1, month: 8, all: 31 },
@@ -494,7 +485,7 @@ const ROSTER: RosterEntry[] = [
     successRate: 43,
     country: "Canada",
     company: "Vercel",
-    focus: "architecture",
+    focus: "node-core",
     difficulty: "Medium",
     isFriend: true,
     xp: { week: 240, month: 1350, all: 4900 },
@@ -557,16 +548,69 @@ export const DEFAULT_FILTERS: LeaderboardFilters = {
   playerScope: "all",
 };
 
-const CURRENT_LEVEL =
-  ROSTER.find((e) => e.isCurrentUser)?.level ?? 0;
+/* ------------------------- The player's own entry ----------------------- */
 
-function matchesFilters(entry: RosterEntry, f: LeaderboardFilters): boolean {
+/**
+ * The current user's roster entry, built entirely from their progression
+ * ledger: XP per period from when they actually completed each mission, level
+ * from the XP curve, success rate from how many of their runs resolved.
+ *
+ * `focus` is their strongest skill category, so the category filter tells the
+ * truth about them too. On an empty ledger this is a level-1 row with 0 XP —
+ * which is exactly where a new player stands.
+ */
+export function currentPlayerEntry(
+  ledger: Ledger,
+  username: string,
+  avatarId?: string,
+): RosterEntry {
+  const categories = SKILL_CATEGORIES.map((c) => ({
+    id: c.id,
+    average: categoryAverage(c.id, ledger),
+  })).sort((a, b) => b.average - a.average);
+
+  return {
+    id: CURRENT_USER_ID,
+    username,
+    avatar: avatarId,
+    level: levelFromXp(ledger.totalXp),
+    successRate: successRate(ledger),
+    country: HOME_COUNTRY,
+    company: HOME_COMPANY,
+    focus: categories[0]?.id ?? "runtime",
+    difficulty: "Medium",
+    isCurrentUser: true,
+    xp: {
+      week: xpSince(ledger, 7),
+      month: xpSince(ledger, 30),
+      all: ledger.totalXp,
+    },
+    missions: {
+      week: missionsSince(ledger, 7),
+      month: missionsSince(ledger, 30),
+      all: Object.keys(ledger.missions).length,
+    },
+  };
+}
+
+export const CURRENT_USER_ID = "current-user";
+
+/** The full field: the fictional roster plus the player's real row. */
+function rosterWith(me: RosterEntry | null): RosterEntry[] {
+  return me ? [...ROSTER, me] : ROSTER;
+}
+
+function matchesFilters(
+  entry: RosterEntry,
+  f: LeaderboardFilters,
+  currentLevel: number,
+): boolean {
   if (f.category !== "all" && entry.focus !== f.category) return false;
   if (f.difficulty !== "all" && entry.difficulty !== f.difficulty) return false;
   if (f.playerScope === "friends" && !entry.isFriend && !entry.isCurrentUser) return false;
   if (
     f.playerScope === "similar" &&
-    Math.abs(entry.level - CURRENT_LEVEL) > SIMILAR_LEVEL_RANGE
+    Math.abs(entry.level - currentLevel) > SIMILAR_LEVEL_RANGE
   ) {
     return false;
   }
@@ -583,8 +627,10 @@ function matchesFilters(entry: RosterEntry, f: LeaderboardFilters): boolean {
 export function getStandings(
   scope: LeaderboardScope,
   period: LeaderboardPeriod,
+  me: RosterEntry | null = null,
 ): LeaderboardPlayer[] {
-  return ROSTER.filter((e) => inScope(e, scope))
+  return rosterWith(me)
+    .filter((e) => inScope(e, scope))
     .sort((a, b) => b.xp[period] - a.xp[period])
     .map((e, i) => toPlayer(e, period, i + 1));
 }
@@ -599,14 +645,16 @@ export function getLeaderboard(
   scope: LeaderboardScope,
   period: LeaderboardPeriod,
   filters: LeaderboardFilters = DEFAULT_FILTERS,
+  me: RosterEntry | null = null,
 ) {
-  const standings = getStandings(scope, period);
-  const byId = new Map(ROSTER.map((e) => [e.id, e]));
+  const standings = getStandings(scope, period, me);
+  const byId = new Map(rosterWith(me).map((e) => [e.id, e]));
+  const currentLevel = me?.level ?? 0;
 
   const podium = standings.slice(0, 3);
   const rows = standings
     .slice(3)
-    .filter((p) => matchesFilters(byId.get(p.id)!, filters));
+    .filter((p) => matchesFilters(byId.get(p.id)!, filters, currentLevel));
 
   return { podium, rows, total: standings.length };
 }
@@ -615,27 +663,36 @@ export function getLeaderboard(
 export function getCurrentUser(
   scope: LeaderboardScope,
   period: LeaderboardPeriod,
+  me: RosterEntry | null = null,
 ): LeaderboardPlayer | undefined {
-  return getStandings(scope, period).find((p) => p.isCurrentUser);
+  return getStandings(scope, period, me).find((p) => p.isCurrentUser);
 }
 
 /**
- * The compact summary panel: rank, percentile, period XP and rank movement.
+ * The compact summary panel: rank, percentile, period XP and incidents cleared.
  * Percentile is scaled against `TOTAL_PLAYERS`, floored at 1 — "Top 0%" reads
  * as a bug, and nobody is better than the top 1%.
+ *
+ * There is no "rank movement" here: nothing records what the player's rank was
+ * last week, so any arrow would be decoration rather than information.
  */
-export function getRankSummary(scope: LeaderboardScope, period: LeaderboardPeriod) {
-  const me = getCurrentUser(scope, period);
-  if (!me) return null;
+export function getRankSummary(
+  scope: LeaderboardScope,
+  period: LeaderboardPeriod,
+  me: RosterEntry | null = null,
+) {
+  const row = getCurrentUser(scope, period, me);
+  if (!row) return null;
 
-  const population = scope === "global" ? TOTAL_PLAYERS : getStandings(scope, period).length;
-  const percentile = Math.max(1, Math.round((me.rank / population) * 100));
+  const population =
+    scope === "global" ? TOTAL_PLAYERS : getStandings(scope, period, me).length;
+  const percentile = Math.max(1, Math.round((row.rank / population) * 100));
 
   return {
-    rank: me.rank,
+    rank: row.rank,
     percentile,
-    xp: me.xp,
-    rankChange: RANK_CHANGE[period],
+    xp: row.xp,
+    missions: row.missionsCompleted,
     periodLabel: PERIODS.find((p) => p.id === period)!.label.toLowerCase(),
   };
 }

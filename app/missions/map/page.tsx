@@ -5,7 +5,7 @@ import { MissionMapView } from "@/components/missions/map/MissionMapView";
 export const metadata = {
   title: "Mission Map — CodeRaid",
   description:
-    "See your mission journey: what you've completed, what's in progress, and what unlocks next.",
+    "Your Node.js debugging path: what you've completed, what's in progress, and what's still being prepared.",
 };
 
 export default function MissionMapPage({

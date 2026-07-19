@@ -1,5 +1,5 @@
 import { ArrowRight, Check, HelpCircle } from "lucide-react";
-import { CODERAID_FLOW, TRADITIONAL_TRAITS } from "@/lib/data";
+import { CODERAID_FLOW, CODERAID_TRAITS, TRADITIONAL_TRAITS } from "@/lib/data";
 import { Reveal } from "./ui/Reveal";
 
 export function ComparisonSection() {
@@ -11,7 +11,8 @@ export function ComparisonSection() {
             Not Another Coding Quiz.
           </h2>
           <p className="text-sm text-slate-400 sm:text-base">
-            Real incidents. Real impact. Real learning.
+            Traditional platforms drill isolated syntax questions. CodeRaid
+            drops you into realistic Node.js production incidents.
           </p>
         </div>
 
@@ -78,6 +79,14 @@ export function ComparisonSection() {
                 );
               })}
             </ol>
+
+            <ul className="mt-5 grid grid-cols-3 gap-x-2 text-center text-[0.7rem] text-slate-400">
+              {CODERAID_TRAITS.map((trait) => (
+                <li key={trait} className="leading-tight">
+                  {trait}
+                </li>
+              ))}
+            </ul>
 
             <p className="mt-6 text-center text-xs text-slate-400">
               Think like an engineer. Make decisions.{" "}

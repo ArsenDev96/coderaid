@@ -1,7 +1,7 @@
 import {
+  Activity,
   Bug,
   CalendarCheck,
-  Database,
   Flag,
   Flame,
   Medal,
@@ -12,11 +12,16 @@ import {
   Zap,
   type LucideIcon,
 } from "lucide-react";
-import { CAREER_RANKS } from "./data";
-import { DEMO_PLAYER } from "./dashboard";
+import { rankMinXp } from "./data";
 import { MISSIONS, resolveBriefing, type Mission } from "./missions";
-import { resultsConfigs } from "./results";
-import { SKILLS } from "./skills";
+import {
+  EMPTY_LEDGER,
+  bestScore,
+  completedMissionIds,
+  streakDays,
+  type Ledger,
+} from "./progress";
+import { skillLevel } from "./skills";
 
 /* -------------------------------- Types --------------------------------- */
 
@@ -66,7 +71,7 @@ export const ACHIEVEMENT_ICONS: Record<string, LucideIcon> = {
   flag: Flag,
   medal: Medal,
   bug: Bug,
-  database: Database,
+  eventLoop: Activity,
   repeat: Repeat,
   target: Target,
   trophy: Trophy,
@@ -85,39 +90,45 @@ export const ACHIEVEMENT_ICONS: Record<string, LucideIcon> = {
  * construction: re-deriving after a refresh re-computes the same answer.
  */
 export type AchievementSources = {
+  /** Missions run to the end, whatever the outcome. */
   completedMissions: Mission[];
+  /** Missions whose applied fix actually resolved the incident. */
+  resolvedMissions: Mission[];
+  /** Resolved runs where no hint was opened. */
+  hintFreeResolved: number;
   streakDays: number;
   totalXp: number;
-  /** Best score across missions the player has results for. */
+  /** Best score across the player's graded runs. */
   bestScore: number;
+  /** Level for a skill id, from the canonical Node.js skill taxonomy. */
   skillLevel: (skillId: string) => number;
 };
 
-function skillLevel(skillId: string): number {
-  return SKILLS.find((s) => s.id === skillId)?.level ?? 0;
-}
-
 /**
- * Progress as the rest of the app knows it. `extraCompletedIds` folds in the
- * reward ledger's claimed missions (see `claimedMissionIds`) so a mission the
- * player actually finished counts here too, without a second tally.
+ * Progress as the rest of the app knows it — read straight off the progression
+ * ledger. Completed missions, streak, XP, best score and skill levels are all
+ * things the player earned; none of them is authored anywhere.
  */
-export function achievementSources(extraCompletedIds: string[] = []): AchievementSources {
-  const claimed = new Set(extraCompletedIds);
-  const completedMissions = MISSIONS.filter(
-    (m) => m.status === "completed" || claimed.has(m.id),
+export function achievementSources(
+  ledger: Ledger = EMPTY_LEDGER,
+): AchievementSources {
+  const completed = new Set(completedMissionIds(ledger));
+  const resolved = new Set(
+    Object.values(ledger.missions)
+      .filter((r) => r.resolved)
+      .map((r) => r.missionId),
   );
 
-  const scores = Object.values(resultsConfigs)
-    .filter((r) => r.status === "resolved")
-    .map((r) => r.score);
-
   return {
-    completedMissions,
-    streakDays: DEMO_PLAYER.streakDays,
-    totalXp: DEMO_PLAYER.totalXp,
-    bestScore: scores.length ? Math.max(...scores) : 0,
-    skillLevel,
+    completedMissions: MISSIONS.filter((m) => completed.has(m.id)),
+    resolvedMissions: MISSIONS.filter((m) => resolved.has(m.id)),
+    hintFreeResolved: Object.values(ledger.missions).filter(
+      (r) => r.resolved && r.hintsUsed === 0,
+    ).length,
+    streakDays: streakDays(ledger),
+    totalXp: ledger.totalXp,
+    bestScore: bestScore(ledger),
+    skillLevel: (skillId: string) => skillLevel(skillId, ledger),
   };
 }
 
@@ -125,17 +136,6 @@ export function achievementSources(extraCompletedIds: string[] = []): Achievemen
 
 /** The level at which a skill reads as "Advanced" on the Skills page. */
 const ADVANCED_LEVEL = 7;
-
-/**
- * The XP a career rank starts at, read off its `xpRange` so the threshold can't
- * drift from the rank ladder shown on the landing page and dashboard.
- * "10,000 – 24,999 XP" → 10000; "50,000+ XP" → 50000.
- */
-function rankMinXp(rankName: string): number {
-  const rank = CAREER_RANKS.find((r) => r.name === rankName);
-  if (!rank) return 0;
-  return Number(rank.xpRange.split("–")[0].replace(/[^\d]/g, "")) || 0;
-}
 
 /**
  * A production incident, as opposed to a fundamentals exercise: anything the
@@ -152,107 +152,104 @@ type AchievementDef = Omit<Achievement, "progress" | "unlocked"> & {
   measure: (s: AchievementSources) => number;
 };
 
-// Unlock dates are authored: nothing in the app records when a threshold was
-// actually crossed. They're only ever shown for achievements that derivation
-// already says are unlocked, so a date can never imply progress that isn't real.
+// No unlock dates are authored here. When a threshold was crossed is a fact
+// about the player, so it is stamped onto the ledger the moment derivation
+// first reports the achievement as unlocked, and read back in via `unlockedAt`.
 const DEFS: AchievementDef[] = [
   /* ------------------------- Mission progress ------------------------- */
   {
     id: "first-mission",
-    title: "First Mission",
-    description: "Complete your first mission.",
-    requirement: "Complete 1 mission",
+    title: "First Incident Resolved",
+    description: "Diagnose and fix your first Node.js incident.",
+    requirement: "Resolve 1 incident",
     category: "mission-progress",
     icon: "flag",
     tone: "violet",
     target: 1,
-    unlockedAt: "2026-05-12",
     link: { href: "/missions", label: "View missions" },
-    measure: (s) => s.completedMissions.length,
+    measure: (s) => s.resolvedMissions.length,
   },
   {
     id: "ten-missions",
-    title: "10 Missions Completed",
-    description: "Complete 10 missions.",
-    requirement: "Complete 10 missions",
+    title: "10 Incidents Resolved",
+    description: "Work 10 Node.js missions through to a verified fix.",
+    requirement: "Resolve 10 incidents",
     category: "mission-progress",
     icon: "medal",
     tone: "electric",
     target: 10,
     link: { href: "/missions", label: "View missions" },
-    measure: (s) => s.completedMissions.length,
+    measure: (s) => s.resolvedMissions.length,
   },
   {
     id: "chapter-one-cleared",
-    title: "Fundamentals Cleared",
-    description: "Complete every mission in Chapter 1.",
-    requirement: "Complete all Chapter 1 missions",
+    title: "Async JavaScript Cleared",
+    description:
+      "Complete every mission in Chapter 1 — the event loop, promises and async control flow.",
+    requirement: "Complete all Chapter 1: Async JavaScript missions",
     category: "mission-progress",
     icon: "trophy",
     tone: "violet",
     target: MISSIONS.filter((m) => m.chapterId === 1).length,
-    unlockedAt: "2026-05-28",
     link: { href: "/missions/map", label: "Open mission map" },
-    measure: (s) => s.completedMissions.filter((m) => m.chapterId === 1).length,
+    measure: (s) => s.resolvedMissions.filter((m) => m.chapterId === 1).length,
   },
 
   /* ------------------------- Technical skills ------------------------- */
   {
     id: "debugging-specialist",
-    title: "Debugging Specialist",
-    description: "Reach Advanced level in Debugging.",
-    requirement: `Reach Debugging level ${ADVANCED_LEVEL}`,
+    title: "Root-Cause Specialist",
+    description: "Reach Advanced level in Root-Cause Analysis.",
+    requirement: `Reach Root-Cause Analysis level ${ADVANCED_LEVEL}`,
     category: "technical-skills",
     icon: "bug",
     tone: "electric",
     target: ADVANCED_LEVEL,
-    unlockedAt: "2026-06-14",
     link: { href: "/skills", label: "View skills" },
-    measure: (s) => s.skillLevel("debugging"),
+    measure: (s) => s.skillLevel("root-cause-analysis"),
   },
   {
-    id: "sql-optimizer",
-    title: "SQL Optimizer",
-    description: "Reach Advanced level in PostgreSQL.",
-    requirement: `Reach PostgreSQL level ${ADVANCED_LEVEL}`,
+    id: "event-loop-master",
+    title: "Event Loop Master",
+    description: "Reach Advanced level in Event Loop.",
+    requirement: `Reach Event Loop level ${ADVANCED_LEVEL}`,
     category: "technical-skills",
-    icon: "database",
+    icon: "eventLoop",
     tone: "emerald",
     target: ADVANCED_LEVEL,
     link: { href: "/skills", label: "View skills" },
-    measure: (s) => s.skillLevel("postgresql"),
+    measure: (s) => s.skillLevel("event-loop"),
   },
   {
     id: "async-expert",
     title: "Async Expert",
-    description: "Reach Advanced level in Async & Concurrency.",
-    requirement: `Reach Async & Concurrency level ${ADVANCED_LEVEL}`,
+    description: "Reach Advanced level in Async JavaScript.",
+    requirement: `Reach Async JavaScript level ${ADVANCED_LEVEL}`,
     category: "technical-skills",
     icon: "repeat",
     tone: "amber",
     target: ADVANCED_LEVEL,
     link: { href: "/skills", label: "View skills" },
-    measure: (s) => s.skillLevel("async-concurrency"),
+    measure: (s) => s.skillLevel("async-javascript"),
   },
 
   /* --------------------------- Consistency ---------------------------- */
   {
     id: "seven-day-streak",
     title: "7-Day Streak",
-    description: "Complete missions 7 days in a row.",
+    description: "Debug Node.js missions 7 days in a row.",
     requirement: "Reach a 7-day streak",
     category: "consistency",
     icon: "flame",
     tone: "amber",
     target: 7,
-    unlockedAt: "2026-07-16",
     link: { href: "/dashboard", label: "Open dashboard" },
     measure: (s) => s.streakDays,
   },
   {
     id: "thirty-day-streak",
     title: "30-Day Streak",
-    description: "Complete missions 30 days in a row.",
+    description: "Debug Node.js missions 30 days in a row.",
     requirement: "Reach a 30-day streak",
     category: "consistency",
     icon: "calendar",
@@ -266,7 +263,7 @@ const DEFS: AchievementDef[] = [
   {
     id: "perfect-diagnosis",
     title: "Perfect Diagnosis",
-    description: "Solve a mission with 100% accuracy.",
+    description: "Land the exact root cause and fix on a mission — 100%.",
     requirement: "Score 100 on any mission",
     category: "quality",
     icon: "target",
@@ -277,42 +274,42 @@ const DEFS: AchievementDef[] = [
   },
   {
     id: "zero-hints-used",
-    title: "Zero Hints Used",
-    description: "Complete 5 missions without using any hints.",
+    title: "Unassisted Debugger",
+    description: "Resolve 5 incidents without opening a single hint.",
     requirement: "Complete 5 missions hint-free",
     category: "quality",
     icon: "trophy",
     tone: "electric",
     target: 5,
     link: { href: "/missions", label: "View missions" },
-    // Hints are always-on tool copy today — nothing records a hint as "used", so
-    // every completed mission counts as hint-free. Narrow this to the missions
-    // that were genuinely hint-free once hint usage is tracked.
-    measure: (s) => s.completedMissions.length,
+    // Hint usage is recorded per run, so this now measures what it claims:
+    // incidents resolved without a single hint opened.
+    measure: (s) => s.hintFreeResolved,
   },
 
   /* ----------------------------- Special ------------------------------ */
   {
     id: "production-incident-master",
-    title: "Production Incident Master",
-    description: "Resolve 10 production incident missions.",
-    requirement: "Resolve 10 production incidents",
+    title: "On-Call Veteran",
+    description:
+      "Resolve 10 missions the briefing rates above low severity — real production pressure.",
+    requirement: "Resolve 10 higher-severity incidents",
     category: "special",
     icon: "incident",
     tone: "slate",
     target: 10,
     link: { href: "/missions", label: "View missions" },
-    measure: (s) => s.completedMissions.filter(isProductionIncident).length,
+    measure: (s) => s.resolvedMissions.filter(isProductionIncident).length,
   },
   {
-    id: "senior-engineer-rank",
-    title: "Senior Engineer Rank",
-    description: "Reach the Senior rank on the career ladder.",
-    requirement: `Earn ${rankMinXp("Senior").toLocaleString("en-US")} XP`,
+    id: "backend-engineer-rank",
+    title: "Backend Engineer Rank",
+    description: "Reach the Backend Engineer rank on the Node.js ladder.",
+    requirement: `Earn ${rankMinXp("Backend Engineer").toLocaleString("en-US")} XP`,
     category: "special",
     icon: "rank",
     tone: "slate",
-    target: rankMinXp("Senior"),
+    target: rankMinXp("Backend Engineer"),
     link: { href: "/dashboard", label: "View career progress" },
     measure: (s) => s.totalXp,
   },
@@ -327,18 +324,24 @@ const DEFS: AchievementDef[] = [
  */
 export function getAchievements(
   sources: AchievementSources = achievementSources(),
+  unlockTimes: Record<string, string> = {},
 ): Achievement[] {
-  return DEFS.map(({ measure, unlockedAt, ...def }) => {
+  return DEFS.map(({ measure, ...def }) => {
     const progress = Math.min(measure(sources), def.target);
     const unlocked = progress >= def.target;
     return {
       ...def,
       progress,
       unlocked,
-      // A date only means something once the requirement is actually met.
-      unlockedAt: unlocked ? unlockedAt : undefined,
+      // The recorded crossing time, if this achievement has actually crossed.
+      unlockedAt: unlocked ? unlockTimes[def.id] : undefined,
     };
   });
+}
+
+/** Ids of everything currently unlocked — what the ledger stamps times for. */
+export function unlockedIds(list: Achievement[]): string[] {
+  return list.filter((a) => a.unlocked).map((a) => a.id);
 }
 
 export function completionRatio(a: Achievement): number {

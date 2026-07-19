@@ -1,22 +1,29 @@
 import {
   Award,
   BarChart3,
-  Boxes,
-  Bug,
-  Database,
-  Gauge,
   Home,
   Layers,
-  Lock,
   type LucideIcon,
-  Network,
   Settings,
   Star,
   Target,
-  TestTube2,
 } from "lucide-react";
+import { EMPTY_VIEW, recommendedMission, type PlayerView } from "./availability";
 import { getInvestigation } from "./investigation";
-import { CURRENT_MISSION_ID, SEVERITY_BADGE, getMission, resolveBriefing } from "./missions";
+import {
+  CURRENT_MISSION_ID,
+  SEVERITY_BADGE,
+  getMission,
+  resolveBriefing,
+  type Mission,
+} from "./missions";
+import {
+  levelFromXp,
+  levelProgress,
+  rankBand,
+  streakDays,
+  type Ledger,
+} from "./progress";
 
 /* ------------------------------- Player -------------------------------- */
 
@@ -28,16 +35,28 @@ export type Player = {
   streakDays: number;
 };
 
-// Demo profile — overridden by the onboarding localStorage draft where present.
-export const DEMO_PLAYER: Player = {
-  name: "Ars",
-  rank: "Junior Engineer",
-  level: 7,
-  totalXp: 4350,
-  streakDays: 7,
-};
+export const DEFAULT_PLAYER_NAME = "Engineer";
 
-export const GREETING_SUBTITLE = "Let's solve some real problems.";
+/**
+ * The player, entirely derived: XP is the sum of their graded mission runs,
+ * the level comes from the XP curve, the rank from the published thresholds
+ * and the streak from the days they actually played.
+ *
+ * There is no demo profile any more. A new player is level 1 with 0 XP,
+ * because that is what they have earned.
+ */
+export function playerFrom(ledger: Ledger, name = DEFAULT_PLAYER_NAME): Player {
+  return {
+    name,
+    rank: rankBand(ledger.totalXp).current.name,
+    level: levelFromXp(ledger.totalXp),
+    totalXp: ledger.totalXp,
+    streakDays: streakDays(ledger),
+  };
+}
+
+export const GREETING_SUBTITLE =
+  "Let's debug some real Node.js incidents.";
 
 /* ------------------------------ Navigation ------------------------------ */
 
@@ -57,14 +76,15 @@ export const SIDEBAR_ITEMS: SidebarItem[] = [
 export type CodeLine = { n: number; content: string; tone?: "comment" | "warn" };
 
 /**
- * The dashboard's "continue where you left off" card. Derived from the player's
- * current mission and its investigation content, so the title, severity and
- * code preview follow whichever mission is current instead of naming one.
+ * The dashboard's "continue where you left off" card. Derived from a mission
+ * and its investigation content, so the title, severity and code preview
+ * follow whichever mission is recommended instead of naming one.
+ *
+ * Deliberately carries no progress figures. How far into the mission the
+ * player is, how many clues they've found and how long they have left are
+ * facts about them, and come from `useMissionResume` after mount.
  */
-function buildNextAction() {
-  const mission = getMission(CURRENT_MISSION_ID);
-  if (!mission) throw new Error(`Unknown CURRENT_MISSION_ID: ${CURRENT_MISSION_ID}`);
-
+export function nextActionFor(mission: Mission) {
   const briefing = resolveBriefing(mission);
   const investigation = getInvestigation(mission.id);
 
@@ -83,22 +103,28 @@ function buildNextAction() {
     briefingHref: `/missions/${mission.id}/briefing`,
     title: mission.title,
     description: mission.description,
-    step: 2,
-    totalSteps: briefing.steps.length,
-    phase: "Investigate",
     severity: SEVERITY_BADGE[briefing.severity].label,
     severityCls: SEVERITY_BADGE[briefing.severity].cls,
     headline: investigation?.summary.headline ?? {
       label: "Status",
       value: "—",
     },
-    cluesFound: 2,
-    // Mirrors the workspace gate, so "2 / 3" here means the same "3" there.
-    cluesTotal: investigation?.requiredKeyClues ?? 5,
-    estTimeLeft: "12 min",
     findings: investigation?.summary.findings ?? [],
     code,
   };
+}
+
+export type NextActionData = ReturnType<typeof nextActionFor>;
+
+/**
+ * The card content for the mission the player should open next. Always a fully
+ * playable Node.js mission — `recommendedMission()` never returns locked or
+ * in-development content — with the catalogue's current mission as a fallback.
+ */
+export function buildNextAction(view: PlayerView = EMPTY_VIEW): NextActionData {
+  const mission = recommendedMission(view) ?? getMission(CURRENT_MISSION_ID);
+  if (!mission) throw new Error(`Unknown CURRENT_MISSION_ID: ${CURRENT_MISSION_ID}`);
+  return nextActionFor(mission);
 }
 
 export const NEXT_ACTION = buildNextAction();
@@ -109,131 +135,65 @@ export const RESPONSE_SERIES =
 
 /* ------------------------------ Daily raid ------------------------------ */
 
+/**
+ * A short, self-contained Node.js drill — planned, not built.
+ *
+ * It carries no XP figure and no route: there is nothing to play, so promising
+ * a reward the ledger can never credit would be a lie the moment a player
+ * clicked it. The card advertises the idea and says so.
+ */
 export const DAILY_RAID = {
-  title: "Daily Raid",
-  description: "Solve a quick challenge and earn extra XP every day.",
-  xp: 150,
+  title: "Daily Node.js Challenge",
+  description:
+    "A quick Node.js drill — event loop, promises, async iteration or error handling.",
+  topic: "Event loop and promise ordering",
+  prompt: "Predict the output order of a handler mixing timers and microtasks.",
+  note: "Daily challenges are being built — they aren't playable yet.",
 };
 
-/* ---------------------------- Career progress --------------------------- */
+/* -------------------------- Node.js progression ------------------------- */
 
-export const CAREER = {
-  currentRank: "Junior Engineer",
-  nextRank: "Mid-Level Engineer",
-  xp: 4350,
-  xpMax: 10000,
-  blurb: "Keep solving to reach the next rank.",
-};
+export const CAREER_BLURB = "Solve Node.js incidents to reach the next rank.";
 
-/* --------------------------- Recommended list --------------------------- */
+/**
+ * Rank and level progress for the dashboard card, derived from the player's
+ * real XP. There is one XP number — the ledger's — so the label, the bar and
+ * the rank can't drift apart.
+ */
+export function careerFor(ledger: Ledger) {
+  const band = rankBand(ledger.totalXp);
+  const level = levelProgress(ledger.totalXp);
+  return {
+    xp: ledger.totalXp,
+    currentRank: band.current.name,
+    nextRank: band.next?.name ?? band.current.name,
+    xpMax: band.xpMax,
+    atTopRank: band.atTopRank,
+    rankPct: band.atTopRank
+      ? 100
+      : Math.min(100, Math.round((ledger.totalXp / band.xpMax) * 100)),
+    level: level.level,
+    levelInto: level.into,
+    levelNeeded: level.needed,
+    levelPct: level.pct,
+    blurb: CAREER_BLURB,
+  };
+}
 
-export type Difficulty = "Easy" | "Medium" | "Hard";
+/* ------------------- Recommended missions and skills -------------------- */
 
-export type RecommendedMission = {
-  id: string;
-  title: string;
-  description: string;
-  difficulty: Difficulty;
-  xp: number;
-  icon: LucideIcon;
-  accent: "violet" | "electric" | "emerald";
-};
-
-export const RECOMMENDED_MISSIONS: RecommendedMission[] = [
-  {
-    id: "db-connection-leak",
-    title: "Database Connection Leak",
-    description: "Identify and fix connection leak in production",
-    difficulty: "Medium",
-    xp: 250,
-    icon: Database,
-    accent: "violet",
-  },
-  {
-    id: "cache-stampede",
-    title: "Cache Stampede",
-    description: "Prevent cache stampede during traffic spikes",
-    difficulty: "Hard",
-    xp: 300,
-    icon: Lock,
-    accent: "electric",
-  },
-  {
-    id: "message-queue-failure",
-    title: "Message Queue Failure",
-    description: "Diagnose failed jobs and fix the backlog",
-    difficulty: "Medium",
-    xp: 250,
-    icon: Boxes,
-    accent: "emerald",
-  },
-];
-
-/* ---------------------------- Skills summary ---------------------------- */
-
-export type DashboardSkill = {
-  name: string;
-  icon: LucideIcon;
-  level: number;
-  progress: number; // 0-100, drives the bar
-  xpToNext: number;
-  bar: string; // gradient classes
-  iconColor: string;
-};
-
-export const DASHBOARD_SKILLS: DashboardSkill[] = [
-  {
-    name: "Debugging",
-    icon: Bug,
-    level: 7,
-    progress: 72,
-    xpToNext: 350,
-    bar: "from-violet-500 to-violet-400",
-    iconColor: "text-violet-300",
-  },
-  {
-    name: "SQL",
-    icon: Database,
-    level: 6,
-    progress: 64,
-    xpToNext: 650,
-    bar: "from-electric-500 to-electric-400",
-    iconColor: "text-electric-300",
-  },
-  {
-    name: "Performance",
-    icon: Gauge,
-    level: 5,
-    progress: 48,
-    xpToNext: 800,
-    bar: "from-emerald-500 to-emerald-400",
-    iconColor: "text-emerald-300",
-  },
-  {
-    name: "System Design",
-    icon: Network,
-    level: 5,
-    progress: 44,
-    xpToNext: 900,
-    bar: "from-rose-500 to-rose-400",
-    iconColor: "text-rose-300",
-  },
-  {
-    name: "Testing",
-    icon: TestTube2,
-    level: 4,
-    progress: 36,
-    xpToNext: 700,
-    bar: "from-amber-500 to-amber-400",
-    iconColor: "text-amber-300",
-  },
-];
+// Both cards read from the canonical sources rather than a copy kept here:
+// `RecommendedMissions` derives its list from the mission catalogue filtered by
+// `canStart`, and `SkillsSummary` reads `lib/skills.ts` by stable skill id.
+// The old `RECOMMENDED_MISSIONS` / `DASHBOARD_SKILLS` fixtures are gone so the
+// dashboard can't advertise unplayable missions or conflicting skill numbers.
 
 /* ------------------------------- Premium -------------------------------- */
 
 export const PREMIUM = {
   title: "Go Premium",
-  blurb: "Unlock premium missions, exclusive rewards and advanced analytics.",
+  blurb:
+    "Unlock premium Node.js incidents, exclusive rewards and advanced analytics.",
   cta: "Upgrade Now",
   icon: Award,
 };

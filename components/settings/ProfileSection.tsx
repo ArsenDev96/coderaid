@@ -122,7 +122,7 @@ export function ProfileSection({
               className="w-full rounded-xl border border-white/10 bg-white/[0.03] px-3.5 py-2.5 text-sm text-white placeholder:text-slate-600 outline-none transition-colors hover:border-white/20 focus:border-violet-400/60"
             />
             <p className="mt-2 text-xs text-slate-500">
-              This is how other developers see you on CodeRaid.
+              This is how other backend developers see you on CodeRaid.
             </p>
           </div>
         </div>

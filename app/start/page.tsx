@@ -6,7 +6,7 @@ import { OnboardingWizard } from "@/components/onboarding/OnboardingWizard";
 export const metadata = {
   title: "Create Your Profile — CodeRaid",
   description:
-    "Set up your CodeRaid engineer profile and start your first raid. No account required.",
+    "Set up your CodeRaid profile and start your first Node.js debugging mission. No account required.",
 };
 
 export default function StartPage() {
@@ -29,7 +29,7 @@ export default function StartPage() {
               Code<span className="text-gradient">Raid</span>
             </span>
             <span className="mt-0.5 text-[0.6rem] uppercase tracking-[0.2em] text-slate-500">
-              Software Engineer Simulator
+              Node.js Debugging Simulator
             </span>
           </span>
         </Link>

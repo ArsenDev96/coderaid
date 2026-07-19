@@ -1,26 +1,26 @@
 import {
   Activity,
-  Award,
-  Braces,
   Brain,
   Bug,
+  Cloud,
   Code2,
   Crosshair,
   Crown,
   Database,
   Flag,
-  Flame,
   GitBranch,
   Gauge,
   GraduationCap,
   Hexagon,
+  Layers,
+  Network,
+  Repeat,
   Search,
   Server,
   ShieldCheck,
   Sparkles,
   Star,
   TrendingUp,
-  Trophy,
   Wrench,
   Zap,
 } from "lucide-react";
@@ -28,13 +28,11 @@ import type {
   Benefit,
   CareerRank,
   FlowStep,
-  GameStat,
   HeroHighlight,
   HowItWorksStep,
   LandingSkill,
   NavLink,
   RankAccent,
-  Skill,
   SkillColor,
 } from "./types";
 
@@ -46,6 +44,7 @@ export const SKILL_COLORS: Record<SkillColor, { icon: string; bar: string }> = {
   fuchsia: { icon: "text-fuchsia-300", bar: "from-fuchsia-500 to-fuchsia-300" },
   orange: { icon: "text-orange-300", bar: "from-orange-500 to-orange-300" },
   cyan: { icon: "text-cyan-300", bar: "from-cyan-500 to-cyan-300" },
+  slate: { icon: "text-slate-400", bar: "from-slate-600 to-slate-500" },
 };
 
 export const NAV_LINKS: NavLink[] = [
@@ -58,13 +57,13 @@ export const NAV_LINKS: NavLink[] = [
 
 export const HERO_HIGHLIGHTS: HeroHighlight[] = [
   {
-    label: "Real production incidents",
+    label: "Realistic Node.js incidents",
     icon: Crosshair,
     accent: "text-violet-300",
   },
-  { label: "Hands-on problem solving", icon: Code2, accent: "text-electric-300" },
+  { label: "Logs, metrics, traces and code", icon: Code2, accent: "text-electric-300" },
   {
-    label: "Improve skills while you play",
+    label: "Backend interview preparation",
     icon: TrendingUp,
     accent: "text-emerald-300",
   },
@@ -73,60 +72,62 @@ export const HERO_HIGHLIGHTS: HeroHighlight[] = [
 /* --------------------- Not Another Coding Quiz --------------------------- */
 
 export const TRADITIONAL_TRAITS: string[] = [
-  "Isolated questions",
-  "One correct answer",
-  "Syntax focused",
+  "Isolated coding questions",
+  "Syntax and memorization",
+  "One obvious correct answer",
+  "Little production context",
+];
+
+/** What CodeRaid does instead — paired against `TRADITIONAL_TRAITS`. */
+export const CODERAID_TRAITS: string[] = [
+  "Realistic Node.js incidents",
+  "Logs, metrics, traces and code",
+  "Root-cause analysis",
+  "Fix validation and engineering feedback",
 ];
 
 export const CODERAID_FLOW: FlowStep[] = [
   { label: "Incident Occurs", icon: Crosshair },
-  { label: "Gather Evidence", icon: Search },
+  { label: "Investigate Evidence", icon: Search },
   { label: "Diagnose Root Cause", icon: Brain },
-  { label: "Apply Fix", icon: Wrench },
-  { label: "Verify & See Impact", icon: ShieldCheck },
+  { label: "Apply a Fix", icon: Wrench },
+  { label: "Verify the Result", icon: ShieldCheck },
 ];
 
-export const GAME_STATS: GameStat[] = [
-  { label: "XP Earned", value: "12,450", icon: Zap, accent: "violet" },
-  { label: "Missions Completed", value: "24", icon: Trophy, accent: "electric" },
-  {
-    label: "Current Rank",
-    value: "Junior Engineer",
-    icon: Award,
-    accent: "violet",
-  },
-  { label: "Day Streak", value: "7", icon: Flame, accent: "electric" },
-];
+/* `GAME_STATS` is gone. It was an unrendered fixture describing a player who
+   never existed — 4,350 XP, 4 incidents resolved, a 7-day streak. Every one of
+   those figures now comes from the progression ledger in `lib/progress.ts`,
+   where it can only say what the player actually earned. */
 
 export const HOW_IT_WORKS: HowItWorksStep[] = [
   {
     step: 1,
-    title: "Receive Mission",
-    description: "Get a real-world incident from production.",
+    title: "Incident Occurs",
+    description: "A Node.js service starts failing in production.",
     icon: Flag,
   },
   {
     step: 2,
-    title: "Investigate",
-    description: "Explore code, logs, metrics and databases.",
+    title: "Investigate Evidence",
+    description: "Read logs, metrics, traces and the backend code.",
     icon: Search,
   },
   {
     step: 3,
-    title: "Diagnose",
-    description: "Find the root cause behind the issue.",
+    title: "Diagnose Root Cause",
+    description: "Decide what actually broke, and prove it with evidence.",
     icon: Brain,
   },
   {
     step: 4,
-    title: "Apply Fix",
-    description: "Implement the best fix and improve the system.",
+    title: "Apply a Fix",
+    description: "Choose the change a backend engineer would ship.",
     icon: Wrench,
   },
   {
     step: 5,
-    title: "Verify & Earn XP",
-    description: "Run tests, see the impact and earn XP.",
+    title: "Verify the Result",
+    description: "Re-run the service, compare before and after, earn XP.",
     icon: ShieldCheck,
   },
 ];
@@ -168,38 +169,54 @@ export const RANK_ACCENTS: Record<
   },
 };
 
+/**
+ * Node.js learning progression. `minXp` is the authoritative threshold —
+ * `xpRange` is display only, so nothing has to parse a label to get a number.
+ */
 export const CAREER_RANKS: CareerRank[] = [
-  { name: "Intern", xpRange: "0 – 499 XP", stars: 1, icon: Star, accent: "slate" },
   {
-    name: "Junior",
+    name: "Node.js Explorer",
+    minXp: 0,
+    xpRange: "0 – 499 XP",
+    stars: 1,
+    icon: Star,
+    accent: "slate",
+  },
+  {
+    name: "Backend Apprentice",
+    minXp: 500,
     xpRange: "500 – 2,999 XP",
     stars: 1,
     icon: Star,
     accent: "violet",
   },
   {
-    name: "Mid-Level",
+    name: "Node.js Developer",
+    minXp: 3000,
     xpRange: "3,000 – 9,999 XP",
     stars: 2,
     icon: Star,
     accent: "electric",
   },
   {
-    name: "Senior",
+    name: "Backend Engineer",
+    minXp: 10000,
     xpRange: "10,000 – 24,999 XP",
     stars: 3,
     icon: Star,
     accent: "emerald",
   },
   {
-    name: "Tech Lead",
+    name: "Production Debugger",
+    minXp: 25000,
     xpRange: "25,000 – 49,999 XP",
     stars: 0,
     icon: Crown,
     accent: "amber",
   },
   {
-    name: "Architect",
+    name: "Node.js Specialist",
+    minXp: 50000,
     xpRange: "50,000+ XP",
     stars: 0,
     icon: Crown,
@@ -207,87 +224,54 @@ export const CAREER_RANKS: CareerRank[] = [
   },
 ];
 
-export const SKILLS: Skill[] = [
-  {
-    name: "JavaScript",
-    icon: Braces,
-    level: 6,
-    progress: 62,
-    missions: 12,
-    color: "amber",
-  },
-  {
-    name: "Async Programming",
-    icon: Zap,
-    level: 5,
-    progress: 48,
-    missions: 10,
-    color: "emerald",
-  },
-  {
-    name: "SQL",
-    icon: Database,
-    level: 6,
-    progress: 66,
-    missions: 14,
-    color: "electric",
-  },
-  {
-    name: "Debugging",
-    icon: Bug,
-    level: 7,
-    progress: 78,
-    missions: 16,
-    color: "fuchsia",
-  },
-  {
-    name: "Performance",
-    icon: Gauge,
-    level: 5,
-    progress: 52,
-    missions: 9,
-    color: "orange",
-  },
-  {
-    name: "System Design",
-    icon: GitBranch,
-    level: 4,
-    progress: 40,
-    missions: 8,
-    color: "cyan",
-  },
+/** Minimum XP for a rank by name — 0 when the name isn't a known rank. */
+export function rankMinXp(name: string): number {
+  return CAREER_RANKS.find((r) => r.name === name)?.minXp ?? 0;
+}
+
+/**
+ * Marketing skill grid — the Node.js MVP tracks that are live today.
+ * Player-facing progress lives in `lib/skills.ts`, which is canonical.
+ */
+export const LANDING_SKILLS: LandingSkill[] = [
+  { name: "Async JavaScript", icon: Repeat, color: "fuchsia" },
+  { name: "Node.js Runtime", icon: Hexagon, color: "emerald" },
+  { name: "Event Loop", icon: Zap, color: "amber" },
+  { name: "Error Handling", icon: ShieldCheck, color: "fuchsia" },
+  { name: "API Performance", icon: Gauge, color: "electric" },
+  { name: "Background Jobs", icon: Server, color: "cyan" },
+  { name: "Debugging", icon: Bug, color: "orange" },
+  { name: "Concurrency", icon: GitBranch, color: "emerald" },
 ];
 
 /**
- * Marketing skill grid. Kept separate from `SKILLS`, which carries the demo
- * player's level/progress and drives the dashboard.
+ * Roadmap tiles rendered muted under the live skills. Deliberately a separate
+ * array so nothing can render them as available or make them clickable.
  */
-export const LANDING_SKILLS: LandingSkill[] = [
-  { name: "JavaScript Runtime", icon: Braces, color: "amber" },
-  { name: "Node.js & Express", icon: Hexagon, color: "emerald" },
-  { name: "SQL & Databases", icon: Database, color: "electric" },
-  { name: "Debugging & Testing", icon: Bug, color: "fuchsia" },
-  { name: "Performance Optimization", icon: Gauge, color: "cyan" },
-  { name: "System Design", icon: Server, color: "orange" },
+export const FUTURE_SKILL_TRACKS: LandingSkill[] = [
+  { name: "SQL and Databases", icon: Database, color: "slate" },
+  { name: "Redis and Caching", icon: Layers, color: "slate" },
+  { name: "System Design", icon: Network, color: "slate" },
+  { name: "Cloud Reliability", icon: Cloud, color: "slate" },
 ];
 
 export const BENEFITS: Benefit[] = [
   {
-    title: "Real Incidents",
+    title: "Realistic Node.js Incidents",
     description:
-      "Practice realistic backend incidents inspired by production systems.",
+      "Debug backend failures modelled on real production Node.js services.",
     icon: Activity,
   },
   {
     title: "Interview Readiness",
     description:
-      "Improve technical reasoning and prepare for backend interviews.",
+      "Practise the reasoning practical Node.js and backend interviews ask for.",
     icon: GraduationCap,
   },
   {
     title: "Game Progression",
     description:
-      "Stay motivated through XP, ranks, streaks, missions, and boss fights.",
+      "Stay motivated through XP, ranks, streaks and mission chapters.",
     icon: Sparkles,
   },
 ];

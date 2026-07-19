@@ -6,62 +6,58 @@ import {
   ArrowRight,
   BarChart3,
   Check,
-  CheckCircle2,
   ChevronDown,
   ChevronUp,
   Circle,
   Clock,
   FileText,
   Gauge,
-  Lock,
-  PlayCircle,
   Zap,
 } from "lucide-react";
 import {
   CATEGORIES,
-  CHAPTERS,
-  CURRENT_MISSION_ID,
   DIFFICULTIES,
   DIFFICULTY_BADGE,
+  FUTURE_CHAPTERS,
   MISSIONS,
+  NODE_CHAPTERS,
+  NODE_MISSIONS,
   TAG_BADGE,
-  chapterProgress,
+  isNodeMission,
   type Category,
+  type Chapter,
   type Difficulty,
   type Mission,
 } from "@/lib/missions";
+import {
+  blockedReason,
+  canStart,
+  chapterProgress,
+  missionAvailability,
+  recommendedMission,
+} from "@/lib/availability";
+import { useProgress } from "@/components/progress/ProgressProvider";
+import { AvailabilityBadge, AvailabilityNote } from "@/components/ui/AvailabilityBadge";
 
 type CategoryFilter = "All" | Category;
 type DifficultyFilter = "All" | Difficulty;
 
-const STATUS_BADGE: Record<Mission["status"], { label: string; cls: string }> = {
-  current: {
-    label: "In Progress",
-    cls: "border-violet-400/40 bg-violet-500/10 text-violet-300",
-  },
-  available: {
-    label: "Available",
-    cls: "border-electric-400/40 bg-electric-500/10 text-electric-300",
-  },
-  completed: {
-    label: "Completed",
-    cls: "border-emerald-400/40 bg-emerald-500/10 text-emerald-300",
-  },
-  locked: {
-    label: "Locked",
-    cls: "border-white/10 bg-white/[0.03] text-slate-400",
-  },
-};
+const FUTURE_MISSIONS = MISSIONS.filter((m) => !isNodeMission(m));
 
 export function MissionBrowser({ nextAction }: { nextAction: ReactNode }) {
-  const [selectedId, setSelectedId] = useState(CURRENT_MISSION_ID);
+  const { view } = useProgress();
+  const [selectedId, setSelectedId] = useState(
+    () => recommendedMission()?.id ?? NODE_MISSIONS[0]?.id ?? MISSIONS[0].id,
+  );
   const [category, setCategory] = useState<CategoryFilter>("All");
   const [difficulty, setDifficulty] = useState<DifficultyFilter>("All");
   const [collapsed, setCollapsed] = useState<number[]>([]);
 
+  // Only Node.js missions take part in category filtering — the future track is
+  // a roadmap, never a filterable "available" set.
   const filtered = useMemo(
     () =>
-      MISSIONS.filter(
+      NODE_MISSIONS.filter(
         (m) =>
           (category === "All" || m.category === category) &&
           (difficulty === "All" || m.difficulty === difficulty),
@@ -69,16 +65,30 @@ export function MissionBrowser({ nextAction }: { nextAction: ReactNode }) {
     [category, difficulty],
   );
 
-  const selected =
-    MISSIONS.find((m) => m.id === selectedId) ?? MISSIONS[0];
+  // The roadmap region shows only when no Node.js category filter is applied,
+  // so picking a category can never surface an unbuilt track as playable.
+  const roadmap = useMemo(
+    () =>
+      category === "All"
+        ? FUTURE_MISSIONS.filter(
+            (m) => difficulty === "All" || m.difficulty === difficulty,
+          )
+        : [],
+    [category, difficulty],
+  );
+
+  const selected = MISSIONS.find((m) => m.id === selectedId) ?? NODE_MISSIONS[0];
 
   const toggleChapter = (id: number) =>
     setCollapsed((c) =>
       c.includes(id) ? c.filter((x) => x !== id) : [...c, id],
     );
 
-  const visibleChapters = CHAPTERS.filter((ch) =>
+  const visibleChapters = NODE_CHAPTERS.filter((ch) =>
     filtered.some((m) => m.chapterId === ch.id),
+  );
+  const visibleFutureChapters = FUTURE_CHAPTERS.filter((ch) =>
+    roadmap.some((m) => m.chapterId === ch.id),
   );
 
   return (
@@ -123,70 +133,54 @@ export function MissionBrowser({ nextAction }: { nextAction: ReactNode }) {
           </div>
         </div>
 
-        {/* Chapters */}
+        {/* Node.js chapters */}
         {visibleChapters.length === 0 ? (
           <div className="surface p-10 text-center text-sm text-slate-400">
-            No missions match these filters.
+            No Node.js missions match these filters.
           </div>
         ) : (
-          visibleChapters.map((chapter) => {
-            const Icon = chapter.icon;
-            const rows = filtered.filter((m) => m.chapterId === chapter.id);
-            const { done, total } = chapterProgress(chapter.id);
-            const isOpen = !collapsed.includes(chapter.id);
-            const complete = done === total;
+          visibleChapters.map((chapter) => (
+            <ChapterSection
+              key={chapter.id}
+              chapter={chapter}
+              rows={filtered.filter((m) => m.chapterId === chapter.id)}
+              open={!collapsed.includes(chapter.id)}
+              onToggle={() => toggleChapter(chapter.id)}
+              selectedId={selectedId}
+              onSelect={setSelectedId}
+            />
+          ))
+        )}
 
-            return (
-              <div key={chapter.id} className="surface overflow-hidden">
-                <button
-                  type="button"
-                  onClick={() => toggleChapter(chapter.id)}
-                  aria-expanded={isOpen}
-                  className="flex w-full items-center justify-between gap-3 p-4 text-left transition-colors hover:bg-white/[0.02]"
-                >
-                  <span className="flex min-w-0 items-center gap-3">
-                    <span className="grid h-9 w-9 shrink-0 place-items-center rounded-lg border border-violet-400/30 bg-violet-500/10 text-violet-300">
-                      <Icon className="h-4 w-4" strokeWidth={1.9} />
-                    </span>
-                    <span className="shrink-0 text-[0.68rem] font-semibold uppercase tracking-[0.14em] text-slate-500">
-                      Chapter {chapter.id}
-                    </span>
-                    <span className="truncate text-sm font-semibold text-white">
-                      {chapter.name}
-                    </span>
-                  </span>
+        {/* Roadmap — future tracks, visible but never playable */}
+        {visibleFutureChapters.length > 0 && (
+          <section
+            aria-labelledby="missions-coming-soon"
+            className="flex flex-col gap-5 border-t border-white/[0.06] pt-6"
+          >
+            <div className="flex flex-wrap items-center gap-3">
+              <h2
+                id="missions-coming-soon"
+                className="text-sm font-semibold uppercase tracking-[0.14em] text-slate-400"
+              >
+                Coming Soon
+              </h2>
+              <AvailabilityBadge status="coming-soon" />
+              <AvailabilityNote status="coming-soon" className="w-full sm:w-auto" />
+            </div>
 
-                  <span className="flex shrink-0 items-center gap-3">
-                    <span className="hidden text-xs text-slate-400 sm:block">
-                      {done} / {total} completed
-                    </span>
-                    {complete ? (
-                      <span className="grid h-6 w-6 place-items-center rounded-full border border-emerald-400/40 bg-emerald-500/15 text-emerald-300">
-                        <Check className="h-3.5 w-3.5" strokeWidth={3} />
-                      </span>
-                    ) : isOpen ? (
-                      <ChevronUp className="h-4 w-4 text-slate-500" />
-                    ) : (
-                      <ChevronDown className="h-4 w-4 text-slate-500" />
-                    )}
-                  </span>
-                </button>
-
-                {isOpen && (
-                  <div className="border-t border-white/[0.06] p-2">
-                    {rows.map((mission) => (
-                      <MissionRow
-                        key={mission.id}
-                        mission={mission}
-                        selected={mission.id === selectedId}
-                        onSelect={() => setSelectedId(mission.id)}
-                      />
-                    ))}
-                  </div>
-                )}
-              </div>
-            );
-          })
+            {visibleFutureChapters.map((chapter) => (
+              <ChapterSection
+                key={chapter.id}
+                chapter={chapter}
+                rows={roadmap.filter((m) => m.chapterId === chapter.id)}
+                open={!collapsed.includes(chapter.id)}
+                onToggle={() => toggleChapter(chapter.id)}
+                selectedId={selectedId}
+                onSelect={setSelectedId}
+              />
+            ))}
+          </section>
         )}
       </div>
 
@@ -199,12 +193,103 @@ export function MissionBrowser({ nextAction }: { nextAction: ReactNode }) {
           </span>
           <div className="min-w-0">
             <p className="text-sm font-semibold leading-snug text-white">
-              All missions are based on real engineering problems.
+              Every mission is a real Node.js backend incident.
             </p>
-            <p className="mt-1 text-xs text-slate-400">Solve. Learn. Level up.</p>
+            <p className="mt-1 text-xs text-slate-400">
+              Investigate. Diagnose. Ship the fix.
+            </p>
           </div>
         </div>
       </div>
+    </div>
+  );
+}
+
+/* ---------------------------- Chapter section --------------------------- */
+
+function ChapterSection({
+  chapter,
+  rows,
+  open,
+  onToggle,
+  selectedId,
+  onSelect,
+}: {
+  chapter: Chapter;
+  rows: Mission[];
+  open: boolean;
+  onToggle: () => void;
+  selectedId: string;
+  onSelect: (id: string) => void;
+}) {
+  const Icon = chapter.icon;
+  const { view } = useProgress();
+  const future = chapter.track === "future";
+  const { done, total } = chapterProgress(chapter.id, view);
+  const complete = !future && total > 0 && done === total;
+
+  return (
+    <div className={`surface overflow-hidden ${future ? "opacity-80" : ""}`}>
+      <button
+        type="button"
+        onClick={onToggle}
+        aria-expanded={open}
+        className="flex w-full items-center justify-between gap-3 p-4 text-left transition-colors hover:bg-white/[0.02]"
+      >
+        <span className="flex min-w-0 items-center gap-3">
+          <span
+            className={`grid h-9 w-9 shrink-0 place-items-center rounded-lg border ${
+              future
+                ? "border-white/10 bg-white/[0.02] text-slate-500"
+                : "border-violet-400/30 bg-violet-500/10 text-violet-300"
+            }`}
+          >
+            <Icon className="h-4 w-4" strokeWidth={1.9} />
+          </span>
+          <span className="min-w-0">
+            <span className="flex flex-wrap items-center gap-2">
+              <span className="shrink-0 text-[0.68rem] font-semibold uppercase tracking-[0.14em] text-slate-500">
+                Chapter {chapter.id}
+              </span>
+              <span className="truncate text-sm font-semibold text-white">
+                {chapter.name}
+              </span>
+              {future && <AvailabilityBadge status="coming-soon" />}
+            </span>
+            <span className="mt-1 block text-xs leading-relaxed text-slate-500">
+              {chapter.description}
+            </span>
+          </span>
+        </span>
+
+        <span className="flex shrink-0 items-center gap-3">
+          <span className="hidden text-xs text-slate-400 sm:block">
+            {future ? "Not counted toward progress" : `${done} / ${total} completed`}
+          </span>
+          {complete ? (
+            <span className="grid h-6 w-6 place-items-center rounded-full border border-emerald-400/40 bg-emerald-500/15 text-emerald-300">
+              <Check className="h-3.5 w-3.5" strokeWidth={3} />
+            </span>
+          ) : open ? (
+            <ChevronUp className="h-4 w-4 text-slate-500" />
+          ) : (
+            <ChevronDown className="h-4 w-4 text-slate-500" />
+          )}
+        </span>
+      </button>
+
+      {open && (
+        <div className="border-t border-white/[0.06] p-2">
+          {rows.map((mission) => (
+            <MissionRow
+              key={mission.id}
+              mission={mission}
+              selected={mission.id === selectedId}
+              onSelect={() => onSelect(mission.id)}
+            />
+          ))}
+        </div>
+      )}
     </div>
   );
 }
@@ -238,20 +323,6 @@ function FilterPill({
 
 /* ------------------------------ Mission row ----------------------------- */
 
-function StatusMark({ status }: { status: Mission["status"] }) {
-  if (status === "completed")
-    return (
-      <span className="grid h-5 w-5 shrink-0 place-items-center rounded-full border border-emerald-400/50 bg-emerald-500/20 text-emerald-300">
-        <Check className="h-3 w-3" strokeWidth={3.5} />
-      </span>
-    );
-  if (status === "current")
-    return <PlayCircle className="h-5 w-5 shrink-0 text-violet-300" />;
-  if (status === "locked")
-    return <Lock className="h-4 w-4 shrink-0 text-slate-600" />;
-  return <Circle className="h-5 w-5 shrink-0 text-slate-600" />;
-}
-
 function MissionRow({
   mission,
   selected,
@@ -261,7 +332,10 @@ function MissionRow({
   selected: boolean;
   onSelect: () => void;
 }) {
-  const locked = mission.status === "locked";
+  const { view } = useProgress();
+  const availability = missionAvailability(mission, view);
+  const muted = availability === "locked" || availability === "coming-soon";
+
   return (
     <button
       type="button"
@@ -273,20 +347,21 @@ function MissionRow({
           : "border border-transparent hover:bg-white/[0.03]"
       }`}
     >
-      <StatusMark status={mission.status} />
       <span className="w-5 shrink-0 text-xs text-slate-600">
         {mission.index}.
       </span>
       <span
         className={`min-w-0 flex-1 truncate text-sm ${
-          locked ? "text-slate-500" : "text-slate-100"
+          muted ? "text-slate-500" : "text-slate-100"
         }`}
       >
         {mission.title}
       </span>
 
+      <AvailabilityBadge status={availability} className="hidden shrink-0 sm:inline-flex" />
+
       <span
-        className={`hidden shrink-0 rounded-md border px-2 py-0.5 text-[0.68rem] font-medium sm:block ${DIFFICULTY_BADGE[mission.difficulty]}`}
+        className={`hidden shrink-0 rounded-md border px-2 py-0.5 text-[0.68rem] font-medium md:block ${DIFFICULTY_BADGE[mission.difficulty]}`}
       >
         {mission.difficulty}
       </span>
@@ -307,27 +382,35 @@ function MissionRow({
 const PRIMARY_ACTION =
   "group inline-flex w-full items-center justify-center gap-2 rounded-xl border border-violet-400/40 bg-gradient-to-r from-violet-600 to-violet-500 px-5 py-3 text-sm font-semibold text-white shadow-neon transition-transform hover:scale-[1.02]";
 
+const DISABLED_ACTION =
+  "inline-flex w-full cursor-not-allowed items-center justify-center gap-2 rounded-xl border border-white/10 bg-white/[0.03] px-5 py-3 text-sm font-semibold text-slate-500";
+
 const SECONDARY_ACTION =
   "inline-flex w-full items-center justify-center gap-2 rounded-xl border border-white/12 bg-white/[0.03] px-5 py-3 text-sm font-semibold text-slate-200 transition-colors hover:border-white/25 hover:text-white";
 
+const DISABLED_LABEL: Record<string, string> = {
+  locked: "Mission Locked",
+  "in-development": "In Development",
+  "coming-soon": "Coming Soon",
+  completed: "Review Unavailable",
+};
+
 function MissionRail({ mission }: { mission: Mission }) {
-  const badge = STATUS_BADGE[mission.status];
-  const locked = mission.status === "locked";
+  const { view } = useProgress();
+  const availability = missionAvailability(mission, view);
+  const blocked = blockedReason(mission, view);
+  const startable = canStart(mission, view);
   const briefingHref = `/missions/${mission.id}/briefing`;
   const cta =
-    mission.status === "current"
+    availability === "current"
       ? "Continue Mission"
-      : mission.status === "completed"
+      : availability === "completed"
         ? "Replay Mission"
         : "Start Mission";
 
   return (
     <div className="surface p-5">
-      <span
-        className={`inline-flex rounded-md border px-2.5 py-1 text-[0.62rem] font-bold uppercase tracking-[0.12em] ${badge.cls}`}
-      >
-        {badge.label}
-      </span>
+      <AvailabilityBadge status={availability} size="md" />
 
       <h2 className="mt-3 text-xl font-bold leading-tight text-white">
         {mission.title}
@@ -401,20 +484,34 @@ function MissionRail({ mission }: { mission: Mission }) {
         </div>
       </div>
 
-      {/* Actions — missions with a briefing route into the mission flow */}
+      {/* Actions — only fully authored missions link into the flow */}
       <div className="mt-5 space-y-2.5">
-        {locked ? (
-          <span className="inline-flex w-full cursor-not-allowed items-center justify-center gap-2 rounded-xl border border-white/10 bg-white/[0.03] px-5 py-3 text-sm font-semibold text-slate-500">
-            <Lock className="h-4 w-4" /> Mission Locked
-          </span>
-        ) : (
+        {startable ? (
           <Link href={briefingHref} className={PRIMARY_ACTION}>
             {cta}
             <ArrowRight className="h-4 w-4 transition-transform group-hover:translate-x-0.5" />
           </Link>
+        ) : (
+          <>
+            <button
+              type="button"
+              disabled
+              aria-describedby={`rail-note-${mission.id}`}
+              className={DISABLED_ACTION}
+            >
+              {DISABLED_LABEL[availability] ?? "Unavailable"}
+            </button>
+            <div id={`rail-note-${mission.id}`}>
+              <AvailabilityNote
+                status={availability}
+                note={blocked}
+                className="px-1"
+              />
+            </div>
+          </>
         )}
 
-        {/* The brief is always readable, even for locked missions. */}
+        {/* The brief is always readable — it never enters an unwritten stage. */}
         <Link href={briefingHref} className={SECONDARY_ACTION}>
           <FileText className="h-4 w-4" />
           View Mission Brief

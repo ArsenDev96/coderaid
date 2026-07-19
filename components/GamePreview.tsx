@@ -6,27 +6,25 @@ import { AlertTriangle, ArrowRight, SquareDashedBottomCode } from "lucide-react"
 const TABS = ["Code", "Logs", "Metrics"];
 
 const CODE_LINES: string[] = [
-  "async function getOrders(userId) {",
-  "  const orders = await prisma.order.findMany({",
-  "    where: { userId }",
+  "router.post('/api/signup', async (req, res) => {",
+  "  const input = validateSignup(req.body);",
+  "  const hash = await hashPassword(input.password);",
+  "  const user = await users.insert({",
+  "    email: input.email, hash",
   "  });",
-  "  // N+1 queries detected",
-  "  for (const order of orders) {",
-  "    order.items = await prisma.order_item.findMany({",
-  "      where: { order_id: order.id }",
-  "    });",
-  "  }",
-  "  return orders;",
-  "}",
+  "  // response waits on the SMTP round trip",
+  "  await sendWelcomeEmail(user.email);",
+  "  return res.status(201).json({ id: user.id });",
+  "});",
 ];
 
 const CLUES = [
-  "High response time on /orders",
-  "Database queries spiking",
-  "N+1 query pattern suspected",
+  "p95 on POST /api/signup is 3.2s",
+  "Trace: send welcome email 2671ms",
+  "Email awaited inside the request handler",
 ];
 
-// Jagged, upward-trending response-time series for the header sparkline.
+// Jagged, upward-trending signup-latency series for the header sparkline.
 const SPARK_POINTS =
   "0,26 12,22 24,25 36,17 48,21 60,12 72,18 84,8 96,14 108,5 120,10 132,3 144,7";
 
@@ -83,22 +81,23 @@ export function GamePreview() {
                 <AlertTriangle className="h-2.5 w-2.5" /> High Severity
               </span>
               <h3 className="text-base font-semibold text-white">
-                The Slow API Incident
+                User Signup Latency Spike
               </h3>
             </div>
             <p className="mt-1.5 text-xs leading-relaxed text-slate-400">
-              Users are experiencing slow responses on the{" "}
-              <span className="font-mono text-slate-300">/orders</span> endpoint.
+              Signups are crawling on the{" "}
+              <span className="font-mono text-slate-300">POST /api/signup</span>{" "}
+              endpoint of the Node.js auth service.
             </p>
           </div>
 
           {/* Avg response time */}
           <div className="shrink-0 sm:text-right">
             <div className="text-[0.6rem] font-semibold uppercase tracking-[0.16em] text-slate-500">
-              Avg Response Time
+              p95 Response Time
             </div>
             <div className="mt-1 flex items-center gap-3 sm:justify-end">
-              <span className="text-xl font-bold text-rose-400">2,850ms</span>
+              <span className="text-xl font-bold text-rose-400">3,200ms</span>
               <svg
                 viewBox="0 0 144 30"
                 preserveAspectRatio="none"

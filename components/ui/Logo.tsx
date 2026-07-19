@@ -11,13 +11,13 @@ type LogoProps = {
 
 /**
  * CodeRaid brand mark — a crosshair badge plus the "CODERAID" wordmark and an
- * optional "SOFTWARE ENGINEER SIMULATOR" tagline. Shared across marketing and
+ * optional "NODE.JS DEBUGGING SIMULATOR" tagline. Shared across marketing and
  * in-app surfaces so the brand stays consistent.
  */
 export function Logo({
   href = "/",
   withTagline = false,
-  tagline = "Software Engineer Simulator",
+  tagline = "Node.js Debugging Simulator",
   size = "md",
 }: LogoProps) {
   const badge = size === "sm" ? "h-8 w-8" : "h-9 w-9";

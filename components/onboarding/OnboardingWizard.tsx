@@ -13,6 +13,8 @@ import {
   User as UserIcon,
   type LucideIcon,
 } from "lucide-react";
+import { canStart, recommendedMission } from "@/lib/availability";
+import { getMission } from "@/lib/missions";
 import {
   AVATARS,
   DEFAULT_DRAFT,
@@ -22,6 +24,7 @@ import {
   SLOGANS,
   STEPS,
   loadDraft,
+  recommendedStartingMission,
   saveDraft,
   type ProfileDraft,
 } from "@/lib/onboarding";
@@ -72,8 +75,16 @@ export function OnboardingWizard() {
     [draft.experienceId],
   );
 
+  const recommended = recommendedStartingMission(selectedExp.id);
+
   if (draft.completed) {
-    return <CompletedCard name={draft.name.trim()} rank={selectedExp.startingRank} />;
+    return (
+      <CompletedCard
+        name={draft.name.trim()}
+        missionTitle={recommended.title}
+        missionId={recommended.id}
+      />
+    );
   }
 
   return (
@@ -102,10 +113,10 @@ export function OnboardingWizard() {
               icon: p.icon,
               meta: p.focus,
             }))}
-            selectedId={draft.pathId}
+            selectedId={selectedPath.id}
             onSelect={(id) => update("pathId", id)}
-            heading="Which path calls to you?"
-            sub="You can switch focus areas at any time — this just shapes your first missions."
+            heading="What do you want to get better at?"
+            sub="Every goal runs on Node.js — this just shapes which incidents we surface first. You can change it any time."
           />
         )}
         {draft.step === 2 && (
@@ -114,12 +125,12 @@ export function OnboardingWizard() {
               id: e.id,
               title: e.title,
               description: e.description,
-              meta: `Starts as ${e.startingRank}`,
+              meta: e.personalization,
             }))}
-            selectedId={draft.experienceId}
+            selectedId={selectedExp.id}
             onSelect={(id) => update("experienceId", id)}
-            heading="How much backend experience do you have?"
-            sub="We'll calibrate your starting rank and mission difficulty."
+            heading="How much Node.js experience do you have?"
+            sub="This isn't a rank — it only personalizes which missions we recommend and how difficult they start."
           />
         )}
         {draft.step === 3 && (
@@ -127,7 +138,7 @@ export function OnboardingWizard() {
             draft={draft}
             pathTitle={selectedPath.title}
             expTitle={selectedExp.title}
-            startingRank={selectedExp.startingRank}
+            missionTitle={recommended.title}
           />
         )}
       </div>
@@ -327,7 +338,7 @@ function IdentityStep({
         <div className="relative mt-3">
           <Quote className="pointer-events-none absolute left-3.5 top-1/2 h-4 w-4 -translate-y-1/2 text-violet-400" />
           <select
-            value={draft.slogan}
+            value={SLOGANS.includes(draft.slogan) ? draft.slogan : SLOGANS[0]}
             onChange={(e) => update("slogan", e.target.value)}
             aria-label="Choose your slogan"
             className="w-full appearance-none rounded-xl border border-white/10 bg-base-950/70 py-3 pl-10 pr-10 text-sm text-white outline-none transition-colors focus:border-violet-400/60 focus:ring-2 focus:ring-violet-500/20"
@@ -433,28 +444,28 @@ function ConfirmStep({
   draft,
   pathTitle,
   expTitle,
-  startingRank,
+  missionTitle,
 }: {
   draft: ProfileDraft;
   pathTitle: string;
   expTitle: string;
-  startingRank: string;
+  missionTitle: string;
 }) {
   const avatar = AVATARS.find((a) => a.id === draft.avatarId) ?? AVATARS[0];
   const AvatarIcon = avatar.icon;
   const rows = [
-    { label: "Focus path", value: pathTitle },
+    { label: "Learning goal", value: pathTitle },
     { label: "Experience", value: expTitle },
-    { label: "Starting rank", value: startingRank },
+    { label: "Recommended mission", value: missionTitle },
   ];
 
   return (
     <div>
       <h3 className="text-base font-semibold text-white">
-        Ready to deploy your profile
+        Ready to start debugging
       </h3>
       <p className="mt-1 text-sm text-slate-400">
-        Review the details below, then enter your first raid.
+        Review the details below, then head into your first Node.js incident.
       </p>
 
       <div className="mt-4 rounded-xl border border-white/[0.08] bg-base-950/60 p-5">
@@ -469,7 +480,9 @@ function ConfirmStep({
               {draft.name.trim() || "Anonymous Engineer"}
             </div>
             <div className="truncate font-mono text-xs text-violet-300">
-              &ldquo;{draft.slogan}&rdquo;
+              &ldquo;
+              {SLOGANS.includes(draft.slogan) ? draft.slogan : SLOGANS[0]}
+              &rdquo;
             </div>
           </div>
         </div>
@@ -496,7 +509,27 @@ function ConfirmStep({
 
 /* ------------------------------ Completed ------------------------------- */
 
-function CompletedCard({ name, rank }: { name: string; rank: string }) {
+function CompletedCard({
+  name,
+  missionTitle,
+  missionId,
+}: {
+  name: string;
+  missionTitle: string;
+  missionId: string;
+}) {
+  // Only ever link into a mission that can actually be played end to end.
+  const suggested = getMission(missionId);
+  const playable =
+    suggested && canStart(suggested) ? suggested : recommendedMission();
+  const missionHref = playable
+    ? `/missions/${playable.id}/briefing`
+    : "/missions";
+  const missionLabel = playable
+    ? `Start ${playable.title}`
+    : "Browse missions";
+  const playableIsRecommended = playable?.id === missionId;
+
   return (
     <div className="surface-strong flex flex-col items-center p-8 text-center sm:p-10">
       <span className="grid h-14 w-14 place-items-center rounded-2xl border border-emerald-400/30 bg-emerald-500/10 text-emerald-300 shadow-neon">
@@ -506,9 +539,11 @@ function CompletedCard({ name, rank }: { name: string; rank: string }) {
         You&apos;re all set{name ? `, ${name}` : ""}!
       </h2>
       <p className="mt-2 max-w-sm text-sm leading-relaxed text-slate-400">
-        Your engineer profile is saved in this browser. You&apos;re starting as a{" "}
-        <span className="text-violet-300">{rank}</span>. Missions unlock in the
-        full release — for now, explore how CodeRaid works.
+        Your profile is saved in this browser. We recommend starting with{" "}
+        <span className="text-violet-300">{missionTitle}</span>
+        {playableIsRecommended
+          ? "."
+          : " — more Node.js incidents are being written, so pick a playable one to begin."}
       </p>
       <div className="mt-6 flex flex-col gap-2.5 sm:flex-row">
         <Link
@@ -519,10 +554,10 @@ function CompletedCard({ name, rank }: { name: string; rank: string }) {
           <ArrowRight className="h-4 w-4" />
         </Link>
         <Link
-          href="/"
+          href={missionHref}
           className="inline-flex items-center justify-center gap-2 rounded-xl border border-white/12 bg-white/[0.03] px-6 py-2.5 text-sm font-semibold text-slate-200 transition-colors hover:border-white/25 hover:text-white"
         >
-          Back to Home
+          {missionLabel}
         </Link>
       </div>
     </div>

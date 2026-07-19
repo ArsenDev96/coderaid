@@ -54,6 +54,13 @@ export type VerificationCheck = {
   id: string;
   label: string;
   passed: boolean;
+  /**
+   * Whether this check only passes because the applied fix actually resolved
+   * the root cause. Checks about the *rest* of the system (the database is
+   * healthy, errors are low) stay true either way; checks about the incident
+   * itself fail when the fix didn't address it. Defaults to true.
+   */
+  dependsOnFix?: boolean;
 };
 
 export type RequestSpan = { label: string; durationMs: number };
@@ -80,7 +87,51 @@ export type MissionVerificationConfig = {
   logs: string[];
   checks: VerificationCheck[];
   summary: { headline: string; detail: string };
+
+  /* --- The same incident, as it looks when the fix didn't resolve it --- */
+  unresolvedSummary: { headline: string; detail: string };
+  unresolvedLogs: string[];
+  unresolvedBreakdown: RequestSpan[];
+  unresolvedBreakdownTotalMs: number;
 };
+
+/**
+ * What the verification run actually reports, given whether the player's fix
+ * resolved the root cause.
+ *
+ * The authored config describes the incident *after the correct fix*. When the
+ * applied fix doesn't address the cause, nothing improved: the metrics hold at
+ * their "before" values, the chart's after-line matches its before-line, the
+ * logs still show the slow step, and every check that depends on the fix fails.
+ * This is the difference between a guided tour and a simulator.
+ */
+export function resolveVerification(
+  config: MissionVerificationConfig,
+  resolved: boolean,
+): MissionVerificationConfig & { resolved: boolean } {
+  if (resolved) return { ...config, resolved };
+
+  return {
+    ...config,
+    resolved,
+    metrics: config.metrics.map((m) => ({
+      ...m,
+      after: m.before,
+      status: "fail" as const,
+      delta: "No change",
+      deltaTone: "neutral" as const,
+    })),
+    chart: { ...config.chart, after: [...config.chart.before] },
+    requestBreakdown: config.unresolvedBreakdown,
+    breakdownTotalMs: config.unresolvedBreakdownTotalMs,
+    logs: config.unresolvedLogs,
+    checks: config.checks.map((c) => ({
+      ...c,
+      passed: c.dependsOnFix === false ? c.passed : false,
+    })),
+    summary: config.unresolvedSummary,
+  };
+}
 
 export type VerificationState = {
   run: boolean;
@@ -180,13 +231,23 @@ const SIGNUP_LATENCY_VERIFICATION: MissionVerificationConfig = {
 
   checks: [
     { id: "latency", label: "Signup latency is back to normal", passed: true },
-    { id: "database", label: "Database performance is healthy", passed: true },
+    {
+      id: "database",
+      label: "Database performance is healthy",
+      passed: true,
+      dependsOnFix: false,
+    },
     {
       id: "email",
       label: "Email delivery is processed in the background",
       passed: true,
     },
-    { id: "errors", label: "Error rate remains low", passed: true },
+    {
+      id: "errors",
+      label: "Error rate remains low",
+      passed: true,
+      dependsOnFix: false,
+    },
     { id: "resolved", label: "The fix successfully resolved the issue", passed: true },
   ],
 
@@ -194,6 +255,31 @@ const SIGNUP_LATENCY_VERIFICATION: MissionVerificationConfig = {
     headline: "Great work! Your fix has been verified successfully.",
     detail: "You can continue to the final results and earn your XP.",
   },
+
+  unresolvedSummary: {
+    headline: "Verification failed — signup latency is unchanged.",
+    detail:
+      "The change you applied didn't take the slow step off the request path. You can still continue to your results.",
+  },
+
+  /** Logs replayed when the fix didn't resolve the incident. */
+  unresolvedLogs: [
+    "11:03:21.102 INFO POST /api/signup started",
+    "11:03:21.114 INFO Validating signup payload",
+    "11:03:21.236 INFO Password hash completed in 155ms",
+    "11:03:21.272 INFO User record inserted in 31ms",
+    "11:03:23.943 WARN sendWelcomeEmail resolved after 2671ms",
+    "11:03:23.945 INFO POST /api/signup completed in 2886ms",
+  ],
+
+  /** Request breakdown when the slow step is still on the critical path. */
+  unresolvedBreakdown: [
+    { label: "Validate Payload", durationMs: 12 },
+    { label: "Hash Password", durationMs: 154 },
+    { label: "Insert User", durationMs: 31 },
+    { label: "Send Welcome Email", durationMs: 2671 },
+  ],
+  unresolvedBreakdownTotalMs: 2868,
 };
 
 /* ------------------------------- Registry ------------------------------- */

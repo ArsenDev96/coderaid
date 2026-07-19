@@ -69,7 +69,13 @@
       "Bash(node -e \"console.log\\('node', process.version\\)\")",
       "Bash(awk '{print $5}')",
       "Bash(xargs -r -I{} taskkill //F //PID {} //T)",
-      "Bash(grep -oE \"\\\\.translate-x-[^{,]*\" /tmp/app.css)"
+      "Bash(grep -oE \"\\\\.translate-x-[^{,]*\" /tmp/app.css)",
+      "Bash(git -C \"c:/Users/DoC/Desktop/sis\" log --oneline -20)",
+      "Bash(grep -o \"coderaid:[^\\\\\"\\\\`]*\")",
+      "Bash(sed -i 's/rewardSkill: \"API Performance +1\"/rewardSkill: \"Request Performance +1\"/; s/rewardSkill: \"Concurrency +1\"/rewardSkill: \"Request Performance +1\"/' lib/missions.ts)",
+      "Bash(sed -i 's/\"API Performance\"/\"Request Performance\"/g' lib/missions.ts)",
+      "Bash(python -c ' *)",
+      "Bash(python -)"
     ],
     "additionalDirectories": [
       "\\tmp"

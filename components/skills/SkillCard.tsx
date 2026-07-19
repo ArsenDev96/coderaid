@@ -13,6 +13,9 @@ export function SkillCard({
 }) {
   const Icon = skill.icon;
   const strength = strengthFor(skill.progress);
+  // A skill with no level and no XP has genuinely not been started yet — say so
+  // rather than showing an empty bar next to a "Learning" badge.
+  const notStarted = skill.level === 0 && skill.currentXp === 0;
 
   return (
     <button
@@ -27,15 +30,23 @@ export function SkillCard({
     >
       <div className="flex items-start gap-3">
         <span
-          className={`grid h-11 w-11 shrink-0 place-items-center rounded-xl border ${skill.accent}`}
+          className={`grid h-11 w-11 shrink-0 place-items-center rounded-xl border ${skill.accent} ${
+            notStarted ? "opacity-50" : ""
+          }`}
         >
           <Icon className="h-5 w-5" strokeWidth={1.9} />
         </span>
         <div className="min-w-0">
-          <h3 className="truncate text-sm font-semibold text-white">
+          <h3
+            className={`truncate text-sm font-semibold ${
+              notStarted ? "text-slate-300" : "text-white"
+            }`}
+          >
             {skill.name}
           </h3>
-          <p className="mt-0.5 text-xs text-slate-500">{levelLabel(skill.level)}</p>
+          <p className="mt-0.5 text-xs text-slate-500">
+            {notStarted ? "Not Started" : levelLabel(skill.level)}
+          </p>
         </div>
       </div>
 
@@ -43,18 +54,26 @@ export function SkillCard({
         <span className="h-1.5 min-w-0 flex-1 overflow-hidden rounded-full bg-white/[0.08]">
           <span
             className="block h-full rounded-full bg-gradient-to-r from-violet-500 to-electric-400"
-            style={{ width: `${skill.progress}%` }}
+            style={{ width: `${notStarted ? 0 : skill.progress}%` }}
           />
         </span>
-        <span className="shrink-0 text-xs font-semibold text-slate-300">
-          {skill.progress}%
+        <span
+          className={`shrink-0 text-xs font-semibold ${
+            notStarted ? "text-slate-500" : "text-slate-300"
+          }`}
+        >
+          {notStarted ? 0 : skill.progress}%
         </span>
       </div>
 
       <span
-        className={`mt-3 inline-flex w-fit rounded-md border px-2 py-0.5 text-[0.62rem] font-semibold ${STRENGTH_BADGE[strength]}`}
+        className={`mt-3 inline-flex w-fit rounded-md border px-2 py-0.5 text-[0.62rem] font-semibold ${
+          notStarted
+            ? "border-white/10 bg-white/[0.03] text-slate-400"
+            : STRENGTH_BADGE[strength]
+        }`}
       >
-        {strength}
+        {notStarted ? "Not Started" : strength}
       </span>
     </button>
   );

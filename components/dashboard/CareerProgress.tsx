@@ -1,16 +1,23 @@
+"use client";
+
 import Link from "next/link";
 import { ArrowRight, ShieldCheck, Star } from "lucide-react";
-import { CAREER } from "@/lib/dashboard";
+import { useProgress } from "@/components/progress/ProgressProvider";
+import { careerFor } from "@/lib/dashboard";
 
 export function CareerProgress() {
-  const c = CAREER;
-  const pct = Math.round((c.xp / c.xpMax) * 100);
+  const { ledger } = useProgress();
+  // One XP number for the whole dashboard — the ledger's — with the ceiling
+  // taken from the next rank's published threshold.
+  const c = careerFor(ledger);
+  const xp = c.xp;
+  const pct = c.rankPct;
 
   return (
     <div className="surface flex h-full flex-col p-5 sm:p-6">
       <div className="flex items-center gap-2">
         <ShieldCheck className="h-5 w-5 shrink-0 text-emerald-300" strokeWidth={2} />
-        <h2 className="text-lg font-semibold text-white">Career Progress</h2>
+        <h2 className="text-lg font-semibold text-white">Node.js Progress</h2>
       </div>
       <p className="mt-2 text-sm text-slate-400">{c.blurb}</p>
 
@@ -26,7 +33,8 @@ export function CareerProgress() {
             </span>
           </div>
           <div className="font-mono text-xs text-slate-400">
-            {c.xp.toLocaleString("en-US")} / {c.xpMax.toLocaleString("en-US")} XP
+            {xp.toLocaleString("en-US")}
+            {c.atTopRank ? " XP" : ` / ${c.xpMax.toLocaleString("en-US")} XP`}
           </div>
         </div>
         <div className="hidden min-w-0 flex-1 sm:block">
@@ -37,12 +45,14 @@ export function CareerProgress() {
             />
           </div>
         </div>
-        <div className="hidden shrink-0 items-center gap-2 lg:flex">
-          <span className="grid h-9 w-9 place-items-center rounded-xl border border-white/[0.08] bg-white/[0.03] text-slate-500">
-            <Star className="h-4 w-4" />
-          </span>
-          <span className="text-sm text-slate-400">{c.nextRank}</span>
-        </div>
+        {!c.atTopRank && (
+          <div className="hidden shrink-0 items-center gap-2 lg:flex">
+            <span className="grid h-9 w-9 place-items-center rounded-xl border border-white/[0.08] bg-white/[0.03] text-slate-500">
+              <Star className="h-4 w-4" />
+            </span>
+            <span className="text-sm text-slate-400">{c.nextRank}</span>
+          </div>
+        )}
       </div>
 
       {/* Mobile bar */}
@@ -53,7 +63,9 @@ export function CareerProgress() {
             style={{ width: `${pct}%` }}
           />
         </div>
-        <div className="mt-2 text-xs text-slate-500">Next: {c.nextRank}</div>
+        {!c.atTopRank && (
+          <div className="mt-2 text-xs text-slate-500">Next: {c.nextRank}</div>
+        )}
       </div>
 
       <div className="mt-auto pt-5">
@@ -61,7 +73,7 @@ export function CareerProgress() {
           href="/missions"
           className="group inline-flex items-center gap-2 rounded-xl border border-white/12 bg-white/[0.03] px-5 py-2.5 text-sm font-semibold text-slate-200 transition-colors hover:border-white/25 hover:text-white"
         >
-          View Career Path
+          View Node.js Path
           <ArrowRight className="h-4 w-4 transition-transform group-hover:translate-x-0.5" />
         </Link>
       </div>

@@ -1,6 +1,9 @@
+"use client";
+
 import Link from "next/link";
 import { LayoutList, Map } from "lucide-react";
-import { overallProgress } from "@/lib/missions";
+import { useProgress } from "@/components/progress/ProgressProvider";
+import { overallProgress } from "@/lib/availability";
 
 /**
  * Shared header for both mission views. The List/Map switch is real navigation
@@ -8,7 +11,8 @@ import { overallProgress } from "@/lib/missions";
  * marked via `aria-current`.
  */
 export function MissionsHeader({ active }: { active: "list" | "map" }) {
-  const { done, total, pct } = overallProgress();
+  const { view } = useProgress();
+  const { done, total, pct } = overallProgress(view);
 
   return (
     <div className="mb-6 flex flex-col gap-5 lg:flex-row lg:items-center lg:justify-between">
@@ -17,7 +21,7 @@ export function MissionsHeader({ active }: { active: "list" | "map" }) {
           Missions
         </h1>
         <p className="mt-1.5 text-sm text-slate-400 sm:text-base">
-          Choose your next engineering challenge.
+          Debug real Node.js backend incidents, one at a time.
         </p>
       </div>
 
@@ -44,7 +48,7 @@ export function MissionsHeader({ active }: { active: "list" | "map" }) {
       <div className="min-w-0 lg:w-64">
         <div className="flex items-center justify-between gap-3 text-sm">
           <span className="text-slate-300">
-            {done} of {total} missions completed
+            {done} of {total} Node.js missions completed
           </span>
           <span className="shrink-0 font-semibold text-emerald-300">{pct}%</span>
         </div>

@@ -1,19 +1,22 @@
-import { Crosshair, GraduationCap, TerminalSquare, Trophy } from "lucide-react";
+import { Activity, Crosshair, GraduationCap, TerminalSquare } from "lucide-react";
 
 const HIGHLIGHTS = [
   {
-    title: "Learn by Doing",
-    description: "Solve real-world incidents and level up your skills.",
+    title: "Debug for Real",
+    description:
+      "Work realistic Node.js incidents: logs, metrics, traces, and stack dumps.",
     icon: GraduationCap,
   },
   {
-    title: "Rank Up",
-    description: "Complete missions, earn XP, and unlock new ranks.",
-    icon: Trophy,
+    title: "Async Under Pressure",
+    description:
+      "Event loop stalls, promise cascades, background jobs, and runtime performance.",
+    icon: Activity,
   },
   {
-    title: "Build Your Career",
-    description: "From Junior Engineer to Software Architect.",
+    title: "Interview Ready",
+    description:
+      "Practise the backend reasoning practical Node.js interviews ask for.",
     icon: TerminalSquare,
   },
 ];
@@ -22,14 +25,14 @@ export function OnboardingAside() {
   return (
     <div className="flex flex-col">
       <h1 className="text-4xl font-bold uppercase leading-[1.05] tracking-tight text-white sm:text-5xl">
-        Your Journey
+        Debug Node.js
         <br />
-        <span className="text-gradient">Starts Now</span>
+        <span className="text-gradient">Like It&apos;s Production</span>
       </h1>
       <p className="mt-5 max-w-md text-base leading-relaxed text-slate-400">
-        Create your engineer profile and join the raid.{" "}
+        Set up your profile and take on your first Node.js incident.{" "}
         <span className="text-slate-200">
-          Real incidents. Real skills. Real growth.
+          Real logs. Real root causes. Real backend practice.
         </span>
       </p>
 
@@ -44,9 +47,9 @@ export function OnboardingAside() {
             <Crosshair className="h-8 w-8 animate-pulse-soft text-violet-300" strokeWidth={1.6} />
           </span>
           <div className="min-w-0 font-mono text-xs leading-relaxed text-slate-400">
-            <div className="text-slate-500">$ coderaid init --engineer</div>
-            <div className="text-emerald-400/80">✓ workspace provisioned</div>
-            <div className="text-electric-400/80">→ awaiting first mission…</div>
+            <div className="text-slate-500">$ coderaid init --node</div>
+            <div className="text-emerald-400/80">✓ service logs attached</div>
+            <div className="text-electric-400/80">→ awaiting first incident…</div>
           </div>
         </div>
       </div>

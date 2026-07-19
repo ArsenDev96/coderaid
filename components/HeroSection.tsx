@@ -34,7 +34,7 @@ export function HeroSection() {
         <motion.div variants={container} initial="hidden" animate="visible">
           <motion.div variants={item}>
             <span className="chip uppercase tracking-[0.18em] text-[0.68rem] text-violet-200">
-              Software Engineering, Simulated
+              Node.js Backend Debugging, Simulated
             </span>
           </motion.div>
 
@@ -42,17 +42,18 @@ export function HeroSection() {
             variants={item}
             className="mt-5 text-4xl font-bold leading-[1.05] tracking-tight text-white sm:text-5xl lg:text-6xl"
           >
-            Play Like a
+            Master Node.js Through
             <br />
-            <span className="text-gradient">Software Engineer.</span>
+            <span className="text-gradient">Real Production Incidents.</span>
           </motion.h1>
 
           <motion.p
             variants={item}
             className="mt-5 max-w-md text-base leading-relaxed text-slate-400 sm:text-lg"
           >
-            Solve realistic production incidents, diagnose the root cause, and
-            ship the fix.
+            Investigate logs, metrics, traces, and backend code. Diagnose
+            failures, apply fixes, and build the practical Node.js skills
+            interviews and production systems demand.
           </motion.p>
 
           <motion.div
@@ -67,11 +68,11 @@ export function HeroSection() {
               <ArrowRight className="h-4 w-4 transition-transform group-hover:translate-x-0.5" />
             </Link>
             <Link
-              href="/demo"
+              href="/missions"
               className="inline-flex items-center justify-center gap-2 rounded-xl border border-white/12 bg-white/[0.03] px-6 py-3 text-sm font-semibold text-slate-200 transition-colors hover:border-white/25 hover:text-white"
             >
               <PlayCircle className="h-4 w-4" />
-              Watch Demo
+              Explore Node.js Missions
             </Link>
           </motion.div>
 

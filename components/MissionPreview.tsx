@@ -20,26 +20,27 @@ const STEPS = [
 const ACTIVE_STEP = "Investigation";
 
 const LOG_LINES: { t: string; tag: string; msg: string; ms: string; warn?: boolean }[] = [
-  { t: "10:02:11", tag: "GET", msg: "/orders?userId=123", ms: "2450ms" },
-  { t: "10:02:12", tag: "GET", msg: "/orders?userId=456", ms: "2431ms" },
-  { t: "10:02:13", tag: "GET", msg: "/orders?userId=789", ms: "2468ms" },
+  { t: "10:02:11", tag: "POST", msg: "/api/signup — user 4821", ms: "3184ms" },
+  { t: "10:02:12", tag: "POST", msg: "/api/signup — user 4822", ms: "3241ms" },
+  { t: "10:02:13", tag: "POST", msg: "/api/signup — user 4823", ms: "3196ms" },
   {
     t: "10:02:14",
-    tag: "DB",
-    msg: "Slow query detected",
-    ms: "2451ms",
+    tag: "WARN",
+    msg: "auth-service: awaited email send",
+    ms: "2671ms",
     warn: true,
   },
-  { t: "10:02:15", tag: "GET", msg: "/orders?userId=321", ms: "2467ms" },
+  { t: "10:02:15", tag: "POST", msg: "/api/signup — user 4824", ms: "3227ms" },
 ];
 
-const SQL_LINES: { text: string; tone: "keyword" | "plain" }[] = [
-  { text: "SELECT * FROM orders", tone: "keyword" },
-  { text: "WHERE user_id = 123", tone: "plain" },
-  { text: "ORDER BY created_at DESC;", tone: "keyword" },
+const TRACE_LINES: { text: string; tone: "keyword" | "plain" }[] = [
+  { text: "validate input          12ms", tone: "keyword" },
+  { text: "hash password          154ms", tone: "plain" },
+  { text: "insert user             31ms", tone: "keyword" },
+  { text: "send welcome email    2671ms", tone: "plain" },
 ];
 
-// Flat-but-noisy query-time series, hovering around the 2.4s mark.
+// Flat-but-noisy signup-latency series, hovering around the 3.2s mark.
 const CHART_POINTS =
   "0,22 14,26 28,18 42,30 56,21 70,33 84,19 98,28 112,23 126,31 140,20 154,27 168,24";
 
@@ -51,7 +52,7 @@ export function MissionPreview() {
           Mission Preview
         </h2>
         <p className="mt-1.5 text-sm text-slate-400">
-          Step inside a real mission.
+          Step inside a live Node.js incident: User Signup Latency Spike.
         </p>
 
         <div className="mt-6 grid min-w-0 flex-1 grid-cols-1 gap-4 sm:grid-cols-[auto_1fr] lg:grid-cols-[auto_1.4fr_1fr]">
@@ -115,14 +116,14 @@ export function MissionPreview() {
             </div>
           </div>
 
-          {/* Database read replica */}
+          {/* Request trace */}
           <div className="min-w-0 rounded-xl border border-white/[0.06] bg-base-950/60">
             <div className="border-b border-white/[0.06] px-3 py-2 text-[0.6rem] font-semibold uppercase tracking-[0.14em] text-slate-400">
-              Database (Read Replica)
+              Trace — POST /api/signup
             </div>
             <div className="p-3">
               <div className="thin-scroll overflow-x-auto font-mono text-[0.62rem] leading-relaxed">
-                {SQL_LINES.map((line) => (
+                {TRACE_LINES.map((line) => (
                   <div
                     key={line.text}
                     className={`whitespace-nowrap ${
@@ -138,14 +139,14 @@ export function MissionPreview() {
 
               <div className="mt-4 border-t border-white/[0.06] pt-3">
                 <div className="text-[0.6rem] font-semibold uppercase tracking-[0.14em] text-slate-500">
-                  Query Execution Time
+                  p95 Signup Latency
                 </div>
-                <div className="mt-1 text-lg font-bold text-rose-400">2,430ms</div>
+                <div className="mt-1 text-lg font-bold text-rose-400">3,200ms</div>
 
                 <div className="mt-2 flex gap-2">
                   <div className="flex flex-col justify-between py-0.5 font-mono text-[0.5rem] text-slate-600">
-                    <span>3s</span>
-                    <span>1.5s</span>
+                    <span>4s</span>
+                    <span>2s</span>
                     <span>0</span>
                   </div>
                   <svg
@@ -185,10 +186,10 @@ export function MissionPreview() {
         </div>
 
         <Link
-          href="/demo"
+          href="/missions"
           className="group mt-6 inline-flex items-center justify-center gap-2 rounded-xl border border-white/12 bg-white/[0.03] px-5 py-2.5 text-sm font-semibold text-slate-200 transition-colors hover:border-white/25 hover:text-white"
         >
-          Explore Mission
+          Explore Missions
           <ArrowRight className="h-4 w-4 transition-transform group-hover:translate-x-0.5" />
         </Link>
       </Reveal>

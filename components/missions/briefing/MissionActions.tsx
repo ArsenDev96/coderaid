@@ -2,38 +2,67 @@
 
 import { useState } from "react";
 import Link from "next/link";
-import { ArrowRight, ChevronDown, FileText, Lock, Search } from "lucide-react";
+import { ArrowRight, ChevronDown, FileText, Search } from "lucide-react";
 import type { MissionBriefing } from "@/lib/missions";
+import { AvailabilityNote } from "@/components/ui/AvailabilityBadge";
+import type { Availability } from "@/lib/availability";
+import { completeStage, touchRun } from "@/lib/run";
 
+const DISABLED_LABEL: Partial<Record<Availability, string>> = {
+  locked: "Mission Locked",
+  "in-development": "In Development",
+  "coming-soon": "Coming Soon",
+  completed: "Review Unavailable",
+};
+
+/**
+ * The briefing's action row. This is the last gate before a stage route, so the
+ * primary CTA is a real `<button disabled>` — never a styled link — whenever
+ * the mission has no authored investigation to enter.
+ */
 export function MissionActions({
   missionId,
   context,
-  locked = false,
+  availability,
+  blockedReason = null,
 }: {
   missionId: string;
   context: MissionBriefing["context"];
-  locked?: boolean;
+  availability: Availability;
+  /** Non-null means the primary action must stay disabled, and why. */
+  blockedReason?: string | null;
 }) {
   const [open, setOpen] = useState(false);
+  const startable = blockedReason === null;
 
   return (
     <div>
       <div className="flex flex-col gap-3 sm:flex-row">
         {/* Primary — strongest action on the page */}
-        {locked ? (
-          <span className="inline-flex w-full cursor-not-allowed items-center justify-center gap-2.5 rounded-xl border border-white/10 bg-white/[0.03] px-8 py-4 text-base font-semibold text-slate-500 sm:w-auto">
-            <Lock className="h-5 w-5" />
-            Mission Locked
-          </span>
-        ) : (
+        {startable ? (
           <Link
             href={`/missions/${missionId}/investigation`}
+            onClick={() => {
+              // Reading the briefing is the first stage, and starting the
+              // investigation is what puts a clock on the run.
+              touchRun(missionId);
+              completeStage(missionId, "Briefing");
+            }}
             className="group inline-flex w-full items-center justify-center gap-2.5 rounded-xl border border-violet-400/40 bg-gradient-to-r from-violet-600 to-violet-500 px-8 py-4 text-base font-semibold text-white shadow-neon transition-transform hover:scale-[1.02] sm:w-auto"
           >
             <Search className="h-5 w-5" strokeWidth={2.2} />
             Start Investigation
             <ArrowRight className="h-4 w-4 transition-transform group-hover:translate-x-0.5" />
           </Link>
+        ) : (
+          <button
+            type="button"
+            disabled
+            aria-describedby="mission-blocked-note"
+            className="inline-flex w-full cursor-not-allowed items-center justify-center gap-2.5 rounded-xl border border-white/10 bg-white/[0.03] px-8 py-4 text-base font-semibold text-slate-500 sm:w-auto"
+          >
+            {DISABLED_LABEL[availability] ?? "Unavailable"}
+          </button>
         )}
 
         {/* Secondary — deliberately quieter */}
@@ -51,6 +80,16 @@ export function MissionActions({
           />
         </button>
       </div>
+
+      {!startable && (
+        <div id="mission-blocked-note">
+          <AvailabilityNote
+            status={availability}
+            note={blockedReason}
+            className="mt-3"
+          />
+        </div>
+      )}
 
       {open && (
         <div

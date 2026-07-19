@@ -20,10 +20,11 @@ export function FinalCTA() {
               </span>
               <div>
                 <h2 className="text-2xl font-bold leading-tight text-white sm:text-3xl lg:text-4xl">
-                  Your first incident is waiting.
+                  Ready to Debug Your First Node.js Incident?
                 </h2>
                 <p className="mt-2 max-w-lg text-sm leading-relaxed text-slate-300 sm:text-base">
-                  Start solving real problems and become a better engineer.
+                  Start with a realistic backend production failure and prove
+                  you can find the root cause.
                 </p>
               </div>
             </div>

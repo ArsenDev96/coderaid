@@ -1,4 +1,4 @@
-import { ArrowRight, Crosshair, Gift, Sparkles, Zap } from "lucide-react";
+import { Crosshair, Gift, Sparkles } from "lucide-react";
 import { DAILY_RAID } from "@/lib/dashboard";
 
 export function DailyRaid() {
@@ -13,6 +13,10 @@ export function DailyRaid() {
           </div>
           <p className="mt-2 max-w-[16rem] text-sm leading-relaxed text-slate-400">
             {r.description}
+          </p>
+          <p className="mt-3 max-w-[18rem] text-xs leading-relaxed text-slate-500">
+            <span className="font-semibold text-slate-300">Today: {r.topic}</span>{" "}
+            — {r.prompt}
           </p>
         </div>
 
@@ -30,18 +34,24 @@ export function DailyRaid() {
         </div>
       </div>
 
+      {/* No XP badge and no live CTA: there is nothing to play here yet, and a
+          reward the ledger can't credit would be a promise the app can't keep. */}
       <div className="mt-auto flex flex-wrap items-center justify-between gap-3 pt-5">
-        <span className="inline-flex items-center gap-2 rounded-xl border border-amber-400/25 bg-amber-500/[0.08] px-3 py-2 text-sm font-semibold text-amber-200">
-          <Zap className="h-4 w-4" fill="currentColor" /> +{r.xp} XP
+        <span className="inline-flex items-center gap-2 rounded-xl border border-white/10 bg-white/[0.03] px-3 py-2 text-sm font-semibold text-slate-400">
+          Coming Soon
         </span>
         <button
           type="button"
-          className="group inline-flex items-center gap-2 rounded-xl border border-violet-400/50 bg-violet-500/[0.08] px-5 py-2.5 text-sm font-semibold text-violet-200 transition-colors hover:bg-violet-500/[0.16] hover:text-white"
+          disabled
+          aria-describedby="daily-raid-note"
+          className="inline-flex cursor-not-allowed items-center gap-2 rounded-xl border border-white/10 bg-white/[0.03] px-5 py-2.5 text-sm font-semibold text-slate-500"
         >
-          Start Daily Raid
-          <ArrowRight className="h-4 w-4 transition-transform group-hover:translate-x-0.5" />
+          Start Challenge
         </button>
       </div>
+      <p id="daily-raid-note" className="mt-2 text-xs text-slate-500">
+        {r.note}
+      </p>
     </div>
   );
 }

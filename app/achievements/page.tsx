@@ -6,7 +6,7 @@ import { AchievementsExplorer } from "@/components/achievements/AchievementsExpl
 export const metadata = {
   title: "Achievements — CodeRaid",
   description:
-    "Track your milestones, streaks, and engineering accomplishments.",
+    "Track your milestones, streaks, and Node.js debugging accomplishments.",
 };
 
 export default function AchievementsPage() {
@@ -18,7 +18,7 @@ export default function AchievementsPage() {
             Achievements
           </h1>
           <p className="mt-1.5 text-sm text-slate-400 sm:text-base">
-            Track your milestones, streaks, and engineering accomplishments.
+            Track your milestones, streaks, and Node.js debugging accomplishments.
           </p>
         </div>
 

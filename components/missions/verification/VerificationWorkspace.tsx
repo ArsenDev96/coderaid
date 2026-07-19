@@ -1,11 +1,14 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import { ArrowRight, Info, Loader2, PlayCircle } from "lucide-react";
+import { getFix, loadFixState } from "@/lib/fix";
+import { completeStage, touchRun } from "@/lib/run";
 import {
   allChecksPassed,
   loadVerificationState,
+  resolveVerification,
   saveVerificationState,
   type MissionVerificationConfig,
 } from "@/lib/verification";
@@ -31,12 +34,23 @@ export function VerificationWorkspace({
 }) {
   const [phase, setPhase] = useState<Phase>("idle");
   const [hydrated, setHydrated] = useState(false);
+  // Whether the fix the player actually applied resolves the root cause. Read
+  // from their saved fix selection, not assumed — this is what makes the
+  // verification a measurement rather than a formality.
+  const [fixResolves, setFixResolves] = useState(false);
   const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   // Restore after mount — a completed run comes straight back as "done".
   useEffect(() => {
+    touchRun(config.missionId);
     const saved = loadVerificationState(config.missionId);
     setPhase(saved?.completed ? "done" : "idle");
+
+    const fixConfig = getFix(config.missionId);
+    const fixState = fixConfig ? loadFixState(fixConfig) : null;
+    const applied = fixConfig?.options.find((o) => o.id === fixState?.fixId);
+    setFixResolves(applied?.resolvesRootCause === true && fixState?.applied === true);
+
     setHydrated(true);
     return () => {
       if (timer.current) clearTimeout(timer.current);
@@ -49,15 +63,22 @@ export function VerificationWorkspace({
       run: phase !== "idle",
       completed: phase === "done",
     });
+    if (phase === "done") completeStage(config.missionId, "Verification");
   }, [hydrated, config.missionId, phase]);
 
-  // Local simulation only — no backend. A short delay reveals the results.
+  // The replay itself is simulated — there is no backend to run traffic
+  // against — but what it reports is not: the metrics, logs, request breakdown
+  // and checks are all resolved against whether the fix actually worked.
   const runVerification = () => {
     setPhase("running");
     timer.current = setTimeout(() => setPhase("done"), 1400);
   };
 
-  const healthy = allChecksPassed(config);
+  const report = useMemo(
+    () => resolveVerification(config, fixResolves),
+    [config, fixResolves],
+  );
+  const healthy = allChecksPassed(report);
 
   return (
     <div className="flex flex-col gap-6">
@@ -124,19 +145,19 @@ export function VerificationWorkspace({
           </div>
         ) : (
           <div className="mt-6 flex flex-col gap-6">
-            <MetricCards metrics={config.metrics} />
+            <MetricCards metrics={report.metrics} />
 
             <div className="grid grid-cols-1 items-stretch gap-5 xl:grid-cols-[1.4fr_1fr]">
-              <PerformanceChart chart={config.chart} />
+              <PerformanceChart chart={report.chart} />
               <RequestBreakdown
-                spans={config.requestBreakdown}
-                totalMs={config.breakdownTotalMs}
+                spans={report.requestBreakdown}
+                totalMs={report.breakdownTotalMs}
               />
             </div>
 
             <div className="grid grid-cols-1 items-start gap-5 lg:grid-cols-2">
-              <VerificationLogs logs={config.logs} healthy={healthy} />
-              <VerificationSummary checks={config.checks} />
+              <VerificationLogs logs={report.logs} healthy={healthy} />
+              <VerificationSummary checks={report.checks} />
             </div>
           </div>
         )}
@@ -156,12 +177,12 @@ export function VerificationWorkspace({
               <div className="min-w-0">
                 <h3 className="text-sm font-semibold text-white">
                   {phase === "done"
-                    ? config.summary.headline
+                    ? report.summary.headline
                     : "Run verification to continue"}
                 </h3>
                 <p className="mt-1 max-w-md text-xs leading-relaxed text-slate-400">
                   {phase === "done"
-                    ? config.summary.detail
+                    ? report.summary.detail
                     : "Verify the fix to unlock your mission results and XP."}
                 </p>
               </div>
