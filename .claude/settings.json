@@ -75,7 +75,16 @@
       "Bash(sed -i 's/rewardSkill: \"API Performance +1\"/rewardSkill: \"Request Performance +1\"/; s/rewardSkill: \"Concurrency +1\"/rewardSkill: \"Request Performance +1\"/' lib/missions.ts)",
       "Bash(sed -i 's/\"API Performance\"/\"Request Performance\"/g' lib/missions.ts)",
       "Bash(python -c ' *)",
-      "Bash(python -)"
+      "Bash(python -)",
+      "Bash(sed -n '/^[0-9]*:function CompletedCard/,/^$/p')",
+      "Bash(awk '/^function CompletedCard/,/^}/' components/onboarding/OnboardingWizard.tsx)",
+      "Bash(npm -v)",
+      "Bash(node -e \"console.log\\(require\\('esbuild/package.json'\\).version\\)\")",
+      "Bash(npx tsx *)",
+      "Bash(node -e \"const m=require\\('d:/coderaid/node_modules/lucide-react/dist/cjs/lucide-react.js'\\); for \\(const n of ['Cpu','MemoryStick','Braces','Timer','Boxes','Clock']\\) console.log\\(n, typeof m[n]\\);\")",
+      "Bash(grep -m2 -A1 '033\\\\|\\\\\\\\u')",
+      "Bash(python \"C:/Users/user/AppData/Local/Temp/claude/d--coderaid/b0f53878-eaa4-4ea5-8180-f04fcb3548b7/scratchpad/fix_esc.py\")",
+      "Bash(npx vitest *)"
     ],
     "additionalDirectories": [
       "\\tmp"

@@ -4,6 +4,7 @@ import type { Metadata } from "next";
 import { ArrowLeft, Wrench } from "lucide-react";
 import { DashboardShell } from "@/components/dashboard/DashboardShell";
 import { FixWorkspace } from "@/components/missions/fix/FixWorkspace";
+import { StageGate } from "@/components/missions/StageGate";
 import { FIXABLE_MISSION_IDS, getFix } from "@/lib/fix";
 import { MISSIONS, getMission, missionStep } from "@/lib/missions";
 
@@ -100,13 +101,15 @@ export default function FixPage({ params }: Params) {
         </Link>
       </div>
 
-      <FixWorkspace
-        config={fix}
-        title={mission.title}
-        description="You've identified the root cause. Now implement the fix to resolve the issue and improve performance."
-        step={step}
-        totalSteps={totalSteps}
-      />
+      <StageGate missionId={mission.id} stage="Fix">
+        <FixWorkspace
+          config={fix}
+          title={mission.title}
+          description="You've identified the root cause. Now implement the fix to resolve the issue and improve performance."
+          step={step}
+          totalSteps={totalSteps}
+        />
+      </StageGate>
     </DashboardShell>
   );
 }

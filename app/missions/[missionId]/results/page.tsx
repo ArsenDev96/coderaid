@@ -4,6 +4,7 @@ import type { Metadata } from "next";
 import { ArrowLeft, Trophy } from "lucide-react";
 import { DashboardShell } from "@/components/dashboard/DashboardShell";
 import { ResultsWorkspace } from "@/components/missions/results/ResultsWorkspace";
+import { StageGate } from "@/components/missions/StageGate";
 import { RESULT_MISSION_IDS, getResult } from "@/lib/results";
 import { MISSIONS, getMission } from "@/lib/missions";
 
@@ -92,7 +93,9 @@ export default function ResultsPage({ params }: Params) {
   // player actually did, so they resolve in the workspace after hydration.
   return (
     <DashboardShell active="Missions">
-      <ResultsWorkspace mission={mission} config={result} />
+      <StageGate missionId={mission.id} stage="Complete">
+        <ResultsWorkspace mission={mission} config={result} />
+      </StageGate>
     </DashboardShell>
   );
 }

@@ -44,7 +44,8 @@ export function SkillsGrid() {
               return (
                 <li
                   key={track.name}
-                  aria-disabled="true"
+                  // The "Coming Soon" badge below already says this, in text —
+                  // `aria-disabled` means nothing on a listitem.
                   className="flex flex-col items-center justify-center gap-2 rounded-xl border border-white/[0.04] bg-white/[0.01] p-3 text-center opacity-60"
                 >
                   <span className="grid h-9 w-9 shrink-0 place-items-center rounded-xl border border-white/[0.06] bg-white/[0.02]">

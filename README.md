@@ -5,9 +5,11 @@
 Master Node.js through realistic production incidents: investigate logs, metrics, traces and
 backend code, diagnose the failure, apply a fix, and verify the result.
 
-This repository is the **front-end MVP**. It has no backend, no authentication, no database and no
-grading engine — all mission content is authored TypeScript and all progression is stored in the
-browser's `localStorage`.
+This repository is the **front-end MVP**. It has no backend, no authentication and no database —
+all mission content is authored TypeScript, and all progression lives in the browser's
+`localStorage`. What it *does* have is a real grading engine and a real progression ledger: answer
+correctness is evaluated against each mission's authored answers, and score, XP, level, rank, skill
+XP, streaks and achievements are all derived from runs the player genuinely finished.
 
 ## Scope
 
@@ -25,6 +27,7 @@ progress.
 - **Tailwind CSS**
 - **Lucide** icons
 - **Framer Motion** for entrance/hover animations (reduced-motion aware)
+- **Vitest** for domain-logic tests, **ESLint** (`next/core-web-vitals`) for linting
 
 ## Getting started
 
@@ -35,34 +38,81 @@ npm run dev
 
 Then open [http://localhost:3000](http://localhost:3000).
 
+## Development checks
+
 ```bash
-npm run build   # production build
-npm run start   # serve the production build
+npm run typecheck         # tsc --noEmit
+npm run lint              # ESLint, next/core-web-vitals
+npm run test              # Vitest — pure domain logic in lib/
+npm run validate:missions # mission content validation
+npm run build             # production build
+npm run test:e2e          # Playwright — one mission through the real browser
 ```
 
-> `npm run lint` is wired to `next lint`, but ESLint has never been installed in this repo — the
-> first run drops into Next.js's interactive setup prompt. Install `eslint` and `eslint-config-next`
-> before using it.
+All of them run non-interactively. `npm run test:watch` runs Vitest in watch mode.
+
+The Vitest suite is **425 tests across 13 files**, including a parameterised suite that puts every
+one of the 14 playable missions through the same perfect / wrong / hint / replay / stage-guard
+contract.
+
+`npm run test:e2e` needs a browser once: `npx playwright install chromium`. It builds the app and
+serves it through Playwright's `webServer`, then plays `event-loop-overload` from briefing to
+results in Chromium and checks that a directly typed results URL is blocked beforehand.
+
+CI runs the five checks above, in the same order, on every push to `main` and every pull request
+targeting it — see [`.github/workflows/ci.yml`](.github/workflows/ci.yml). It builds on Node 20 with
+npm dependency caching and has no deployment step. The browser smoke test runs as a **separate job**,
+so a browser download can never mask a failure in the pure checks.
+
+`validate:missions` reads the live catalogue and the five stage registries and reports every content
+mistake the type system can't see — a `correctRootCauseId` that names no option, a mission requiring
+more key clues than it authors, a fix whose `correctFixId` doesn't resolve the root cause, a results
+config that has re-introduced a hardcoded score. Errors exit non-zero; warnings (a partially
+authored mission, for instance) are printed but don't fail the run.
 
 ## Mission content status
 
 Only missions with complete end-to-end content are startable. Everything else renders a disabled CTA
-with an explanation, so no player can reach an unwritten stage.
+with an explanation, so no player can reach an unwritten stage. The counts below are **derived** at
+runtime from which stage configs exist — no component hardcodes them.
 
 | State | Missions |
 | --- | --- |
-| **Playable** | `user-signup-latency-spike` |
-| **Completed (demo history, review-only)** | `event-loop-overload`, `promise-all-cascade`, `jwt-session-expiry`, `slow-api-incident` |
-| **In development** | 9 Node.js missions across chapters 1–3 |
+| **Playable (14)** | All of Chapter 1, Chapter 2 and Chapter 3 — the whole Node.js MVP |
+| **In development (0)** | None — every Node.js mission is authored end to end |
 | **Coming soon** | Chapter 4 Databases (4), Chapter 5 Caching and Distributed Systems (2) |
+
+`playableSummary()` derives `{ playable: 14, inDevelopment: 0, total: 14 }`, and
+`npm run validate:missions` reports **0 errors and 0 warnings**.
 
 Chapters:
 
-1. **Async JavaScript** — event loop, promises, async control flow
-2. **Node.js APIs** — request handling, auth, health, shutdown
-3. **Workers and Performance** — background jobs, worker pools, memory, connection pressure
+1. **Async JavaScript** — event loop, promises, async control flow *(complete)*
+   `event-loop-overload` · `promise-all-cascade` · `async-map-trap` · `overlapping-scheduler-runs` · `unhandled-rejection-storm`
+2. **Node.js APIs** — request handling, auth, health, shutdown, rate limiting *(complete)*
+   `user-signup-latency-spike` · `jwt-session-expiry` · `health-check-flapping` · `graceful-shutdown-bug` · `rate-limiter-race`
+3. **Workers and Performance** — worker memory, queue backlogs, pool pressure, request performance *(complete)*
+   `memory-leak-worker` · `worker-queue-backlog` · `connection-pool-exhaustion` · `slow-api-incident`
 4. *Databases* — coming soon
 5. *Caching and Distributed Systems* — coming soon
+
+### Where to start
+
+**Event Loop Overload** is the beginner mission: a new reporting endpoint aggregates 480,000
+analytics records synchronously inside the request handler, blocking the event loop and slowing down
+every unrelated endpoint with it. It is what `recommendedStartingMission("beginner")` resolves to,
+what the onboarding completion CTA opens, and what `recommendedMission()` hands a brand-new player.
+
+From there `nextMissionId()` walks the catalogue in order — Promise.all Failure Cascade, The Async
+Map Trap, Overlapping Scheduler Runs, Unhandled Rejection Storm, User Signup Latency Spike, JWT
+Session Expiry Bug, Health Check Flapping, Graceful Shutdown Bug, Rate Limiter Race Condition,
+Memory Leak in Worker Pool, Worker Queue Backlog, Connection Pool Exhaustion, then The Slow API
+Incident — skipping anything already finished and never pointing at unwritten content. It returns
+nothing after The Slow API Incident: that is the last Node.js mission, and Chapters 4 and 5 are
+future tracks rather than playable content.
+
+The other two onboarding suggestions resolve the same way: `junior` opens Promise.all Failure Cascade
+and `mid` opens User Signup Latency Spike. All three are fully authored, so none of them falls back.
 
 ## Mission flow
 
@@ -76,16 +126,58 @@ Investigation offers five tools (logs, metrics, code, database, trace); the play
 until the key-clue threshold is met, then diagnoses a root cause, chooses a fix, runs verification
 and lands on results.
 
-> **Not yet implemented:** answer correctness is never evaluated. The `correctRootCauseId`,
-> `correctEvidenceIds` and `correctFixId` fields are authored in the stage configs but no component
-> reads them, so any diagnosis and any fix produce the same passing verification. Scoring, timing
-> and hint tracking are also not implemented.
+**Answers are graded.** `lib/grading.ts` scores the run out of 100 — root cause 45, supporting
+evidence 25 (a balanced F-score, so padding the case with irrelevant findings costs marks), fix 30,
+minus 5 per hint opened. A fix only resolves the incident if its authored `resolvesRootCause` is
+true, and `resolveVerification()` reports the incident *unchanged* when it isn't: metrics hold at
+their before values, the chart's after-line matches its before-line, the pre-fix logs replay, and
+every check marked `dependsOnFix` fails. Checks about the rest of the system stay true either way.
+
+Stage routes are statically generated, so they can be opened directly. `components/missions/StageGate.tsx`
+checks the prerequisite each stage builds on — investigation progress before diagnosis, a confirmed
+diagnosis before the fix, an applied fix before verification, a completed verification before
+results — and links back to the stage that produces it. A mission already in the ledger passes
+through at every stage, so review and replay are untouched. This is consistency protection for the
+front end, not security.
+
+## Authoring a new mission
+
+A mission becomes playable the moment `hasFullContent(missionId)` returns true, which happens when
+its id appears as a key in **all five** stage registries:
+
+| Registry | Module |
+| --- | --- |
+| `investigationConfigs` | `lib/investigation.ts` |
+| `diagnosisConfigs` | `lib/diagnosis.ts` |
+| `fixConfigs` | `lib/fix.ts` |
+| `verificationConfigs` | `lib/verification.ts` |
+| `resultsConfigs` | `lib/results.ts` |
+
+Nothing else needs to be switched on. `PLAYABLE_MISSION_IDS`, the recommended mission, the next
+mission, the mission browser, the map, the skills page and the "N of M playable" summary all derive
+from it.
+
+The checklist for a new mission:
+
+1. Add the mission to `MISSIONS` in `lib/missions.ts` with an authored `status` — `available`,
+   `locked`, `in-development` or `coming-soon`. Never `current` or `completed`: those are facts
+   about a *player* and are derived by `missionAvailability()` from the progression ledger.
+2. Set `rewardSkillId` to a stable id from `lib/skills.ts`, and add the mission id to the
+   `missionIds` of any other skill it exercises — that is how supporting skill XP gets credited.
+3. Author the five stage configs and register them.
+4. Run `npm run validate:missions`, then `npm run test`.
+
+Step 4 is not a formality. `tests/mission-flows-all.test.ts` parameterises over
+`PLAYABLE_MISSION_IDS`, so a newly registered mission automatically inherits the full contract —
+five root causes, five fixes with exactly one resolving, key evidence spanning at least three tools,
+and the perfect / wrong / hint / replay flows all behaving. If any of it fails, the mission is not
+finished.
 
 ## Architecture
 
 ```
 app/
-  layout.tsx           Root layout: fonts, metadata, <SettingsEffects/>
+  layout.tsx           Root layout: fonts, metadata, <SettingsEffects/>, <ProgressProvider/>
   page.tsx             Landing page
   start/               Onboarding wizard (4 steps)
   dashboard/           Player home
@@ -99,25 +191,51 @@ components/
   <landing sections>   Header, HeroSection, GamePreview, ComparisonSection, HowItWorks,
                        MissionPreview, SkillsGrid, CareerPath, FinalCTA, Footer
   ui/                  Logo, Reveal, AvailabilityBadge
+  progress/            ProgressProvider — one hydrated ledger for the whole app
+  missions/StageGate   Client-side stage prerequisite guard
   dashboard/ onboarding/ missions/ skills/ achievements/ leaderboards/ settings/
 
 lib/
   missions.ts          Mission catalogue, chapters, tracks, flow, briefing resolution
   availability.ts      Canonical "can the player do this yet?" model
+  progress.ts          The progression ledger: XP, levels, ranks, skill XP, streaks, crediting
+  run.ts               Per-mission run telemetry: start time, stages completed, hints opened
+  grading.ts           The grading engine
   skills.ts            Canonical Node.js skill taxonomy
+  stage-access.ts      Stage prerequisites (pure)
+  mission-validation.ts Content validation rules (pure)
   investigation.ts diagnosis.ts fix.ts verification.ts results.ts
   dashboard.ts achievements.ts leaderboards.ts onboarding.ts settings.ts data.ts types.ts
+
+scripts/
+  validate-missions.ts CLI wrapper around lib/mission-validation.ts
+
+tests/                 Vitest — pure domain logic and storage helpers
+  helpers/mission-run  Shared harness: play a mission end to end in Node
+  mission-flows-all    The contract every playable mission inherits
+  chapter-two          Chapter 2 ordering and content-correctness tests
+  chapter-three        Chapter 3 correctness, MVP closure, progression audit
+
+e2e/                   Playwright — one mission through a real browser
+  mission-flow.spec.ts Briefing → results, plus the results-URL guard
+
+.github/workflows/
+  ci.yml               Typecheck, lint, test, validate:missions, build (+ smoke job)
 ```
 
 ### Single sources of truth
 
-Three modules are canonical and should not be duplicated:
+These modules are canonical and should not be duplicated:
 
 - **`lib/missions.ts`** — the mission catalogue, chapters and their `track` (`nodejs` | `future`).
+  `MissionStatus` describes *content*, never a player.
 - **`lib/availability.ts`** — whether a mission is `available`, `current`, `completed`, `locked`,
-  `in-development` or `coming-soon`. `hasFullContent()` derives playability from which stage configs
-  exist, so authoring a mission's stages is the single act that makes it startable. Every surface
-  renders these states through `components/ui/AvailabilityBadge.tsx`.
+  `in-development` or `coming-soon` **for this player**. `hasFullContent()` derives playability from
+  which stage configs exist. Every surface renders these states through
+  `components/ui/AvailabilityBadge.tsx`.
+- **`lib/progress.ts`** — the progression ledger. Every XP, level, rank, skill and streak figure in
+  the app comes from here, and a new player's is genuinely empty.
+- **`lib/grading.ts`** — the only place a score, an XP award or a `resolved` verdict is produced.
 - **`lib/skills.ts`** — the 20 Node.js skills across 4 categories. Referenced by stable `id`, never
   by display name. `lib/data.ts` holds landing-page marketing content only.
 
@@ -125,11 +243,14 @@ Three modules are canonical and should not be duplicated:
 
 - **Server components render, client components hold state.** Each mission stage route is a server
   component that looks up static config and renders a `"use client"` workspace.
-- **Static generation.** Stage routes export `generateStaticParams()` for all 20 missions.
+- **Static generation.** Stage routes export `generateStaticParams()` for every mission.
 - **Icons cross the server→client boundary as string keys** (`ROOT_CAUSE_ICONS`, `FIX_ICONS`,
   `METRIC_ICONS`), because component functions aren't serializable as props.
 - **Hydration-safe persistence.** Nothing reads `localStorage` during render: load in a `useEffect`
-  after mount behind a `hydrated` flag, and only write once hydrated.
+  after mount behind a `hydrated` flag, and only write once hydrated. `EMPTY_LEDGER` is the
+  server-rendered state and a genuinely valid new-player one.
+- **Nothing about a player is authored.** No fixture scores, XP totals, streaks, ranks, skill levels
+  or completion history. `validate:missions` fails a results config that reintroduces one.
 
 ### Storage
 
@@ -139,15 +260,20 @@ All keys are namespaced `coderaid:` so progress reset can sweep them.
 | --- | --- |
 | `coderaid:profile` | `{ name, avatarId, slogan, pathId, experienceId, step, completed }` |
 | `coderaid:user-settings` | `{ theme, codeEditorTheme, defaultLanguage, showLineNumbers, soundEffects }` |
-| `coderaid:player:progress` | `{ xpFromMissions, skillPoints, claimedMissions[] }` |
+| `coderaid:player:progress` | `{ version, totalXp, skillXp, missions, activeDays, achievements }` |
+| `coderaid:{missionId}:run` | `{ startedAt, lastActiveAt, stagesCompleted[], hintsUsed[] }` |
 | `coderaid:{missionId}:investigation` | `{ activeTool, collectedEvidenceIds[] }` |
 | `coderaid:{missionId}:diagnosis` | `{ rootCauseId, evidenceIds[], confirmed }` |
 | `coderaid:{missionId}:fix` | `{ fixId, applied }` |
 | `coderaid:{missionId}:verification` | `{ run, completed }` |
-| `coderaid:{missionId}:results` | `{ claimed, skillBefore, skillAfter }` |
+| `coderaid:{missionId}:results` | `{ claimed, score }` |
 
-Settings reset protects `coderaid:profile` and `coderaid:user-settings` and clears everything else in
-the namespace.
+Progress reset protects `coderaid:profile` and `coderaid:user-settings` and clears everything else in
+the namespace — written as a namespace sweep rather than a delete-list, so a new stage key can't
+survive it.
+
+Crediting is idempotent: only the player's best run per mission is kept, a better replay adds the
+difference, a worse one adds nothing, and refreshing the results screen can't farm XP.
 
 ### Design system
 
@@ -163,11 +289,32 @@ the namespace.
 Light theme is selectable in settings and stored, but the light palette is not implemented yet — the
 settings panel says so explicitly.
 
+## Progression reachable from the current content
+
+Clearing all 14 missions perfectly is worth **1,830 XP**, which lands a player at **level 6** and the
+**Backend Apprentice** rank. These are audited by `tests/chapter-three.test.ts` rather than assumed,
+and the thresholds below are documented as-is — nothing has been lowered to make them reachable.
+
+| Signal | Reachable today | Note |
+| --- | --- | --- |
+| Player level | 6 (of an open-ended curve) | 1,830 XP total across the catalogue |
+| Career rank | Node.js Explorer, Backend Apprentice | Node.js Developer needs 3,000 XP |
+| Skill levels | 8+ skills reach the level-10 cap | `streams` and `validation` have no missions yet |
+| Achievements | 8 of 12 | See below |
+
+Unreachable from content alone, and why:
+
+- **Backend Engineer Rank** — needs 10,000 XP; the whole catalogue is worth 1,830. This is a
+  *content* gap, not a threshold problem: roughly 5× the current mission count would close it.
+  Recommendation: leave the threshold alone and grow the catalogue.
+- **Event Loop Master** — needs Event Loop at level 7 (280 skill XP), but `event-loop` is the primary
+  reward of exactly one 80 XP mission. Recommendation: wire more missions to the skill rather than
+  lowering the level requirement.
+- **7-day / 30-day streak** — time-gated by design, not content-gated.
+
 ## Roadmap
 
-1. Author stage content for the remaining Node.js missions.
-2. Build a grading engine that reads the already-authored `correct*` fields, tracks hints and time,
-   and produces a real score.
-3. Replace the static progression with one player record and a real XP → level → rank model.
-4. Add a backend and authentication so progress survives a browser.
-5. Open the Databases, Caching, System Design and Cloud Reliability tracks.
+1. Grow the catalogue so the XP-gated rank and the Event Loop skill achievement become reachable.
+2. Mission unlocking, now that there is a full 14-mission order for it to mean something.
+3. Add a backend and authentication so progress survives a browser.
+4. Open the Databases, Caching, System Design and Cloud Reliability tracks.

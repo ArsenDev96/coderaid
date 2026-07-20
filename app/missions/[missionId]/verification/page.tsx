@@ -4,6 +4,7 @@ import type { Metadata } from "next";
 import { ArrowLeft, ShieldCheck } from "lucide-react";
 import { DashboardShell } from "@/components/dashboard/DashboardShell";
 import { VerificationWorkspace } from "@/components/missions/verification/VerificationWorkspace";
+import { StageGate } from "@/components/missions/StageGate";
 import { VERIFIABLE_MISSION_IDS, getVerification } from "@/lib/verification";
 import { MISSIONS, getMission, missionStep } from "@/lib/missions";
 
@@ -102,12 +103,14 @@ export default function VerificationPage({ params }: Params) {
         </Link>
       </div>
 
-      <VerificationWorkspace
-        config={verification}
-        title={mission.title}
-        step={step}
-        totalSteps={totalSteps}
-      />
+      <StageGate missionId={mission.id} stage="Verification">
+        <VerificationWorkspace
+          config={verification}
+          title={mission.title}
+          step={step}
+          totalSteps={totalSteps}
+        />
+      </StageGate>
     </DashboardShell>
   );
 }

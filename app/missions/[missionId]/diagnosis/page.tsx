@@ -4,6 +4,7 @@ import type { Metadata } from "next";
 import { ArrowLeft, Stethoscope } from "lucide-react";
 import { DashboardShell } from "@/components/dashboard/DashboardShell";
 import { DiagnosisWorkspace } from "@/components/missions/diagnosis/DiagnosisWorkspace";
+import { StageGate } from "@/components/missions/StageGate";
 import { DIAGNOSABLE_MISSION_IDS, getDiagnosis } from "@/lib/diagnosis";
 import { MISSIONS, getMission, missionStep, resolveBriefing } from "@/lib/missions";
 
@@ -102,14 +103,16 @@ export default function DiagnosisPage({ params }: Params) {
         </Link>
       </div>
 
-      <DiagnosisWorkspace
-        config={diagnosis}
-        title={mission.title}
-        description={mission.description}
-        severity={briefing.severity}
-        step={diagnosisStep.step}
-        totalSteps={diagnosisStep.totalSteps}
-      />
+      <StageGate missionId={mission.id} stage="Diagnosis">
+        <DiagnosisWorkspace
+          config={diagnosis}
+          title={mission.title}
+          description={mission.description}
+          severity={briefing.severity}
+          step={diagnosisStep.step}
+          totalSteps={diagnosisStep.totalSteps}
+        />
+      </StageGate>
     </DashboardShell>
   );
 }
