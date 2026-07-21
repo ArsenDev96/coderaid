@@ -57,6 +57,24 @@
 > a documented progression-and-achievement audit. A **Playwright** Chromium smoke test was added
 > (`e2e/`) that plays `event-loop-overload` through the real UI and checks the results-URL guard;
 > it runs as a separate CI job. **Chapters 4 and 5 remain Coming Soon and non-playable.**
+>
+> **New in the settings pass (2026-07-21):** every preference the Settings page still offers is now
+> **read by something**. `codeEditorTheme` and `showLineNumbers` were stored and consumed by nothing;
+> they now drive both code surfaces through a new pure module `lib/code-theme.ts` and the shared
+> `components/ui/CodeText.tsx`, which also absorbed the private highlighter that used to live inside
+> `FixExplanationPanel`. `defaultLanguage`, `soundEffects` and `theme` were **removed** — nothing
+> consumed any of them and none could be honoured (mission code is authored in one language per
+> mission; there are no audio cues; there is no light palette), so the page no longer offers a
+> control that does nothing. `SettingsEffects` went with the theme, since
+> `:root { color-scheme: dark }` in `app/globals.css` already stated the same thing statically.
+> A test pins the key set of `DEFAULT_SETTINGS`. The suite is **432 tests across 13 files**.
+> See §8 → Settings.
+>
+> Also in that pass: **`next` was upgraded 14.2.5 → 14.2.35**, an in-range patch that clears the
+> critical production advisories the old §12 item 11 wrongly described as dev-only; that item now
+> records what `npm audit --omit=dev` actually reports and why the remainder is unreachable here.
+> §12 item 3 ("6 of 14 missions playable") was left stale by the Chapter 2 and 3 passes and is
+> corrected.
 
 ---
 
@@ -88,14 +106,14 @@ The README (`README.md`) has been rewritten to match this positioning and is no 
 
 | Concern | Choice |
 | --- | --- |
-| Framework | Next.js **14.2.5**, App Router |
+| Framework | Next.js **14.2.35**, App Router |
 | Language | TypeScript 5.5, `strict: true`, path alias `@/*` → repo root |
 | UI | React 18.3, Tailwind CSS 3.4 |
 | Icons | `lucide-react` |
 | Animation | `framer-motion` (reduced-motion aware) |
 | Fonts | `next/font/google` — Inter (`--font-inter`), JetBrains Mono (`--font-jetbrains`) |
 | Backend | **none** — zero `route.ts`, zero server actions, zero DB, zero auth |
-| Tests | **Vitest 2** — `tests/`, 13 files, 425 tests, Node environment, `@/*` alias |
+| Tests | **Vitest 2** — `tests/`, 13 files, 432 tests, Node environment, `@/*` alias |
 | Browser smoke | **Playwright 1.61** — `e2e/`, 2 Chromium tests against the production build |
 | Lint | **ESLint 8 + `eslint-config-next`**, committed `.eslintrc.json` extending `next/core-web-vitals` |
 | Content validation | `tsx scripts/validate-missions.ts` over `lib/mission-validation.ts` |
@@ -111,7 +129,7 @@ Dev dependencies added in this pass: `eslint`, `eslint-config-next`, `vitest`, `
 | --- | --- |
 | `npm run typecheck` | **passes clean**, no errors |
 | `npm run lint` | **runs non-interactively** — "No ESLint warnings or errors" |
-| `npm run test` | **425 passed** across 13 files |
+| `npm run test` | **432 passed** across 13 files |
 | `npm run validate:missions` | **0 errors, 0 warnings** — 20 missions checked, 14 fully playable |
 | `npm run build` | **succeeds**, "Compiled successfully", **134 static pages generated** |
 
@@ -125,7 +143,7 @@ the only dynamically rendered route.
 
 ```
 app/
-  layout.tsx                 Root layout: fonts, metadata, <SettingsEffects/>, <ProgressProvider/>
+  layout.tsx                 Root layout: fonts, metadata, <ProgressProvider/>
   globals.css                Tailwind layers + .surface / .chip / .text-gradient utilities
   page.tsx                   Marketing landing page
   start/                     Onboarding wizard (4 steps)
@@ -140,7 +158,8 @@ components/
   <landing sections>         Header, HeroSection, GamePreview, ComparisonSection, HowItWorks,
                              MissionPreview, SkillsGrid, CareerPath, FinalCTA, Footer,
                              PlaceholderPage
-  ui/                        Logo, Reveal, AvailabilityBadge (+ AvailabilityNote)
+  ui/                        Logo, Reveal, AvailabilityBadge (+ AvailabilityNote),
+                             CodeText (+ useCodePreferences)
   progress/                  ProgressProvider — hydrates the ledger, useProgress()
   dashboard/                 DashboardShell, DashboardSidebar, DashboardTopBar, DashboardGreeting,
                              NextAction, DailyRaid, CareerProgress, RecommendedMissions,
@@ -163,6 +182,7 @@ lib/
   skills.ts                  CANONICAL Node.js skill taxonomy
   stage-access.ts            Pure stage-prerequisite rules (what StageGate enforces)
   mission-validation.ts      Pure content-validation rules (what validate:missions runs)
+  code-theme.ts              Pure code tokenizer + editor-theme palettes (what CodeText renders)
   investigation.ts diagnosis.ts fix.ts verification.ts results.ts   Per-stage content + state
   dashboard.ts achievements.ts leaderboards.ts onboarding.ts settings.ts
 
@@ -883,12 +903,44 @@ card permanently (the only way back is the Settings profile section).
 
 - **Profile** — name + avatar, written into `coderaid:profile` while preserving onboarding fields;
   explicit Save button with a transient confirmation.
-- **Experience** — auto-saving: `theme` (dark/light — *light is stored but not implemented*, shown
-  with an inline notice), `codeEditorTheme` (5 options), `defaultLanguage`, `showLineNumbers`,
-  `soundEffects`. **`LANGUAGE_OPTIONS` is now TypeScript + JavaScript only — `sql` was removed**,
-  because database content is a future track and offering it would promise a language no mission is
-  written in. Cross-tab sync via a custom `coderaid:settings-changed` event **and** the native
-  `storage` event; `SettingsEffects` in the root layout applies `data-theme` + `color-scheme`.
+- **Experience** — auto-saving, and as of 2026-07-21 it holds **exactly two preferences, both of
+  which something reads**: `codeEditorTheme` (5 options) and `showLineNumbers`, consumed by both
+  code surfaces via `lib/code-theme.ts` (below). Three controls were **removed** in that pass
+  because nothing consumed them and none could be wired:
+  - `defaultLanguage` — mission code is authored in one language per mission, so a preference could
+    never change what the panel shows. `LANGUAGE_OPTIONS` went with it.
+  - `soundEffects` — there are no audio cues anywhere in the app.
+  - `theme` — CodeRaid has no light palette and every surface is hand-tuned dark, so the option
+    could only ever save a value nothing rendered. `Theme`, `THEME_OPTIONS`, `isTheme` and the
+    inline "light is still in progress" notice went with it, and **`SettingsEffects` was deleted
+    outright** — it existed only to stamp `data-theme` / `color-scheme`, and
+    `:root { color-scheme: dark }` in `app/globals.css` already says the same thing statically.
+    The root layout no longer mounts it.
+
+  A test pins the whole key set of `DEFAULT_SETTINGS`, so a preference nothing reads cannot be
+  reintroduced silently. Stored JSON from any earlier shape degrades cleanly — `loadSettings`
+  rebuilds the record field by field and ignores keys it no longer knows. Cross-tab sync via a
+  custom `coderaid:settings-changed` event **and** the native `storage` event.
+#### Code presentation — `lib/code-theme.ts` (new 2026-07-21)
+
+The one place mission code is coloured, and the reason the two Experience preferences below the
+theme row now do something. Pure, like `lib/stage-access.ts` and `lib/mission-validation.ts`:
+
+- `tokenizeCode(line)` → `CodeToken[]` of `plain | keyword | string | comment | number`. It replaces
+  a highlighter that lived privately inside `FixExplanationPanel`, and gained numbers and the
+  remaining JS keywords on the way out. A test pins that concatenating the tokens reproduces the
+  input exactly — silently dropping a character of mission code would be worse than not colouring it.
+- `CODE_PALETTES` — one Tailwind colour set per `EDITOR_THEME_OPTIONS` entry, with
+  `codePalette(id)` falling back to `one-dark-pro` for an id that no longer exists. `one-dark-pro`
+  reproduces the exact colours both panels used before the preference was wired, so a player who
+  never opens Settings sees no change. A test asserts every offered theme has a palette and that no
+  palette reuses one colour for two token kinds.
+- `components/ui/CodeText.tsx` supplies the React half: `useCodePreferences()` reads the settings
+  and `CodeText` renders the tokens. Both `CodeInspectionPanel` (investigation) and the fix stage's
+  implementation example use it, so the two surfaces cannot disagree. Hiding the line-number gutter
+  costs no accessibility — the number is already in each selectable line's `aria-label`, and the fix
+  example is an `<ol>`.
+
 - **Progress** — `resetMissionProgress(storage?)` behind an `alertdialog`. It sweeps every
   `coderaid:` key **except** `coderaid:profile` and `coderaid:user-settings`, collecting first and
   deleting after the loop (deleting mid-loop would reindex and skip entries), returns the number of
@@ -904,7 +956,7 @@ Everything is `localStorage`. There is no network I/O of any kind.
 | Key | Written by | Shape |
 | --- | --- | --- |
 | `coderaid:profile` | onboarding, settings profile | `{ name, avatarId, slogan, pathId, experienceId, step, completed }` |
-| `coderaid:user-settings` | settings experience | `{ theme, codeEditorTheme, defaultLanguage, showLineNumbers, soundEffects }` |
+| `coderaid:user-settings` | settings experience | `{ codeEditorTheme, showLineNumbers }` — stored values from a previous shape are dropped by the loader |
 | `coderaid:player:progress` | the results screen, via `creditRun` | **The progression ledger** — `{ version: 2, totalXp, skillXp: Record<skillId, number>, missions: Record<missionId, MissionRecord>, activeDays: string[], achievements: Record<achievementId, isoDate> }` |
 | `coderaid:{missionId}:run` | every stage | `{ startedAt, lastActiveAt, stagesCompleted: MissionStage[], hintsUsed: string[] }` — the run telemetry the grade is computed from |
 | `coderaid:{missionId}:investigation` | investigation | `{ activeTool, collectedEvidenceIds: string[] }` |
@@ -1007,7 +1059,8 @@ and next-mission links, derived from which stage configs exist) — plus, new in
   ledger remains editable from devtools.
 - `DAILY_RAID` is copy only — now labelled Coming Soon with a disabled CTA and no XP figure, so it
   no longer advertises a reward the ledger could never credit.
-- Light theme is selectable and stored but not implemented.
+- There is no light palette, and no control offers one — CodeRaid is dark, declared once as
+  `:root { color-scheme: dark }` in `app/globals.css`.
 - `/sign-in` and `/demo` are placeholder pages. There is no auth.
 
 ---
@@ -1057,9 +1110,12 @@ Genuinely outstanding:
    ledger is trivially editable from devtools. This is the migration surface (§9).
 2. **The leaderboard field is fictional.** The player's own row is real and really ranked, but the
    30 others are authored. Real standings need item 1.
-3. **Content scale is still the bottleneck** — 6 of 14 Node.js missions are playable, and
-   Chapters 2 and 3 hold the remaining 8. Every system above scales with content; nothing else is
-   blocking.
+3. **Content scale is still the bottleneck — but the bottleneck has moved.** All 14 Node.js
+   missions are playable, so the problem is no longer *finishing* the MVP but *growing past it*:
+   at 1,830 total XP the catalogue cannot reach the Backend Engineer rank (10,000 XP), and Chapters
+   4 and 5 hold the next 6 missions. Every system above scales with content; nothing else is
+   blocking. (This item read "6 of 14 playable" until 2026-07-21 — it was written before the
+   Chapter 2 and 3 passes and was left stale by them.)
 4. **Skill-level achievements may be unreachable at current content volume.** "Event Loop Master"
    wants level 7 = 280 skill XP, and the one authored mission that builds it awards 80 at a perfect
    score. Chapter 1 improved this for `async-javascript`, `promises` and `error-handling`, and
@@ -1088,8 +1144,20 @@ Genuinely outstanding:
     0 warnings** across all 20 catalogued missions. (The earlier `user-signup-latency-spike` warning
     — a diagnosis evidence option, `no-errors-in-logs`, with no matching investigation evidence —
     had already been fixed by authoring the missing investigation item under the same id.)
-11. **13 npm audit findings in the new dev dependency tree** (transitive, dev-only, mostly via
-    `eslint-config-next` and vite). Nothing reaches the shipped bundle.
+11. **npm audit — measured properly on 2026-07-21, and the previous claim here was wrong.** This
+    item used to say all 13 findings were "transitive, dev-only… nothing reaches the shipped
+    bundle". They are not: `npm audit --omit=dev` reported **2 production findings (1 critical, 1
+    moderate)** against `next@14.2.5` itself. **`next` was upgraded to 14.2.35** (an in-range patch;
+    no code change was needed and all six gates stayed green), which clears the critical band —
+    middleware authorization bypass, the cache-poisoning family, image-optimization content
+    injection, request smuggling.
+    What remains is **1 high + 1 moderate in production, unreachable in this app and unfixable in
+    the 14.x line**: the advisory range is `9.3.4-canary.0 – 16.3.0-canary.5`, so the fix is
+    Next 16 — a major migration. Every remaining advisory needs a feature CodeRaid does not use:
+    there is no `middleware.ts`, no `next/image` import anywhere, no i18n, no rewrites, no server
+    actions, and the bundled `postcss` is build-time only. The dev tree still carries the rest of
+    the findings via `eslint-config-next` and vite. **Re-measure with `npm audit --omit=dev` rather
+    than trusting the total** — the headline count mixes dev and production.
 
 ---
 
@@ -1132,7 +1200,7 @@ Items 2 and 3 of the previous list — the grading engine and a real progression
    change and a defensible one — it was deliberately not made in this pass, because the ordering
    already works without it. `nextMissionId()` walks the catalogue index, which produces exactly the
    intended Chapter 1 → Chapter 2 sequence, and a test asserts the full walk.
-7. **Polish.** Light theme, sign-in flow, error/loading states, and a real Daily Challenge (the card
+7. **Polish.** Sign-in flow, error/loading states, and a real Daily Challenge (the card
    is honest about being unbuilt, but it is still a card advertising something that doesn't exist).
 
 ---
@@ -1242,7 +1310,7 @@ compile", "is the content coherent", "does a wrong run actually score badly" —
 command.** All five commands in §2 run non-interactively and were run to produce the results recorded
 there.
 
-### 15.1 The test suite — `tests/`, Vitest, 425 tests
+### 15.1 The test suite — `tests/`, Vitest, 432 tests
 
 Node environment, no DOM, no component testing library. `vitest.config.ts` re-declares the `@/*`
 alias so tests import modules exactly the way the app does. Anything needing `localStorage` supplies
@@ -1258,7 +1326,7 @@ already allow, or via a `globalThis.window` shim in the flow tests).
 | `skills.test.ts` | Zero start, primary vs supporting reward shares, unrelated skills uncredited, derived levels after crediting, unique ids, valid categories, mission back-references, `skillsToImprove` only suggesting actionable skills, category averages |
 | `achievements.test.ts` | Nothing unlocked at zero, resolved-only counting, completed-but-unresolved, hint-free from real telemetry, skill-level achievements, `perfect-diagnosis` at exactly 100, timestamps stamped once and never moved, ordering, idempotent re-derivation |
 | `leaderboards.test.ts` | New player ranked last rather than hidden, period XP from completion dates, mission count from records, success rate from resolved runs, focus from strongest category, the fictional roster unchanged by the player, real re-ranking per period, percentile floored at 1, ranks surviving filters |
-| `settings.test.ts` | Option defaults valid, no SQL language offered, reset protecting identity/preferences and sweeping unknown stage keys, plus every stage-prerequisite rule |
+| `settings.test.ts` | Option defaults valid, **the stored key set pinned so a preference nothing reads can't return**, the code tokenizer (lossless round-trip, keyword/string/comment/number classification, no keyword-inside-identifier) and the editor palettes (one per offered theme, unknown id falling back, no colour reused within a palette), reset protecting identity/preferences and sweeping unknown stage keys, plus every stage-prerequisite rule |
 | `mission-validation.test.ts` | The live catalogue has zero errors and agrees with `availability` about playability; a valid fixture passes; **37 invalid-fixture cases** (8 catalogue, 7 investigation, 5 diagnosis, 5 fix, 6 verification, 6 results) each breaking exactly one rule, so a failure names the rule it broke |
 | `mission-flow.test.ts` | **The four flows, end to end through the real modules**, walked in detail for the reference mission — see below |
 | `mission-flows-all.test.ts` | The same four flows plus a content contract, run against **every** playable mission via `describe.each(PLAYABLE_MISSION_IDS)` — see below |

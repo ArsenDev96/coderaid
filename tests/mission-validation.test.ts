@@ -34,6 +34,13 @@ function fixture(): ValidationInput {
 
   return {
     missions: [mission],
+    answers: {
+      fixture: {
+        rootCauseId: "right",
+        evidenceIds: ["key", "noise"],
+        fixId: "good",
+      },
+    },
     investigations: {
       fixture: {
         missionId: "fixture",
@@ -102,8 +109,6 @@ function fixture(): ValidationInput {
           { id: "noise", source: "logs", title: "Noise", description: "…" },
         ],
         hint: "…",
-        correctRootCauseId: "right",
-        correctEvidenceIds: ["key", "noise"],
       },
     },
     fixes: {
@@ -117,7 +122,6 @@ function fixture(): ValidationInput {
             title: "Good",
             description: "…",
             icon: "worker",
-            resolvesRootCause: true,
             explanation: ["…"],
             codeExample: "…",
           },
@@ -126,13 +130,11 @@ function fixture(): ValidationInput {
             title: "Bad",
             description: "…",
             icon: "pool",
-            resolvesRootCause: false,
             explanation: ["…"],
             codeExample: "…",
           },
         ],
         hint: "…",
-        correctFixId: "good",
       },
     },
     verifications: {
@@ -335,23 +337,23 @@ describe("diagnosis rules", () => {
     expect(matching(messages, "Duplicate root-cause option id").length).toBe(1);
   });
 
-  it("rejects a correctRootCauseId that is not offered", () => {
+  it("rejects an answer root cause that is not offered", () => {
     const messages = errorsAfter(
-      (i) => (i.diagnoses.fixture.correctRootCauseId = "ghost"),
+      (i) => (i.answers.fixture.rootCauseId = "ghost"),
     );
     expect(matching(messages, "not one of the offered root causes").length).toBe(1);
   });
 
-  it("rejects a correctEvidenceId that does not exist", () => {
+  it("rejects an answer evidence id that does not exist", () => {
     const messages = errorsAfter((i) =>
-      i.diagnoses.fixture.correctEvidenceIds.push("ghost"),
+      i.answers.fixture.evidenceIds.push("ghost"),
     );
     expect(matching(messages, "unknown evidence").length).toBeGreaterThan(0);
   });
 
   it("rejects a minimum the supporting evidence cannot satisfy", () => {
     const messages = errorsAfter(
-      (i) => (i.diagnoses.fixture.correctEvidenceIds = ["key"]),
+      (i) => (i.answers.fixture.evidenceIds = ["key"]),
     );
     expect(matching(messages, "supporting findings are authored").length).toBe(1);
   });
@@ -372,22 +374,24 @@ describe("fix rules", () => {
     expect(matching(messages, "Duplicate fix option id").length).toBe(1);
   });
 
-  it("rejects a mission where no fix resolves the root cause", () => {
-    const messages = errorsAfter((i) => {
-      i.fixes.fixture.options[0].resolvesRootCause = false;
-    });
-    expect(matching(messages, "No fix option resolves").length).toBe(1);
-    expect(matching(messages, "does not resolve the root cause").length).toBe(1);
-  });
-
-  it("rejects a correctFixId that is not offered", () => {
-    const messages = errorsAfter((i) => (i.fixes.fixture.correctFixId = "ghost"));
+  it("rejects an answer fix that is not offered", () => {
+    const messages = errorsAfter((i) => (i.answers.fixture.fixId = "ghost"));
     expect(matching(messages, "not one of the offered fixes").length).toBe(1);
   });
 
-  it("rejects a correctFixId that does not resolve the cause", () => {
-    const messages = errorsAfter((i) => (i.fixes.fixture.correctFixId = "bad"));
-    expect(matching(messages, "does not resolve the root cause").length).toBe(1);
+  it("rejects a fix stage with nothing to choose between", () => {
+    const messages = errorsAfter((i) => {
+      i.fixes.fixture.options = [i.fixes.fixture.options[0]];
+    });
+    expect(matching(messages, "at least two options").length).toBe(1);
+  });
+
+  it("rejects a playable mission with no authored answers", () => {
+    const messages = errorsAfter((i) => {
+      delete (i.answers as Record<string, unknown>).fixture;
+    });
+    // Once from the diagnosis rules, once from the fix rules.
+    expect(matching(messages, "can be played but not graded").length).toBe(2);
   });
 
   it("rejects empty explanation or code-example content", () => {

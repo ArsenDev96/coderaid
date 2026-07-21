@@ -2,6 +2,7 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { achievementSources, getAchievements, unlockedIds } from "@/lib/achievements";
 import { PLAYABLE_MISSION_IDS, nextMissionId } from "@/lib/availability";
 import { getDiagnosis } from "@/lib/diagnosis";
+import { answersFor } from "@/lib/server/answers";
 import { getFix } from "@/lib/fix";
 import { HINT_PENALTY, missionSkillIds } from "@/lib/grading";
 import { getInvestigation, keyEvidence } from "@/lib/investigation";
@@ -51,10 +52,12 @@ describe("every playable mission", () => {
       expect(fix.options.length).toBeGreaterThanOrEqual(5);
     });
 
-    it("has exactly one fix that resolves the root cause", () => {
+    it("names exactly one resolving fix, and it is an option that exists", () => {
       const fix = getFix(missionId)!;
-      const resolving = fix.options.filter((o) => o.resolvesRootCause);
-      expect(resolving.map((o) => o.id)).toEqual([fix.correctFixId]);
+      const answers = answersFor(missionId)!;
+      // There is only one place a fix can be named correct now, so the old
+      // 'flag and id agree' check has become 'the id resolves to an option'.
+      expect(fix.options.map((o) => o.id)).toContain(answers.fixId);
     });
 
     it("needs evidence from more than one tool to reach the diagnosis", () => {

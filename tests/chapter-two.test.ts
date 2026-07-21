@@ -11,6 +11,7 @@ import {
   type PlayerView,
 } from "@/lib/availability";
 import { getDiagnosis } from "@/lib/diagnosis";
+import { answersFor } from "@/lib/server/answers";
 import { getFix, type FixOption } from "@/lib/fix";
 import { missionSkillIds } from "@/lib/grading";
 import { getInvestigation } from "@/lib/investigation";
@@ -171,12 +172,12 @@ describe("jwt-session-expiry teaches the concurrency fix, not a weaker session",
 
   it("blames the race between concurrent refreshes and rotation", () => {
     const diagnosis = getDiagnosis(id)!;
-    expect(diagnosis.correctRootCauseId).toBe(
+    expect(answersFor(id)!.rootCauseId).toBe(
       "concurrent-refresh-token-rotation-race",
     );
     // The clue is a burst of refreshes, not one bad log line: the diagnosis
     // needs the burst, the rotation, and the client that caused both.
-    expect(diagnosis.correctEvidenceIds).toEqual(
+    expect(answersFor(id)!.evidenceIds).toEqual(
       expect.arrayContaining([
         "refresh-burst-same-token-family",
         "one-refresh-succeeds-rest-reuse",
@@ -187,10 +188,10 @@ describe("jwt-session-expiry teaches the concurrency fix, not a weaker session",
 
   it("resolves only by refreshing once, never by weakening the token model", () => {
     const fix = getFix(id)!;
-    expect(fix.correctFixId).toBe("single-flight-refresh-with-safe-token-rotation");
+    expect(answersFor(id)!.fixId).toBe("single-flight-refresh-with-safe-token-rotation");
 
-    const resolving = optionById(id, fix.correctFixId);
-    expect(resolving.resolvesRootCause).toBe(true);
+    const resolving = optionById(id, answersFor(id)!.fixId);
+    expect(resolving.id).toBe(answersFor(id)!.fixId);
     expect(resolving.codeExample).toMatch(/inFlight/);
     expect(resolving.codeExample).toMatch(/finally/);
 
@@ -202,7 +203,7 @@ describe("jwt-session-expiry teaches the concurrency fix, not a weaker session",
       "retry-failed-refresh-requests",
       "clear-session-on-every-401",
     ]) {
-      expect(optionById(id, wrong).resolvesRootCause).toBe(false);
+      expect(wrong).not.toBe(answersFor(id)!.fixId);
     }
   });
 
@@ -225,12 +226,12 @@ describe("health-check-flapping separates liveness from readiness", () => {
 
   it("blames the probe's coupling to a transient dependency", () => {
     const diagnosis = getDiagnosis(id)!;
-    expect(diagnosis.correctRootCauseId).toBe(
+    expect(answersFor(id)!.rootCauseId).toBe(
       "liveness-probe-coupled-to-transient-dependencies",
     );
     // The correlation the player has to make: the probe fails while the same
     // instance is answering business traffic.
-    expect(diagnosis.correctEvidenceIds).toEqual(
+    expect(answersFor(id)!.evidenceIds).toEqual(
       expect.arrayContaining([
         "liveness-probe-runs-deep-dependency-check",
         "health-span-dominated-by-analytics",
@@ -241,10 +242,10 @@ describe("health-check-flapping separates liveness from readiness", () => {
 
   it("resolves only by splitting the probes and bounding the checks", () => {
     const fix = getFix(id)!;
-    expect(fix.correctFixId).toBe(
+    expect(answersFor(id)!.fixId).toBe(
       "separate-liveness-readiness-and-bounded-dependency-checks",
     );
-    const resolving = optionById(id, fix.correctFixId);
+    const resolving = optionById(id, answersFor(id)!.fixId);
     expect(resolving.codeExample).toMatch(/\/live/);
     expect(resolving.codeExample).toMatch(/\/ready/);
     expect(resolving.codeExample).toMatch(/withTimeout/);
@@ -257,7 +258,7 @@ describe("health-check-flapping separates liveness from readiness", () => {
       "add-more-instances",
       "ignore-all-dependency-failures",
     ]) {
-      expect(optionById(id, wrong).resolvesRootCause).toBe(false);
+      expect(wrong).not.toBe(answersFor(id)!.fixId);
     }
   });
 
@@ -292,7 +293,7 @@ describe("graceful-shutdown-bug teaches a bounded drain in order", () => {
 
   it("blames the exit, not the platform around it", () => {
     const diagnosis = getDiagnosis(id)!;
-    expect(diagnosis.correctRootCauseId).toBe(
+    expect(answersFor(id)!.rootCauseId).toBe(
       "immediate-process-exit-without-draining-work",
     );
     for (const plausible of [
@@ -301,14 +302,14 @@ describe("graceful-shutdown-bug teaches a bounded drain in order", () => {
       "queue-provider-duplicate-delivery",
     ]) {
       expect(diagnosis.rootCauses.map((r) => r.id)).toContain(plausible);
-      expect(diagnosis.correctRootCauseId).not.toBe(plausible);
+      expect(answersFor(id)!.rootCauseId).not.toBe(plausible);
     }
   });
 
   it("orders the drain: stop traffic, stop jobs, finish work, close resources", () => {
     const fix = getFix(id)!;
-    expect(fix.correctFixId).toBe("bounded-graceful-shutdown-with-draining");
-    const code = optionById(id, fix.correctFixId).codeExample!;
+    expect(answersFor(id)!.fixId).toBe("bounded-graceful-shutdown-with-draining");
+    const code = optionById(id, answersFor(id)!.fixId).codeExample!;
 
     const order = ["setReady(false)", "consumers.stop", "closeServer", "drained", "pool.end", "process.exit"];
     const positions = order.map((step) => code.indexOf(step));
@@ -327,7 +328,7 @@ describe("graceful-shutdown-bug teaches a bounded drain in order", () => {
       "add-more-replicas-during-deploy",
       "ignore-sigterm",
     ]) {
-      expect(optionById(id, wrong).resolvesRootCause).toBe(false);
+      expect(wrong).not.toBe(answersFor(id)!.fixId);
     }
   });
 
@@ -346,12 +347,12 @@ describe("rate-limiter-race requires an atomic shared operation", () => {
 
   it("blames the non-atomic read-modify-write", () => {
     const diagnosis = getDiagnosis(id)!;
-    expect(diagnosis.correctRootCauseId).toBe(
+    expect(answersFor(id)!.rootCauseId).toBe(
       "non-atomic-distributed-rate-limit-counter",
     );
     // Evidence has to come from more than the code: the same read on several
     // instances, the lost writes, and the way the error scales with replicas.
-    expect(diagnosis.correctEvidenceIds).toEqual(
+    expect(answersFor(id)!.evidenceIds).toEqual(
       expect.arrayContaining([
         "same-count-read-by-several-instances",
         "writes-overwrite-each-other",
@@ -368,7 +369,7 @@ describe("rate-limiter-race requires an atomic shared operation", () => {
 
   it("treats an in-memory lock as insufficient for a multi-instance race", () => {
     const mutex = optionById(id, "in-memory-mutex-around-the-counter");
-    expect(mutex.resolvesRootCause).toBe(false);
+    expect(mutex.id).not.toBe(answersFor(id)!.fixId);
     expect(mutex.explanation.join(" ")).toMatch(/instance/i);
 
     for (const wrong of [
@@ -377,15 +378,15 @@ describe("rate-limiter-race requires an atomic shared operation", () => {
       "read-the-counter-twice",
       "add-more-api-instances",
     ]) {
-      expect(optionById(id, wrong).resolvesRootCause).toBe(false);
+      expect(wrong).not.toBe(answersFor(id)!.fixId);
     }
   });
 
   it("resolves only with one atomic increment in the shared store", () => {
     const fix = getFix(id)!;
-    expect(fix.correctFixId).toBe("atomic-shared-rate-limit-operation");
-    const resolving = optionById(id, fix.correctFixId);
-    expect(resolving.resolvesRootCause).toBe(true);
+    expect(answersFor(id)!.fixId).toBe("atomic-shared-rate-limit-operation");
+    const resolving = optionById(id, answersFor(id)!.fixId);
+    expect(resolving.id).toBe(answersFor(id)!.fixId);
     expect(resolving.codeExample).toMatch(/incrementAndExpire/);
   });
 

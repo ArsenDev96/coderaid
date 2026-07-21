@@ -14,6 +14,7 @@ import {
 } from "@/lib/availability";
 import { CAREER_RANKS } from "@/lib/data";
 import { getDiagnosis } from "@/lib/diagnosis";
+import { answersFor } from "@/lib/server/answers";
 import { getFix, type FixOption } from "@/lib/fix";
 import { missionSkillIds } from "@/lib/grading";
 import { getInvestigation, keyEvidence } from "@/lib/investigation";
@@ -88,7 +89,7 @@ const optionById = (missionId: string, fixId: string): FixOption => {
 /** Every fix the mission offers apart from the one that resolves it. */
 const nonResolvingIds = (missionId: string): string[] =>
   getFix(missionId)!
-    .options.filter((o) => !o.resolvesRootCause)
+    .options.filter((o) => o.id !== answersFor(missionId)!.fixId)
     .map((o) => o.id);
 
 /* ---------------------------- Chapter shape ----------------------------- */
@@ -156,10 +157,10 @@ describe("memory-leak-worker blames retained references", () => {
 
   it("names long-lived references, evidenced across tools", () => {
     const diagnosis = getDiagnosis(id)!;
-    expect(diagnosis.correctRootCauseId).toBe(
+    expect(answersFor(id)!.rootCauseId).toBe(
       "long-lived-references-retain-completed-jobs",
     );
-    expect(diagnosis.correctEvidenceIds).toEqual(
+    expect(answersFor(id)!.evidenceIds).toEqual(
       expect.arrayContaining([
         "listener-added-per-job-never-removed",
         "listener-count-climbs-with-jobs",
@@ -189,10 +190,10 @@ describe("memory-leak-worker blames retained references", () => {
 
   it("does not teach a bigger heap, a forced GC or a restart as the fix", () => {
     const heap = optionById(id, "increase-max-old-space-size");
-    expect(heap.resolvesRootCause).toBe(false);
+    expect(heap.id).not.toBe(answersFor(id)!.fixId);
 
     const gc = optionById(id, "force-gc-after-every-job");
-    expect(gc.resolvesRootCause).toBe(false);
+    expect(gc.id).not.toBe(answersFor(id)!.fixId);
     // The reason matters: a collection cannot free reachable objects.
     expect(gc.explanation.join(" ")).toMatch(/reachable/i);
 
@@ -201,15 +202,15 @@ describe("memory-leak-worker blames retained references", () => {
       "reduce-worker-concurrency",
       "add-more-worker-processes",
     ]) {
-      expect(optionById(id, wrong).resolvesRootCause).toBe(false);
+      expect(wrong).not.toBe(answersFor(id)!.fixId);
     }
   });
 
   it("resolves only by cleaning up listeners and bounding retained state", () => {
     const fix = getFix(id)!;
-    expect(fix.correctFixId).toBe("cleanup-listeners-and-bound-retained-state");
-    const resolving = optionById(id, fix.correctFixId);
-    expect(resolving.resolvesRootCause).toBe(true);
+    expect(answersFor(id)!.fixId).toBe("cleanup-listeners-and-bound-retained-state");
+    const resolving = optionById(id, answersFor(id)!.fixId);
+    expect(resolving.id).toBe(answersFor(id)!.fixId);
     expect(resolving.codeExample).toMatch(/finally/);
     expect(resolving.codeExample).toMatch(/worker\.off/);
   });
@@ -233,10 +234,10 @@ describe("worker-queue-backlog blames unbounded retries", () => {
 
   it("names unbounded retries and missing backpressure", () => {
     const diagnosis = getDiagnosis(id)!;
-    expect(diagnosis.correctRootCauseId).toBe(
+    expect(answersFor(id)!.rootCauseId).toBe(
       "unbounded-retries-and-missing-backpressure",
     );
-    expect(diagnosis.correctEvidenceIds).toEqual(
+    expect(answersFor(id)!.evidenceIds).toEqual(
       expect.arrayContaining([
         "same-job-retried-endlessly",
         "provider-429-rate",
@@ -264,7 +265,7 @@ describe("worker-queue-backlog blames unbounded retries", () => {
 
   it("does not teach more workers as the answer", () => {
     const workers = optionById(id, "double-the-worker-count");
-    expect(workers.resolvesRootCause).toBe(false);
+    expect(workers.id).not.toBe(answersFor(id)!.fixId);
     // Because throughput already fell when workers were added.
     expect(workers.explanation.join(" ")).toMatch(/240|throughput/i);
 
@@ -274,15 +275,15 @@ describe("worker-queue-backlog blames unbounded retries", () => {
       "remove-retries-completely",
       "purge-the-queue",
     ]) {
-      expect(optionById(id, wrong).resolvesRootCause).toBe(false);
+      expect(wrong).not.toBe(answersFor(id)!.fixId);
     }
   });
 
   it("resolves with bounded retries, dead-lettering and backpressure", () => {
     const fix = getFix(id)!;
-    expect(fix.correctFixId).toBe("bounded-retries-dead-letter-and-backpressure");
-    const resolving = optionById(id, fix.correctFixId);
-    expect(resolving.resolvesRootCause).toBe(true);
+    expect(answersFor(id)!.fixId).toBe("bounded-retries-dead-letter-and-backpressure");
+    const resolving = optionById(id, answersFor(id)!.fixId);
+    expect(resolving.id).toBe(answersFor(id)!.fixId);
     expect(resolving.codeExample).toMatch(/deadLetter/);
     expect(resolving.codeExample).toMatch(/MAX_ATTEMPTS/);
     expect(resolving.codeExample).toMatch(/Math\.random/); // jitter
@@ -314,8 +315,8 @@ describe("connection-pool-exhaustion blames the leaked error path", () => {
 
   it("names the connection leak on the error path", () => {
     const diagnosis = getDiagnosis(id)!;
-    expect(diagnosis.correctRootCauseId).toBe("connection-leak-on-error-path");
-    expect(diagnosis.correctEvidenceIds).toEqual(
+    expect(answersFor(id)!.rootCauseId).toBe("connection-leak-on-error-path");
+    expect(answersFor(id)!.evidenceIds).toEqual(
       expect.arrayContaining([
         "early-return-skips-release",
         "checkout-without-matching-release",
@@ -353,7 +354,7 @@ describe("connection-pool-exhaustion blames the leaked error path", () => {
 
   it("does not teach a bigger pool as the answer", () => {
     const bigger = optionById(id, "increase-pool-size");
-    expect(bigger.resolvesRootCause).toBe(false);
+    expect(bigger.id).not.toBe(answersFor(id)!.fixId);
     // A leak drains any ceiling; a larger one only delays exhaustion.
     expect(bigger.explanation.join(" ")).toMatch(/postpones|never returned|leak/i);
 
@@ -363,15 +364,15 @@ describe("connection-pool-exhaustion blames the leaked error path", () => {
       "retry-connection-acquisition",
       "optimize-the-item-query",
     ]) {
-      expect(optionById(id, wrong).resolvesRootCause).toBe(false);
+      expect(wrong).not.toBe(answersFor(id)!.fixId);
     }
   });
 
   it("resolves only with a guaranteed release and a bounded wait", () => {
     const fix = getFix(id)!;
-    expect(fix.correctFixId).toBe("release-connections-in-finally-and-bound-pool-waits");
-    const resolving = optionById(id, fix.correctFixId);
-    expect(resolving.resolvesRootCause).toBe(true);
+    expect(answersFor(id)!.fixId).toBe("release-connections-in-finally-and-bound-pool-waits");
+    const resolving = optionById(id, answersFor(id)!.fixId);
+    expect(resolving.id).toBe(answersFor(id)!.fixId);
     expect(resolving.codeExample).toMatch(/finally/);
     expect(resolving.codeExample).toMatch(/release\(\)/);
     expect(resolving.codeExample).toMatch(/acquireTimeoutMs/);
@@ -400,7 +401,7 @@ describe("slow-api-incident blames the N+1 loop", () => {
 
   it("names the N+1 query loop", () => {
     const diagnosis = getDiagnosis(id)!;
-    expect(diagnosis.correctRootCauseId).toBe("n-plus-one-query-loop");
+    expect(answersFor(id)!.rootCauseId).toBe("n-plus-one-query-loop");
     expect(diagnosis.rootCauses.length).toBeGreaterThanOrEqual(5);
     // The plausible alternatives the brief calls for are all offered.
     const ids = diagnosis.rootCauses.map((r) => r.id);
@@ -458,7 +459,7 @@ describe("slow-api-incident blames the N+1 loop", () => {
 
   it("does not mark unrestricted Promise.all() as resolving", () => {
     const parallel = optionById(id, "parallelize-with-promise-all");
-    expect(parallel.resolvesRootCause).toBe(false);
+    expect(parallel.id).not.toBe(answersFor(id)!.fixId);
     expect(parallel.explanation.join(" ")).toMatch(/pool|database load/i);
     // The query count is what matters, and it is unchanged.
     expect(parallel.explanation.join(" ")).toMatch(/49|count/i);
@@ -469,16 +470,16 @@ describe("slow-api-incident blames the N+1 loop", () => {
       "cache-the-endpoint",
       "increase-request-timeout",
     ]) {
-      expect(optionById(id, wrong).resolvesRootCause).toBe(false);
+      expect(wrong).not.toBe(answersFor(id)!.fixId);
     }
     expect(nonResolvingIds(id)).toHaveLength(5);
   });
 
   it("resolves only by fetching the related data in bulk", () => {
     const fix = getFix(id)!;
-    expect(fix.correctFixId).toBe("bulk-fetch-related-data");
-    const resolving = optionById(id, fix.correctFixId);
-    expect(resolving.resolvesRootCause).toBe(true);
+    expect(answersFor(id)!.fixId).toBe("bulk-fetch-related-data");
+    const resolving = optionById(id, answersFor(id)!.fixId);
+    expect(resolving.id).toBe(answersFor(id)!.fixId);
     expect(resolving.codeExample).toMatch(/In\(orderIds\)/);
     expect(resolving.codeExample).not.toMatch(/Promise\.all/);
   });

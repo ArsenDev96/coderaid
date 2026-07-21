@@ -1,15 +1,17 @@
 /**
  * The grading engine.
  *
- * Every mission already authors what the *right* answer is —
- * `correctRootCauseId`, `correctEvidenceIds`, `correctFixId` and each fix
- * option's `resolvesRootCause`. Until now nothing read them, so a wrong
- * diagnosis and a wrong fix produced the same passing result.
+ * It turns what the player actually chose, plus how long they took and how many
+ * hints they opened, into a real score, a real XP award and a real verdict on
+ * whether the incident was resolved. Everything downstream — verification,
+ * results, the ledger, skills — hangs off this.
  *
- * This module reads them. It turns what the player actually chose, plus how
- * long they took and how many hints they opened, into a real score, a real XP
- * award and a real verdict on whether the incident was resolved. Everything
- * downstream — verification, results, the ledger, skills — hangs off this.
+ * **The answers are an input, not something this module knows.** They live in
+ * `lib/server/answers.ts` behind `import "server-only"`, and only a route
+ * handler ever pairs them with a player's submission. The formula itself is not
+ * a secret — knowing that the root cause is worth 45 points tells you nothing
+ * about which root cause is right — so this module stays importable anywhere,
+ * which is what lets the results screen render a breakdown the server computed.
  */
 
 import type { DiagnosisState, MissionDiagnosisConfig } from "./diagnosis";
@@ -74,8 +76,28 @@ export type MissionGrade = {
   breakdown: ScoreBreakdownEntry[];
 };
 
+/**
+ * What the mission's authors decided is correct. Defined here — where it is
+ * *used* — so `lib/server/answers.ts` depends on the public contract rather
+ * than the other way round, and no client module ever needs to reach into the
+ * server module even for a type.
+ */
+export type MissionAnswers = {
+  /** The one root cause that is correct. */
+  rootCauseId: string;
+  /** Evidence that genuinely supports it. Citing others costs precision. */
+  evidenceIds: string[];
+  /** The one fix that resolves the root cause. */
+  fixId: string;
+};
+
 export type GradeInput = {
   mission: Mission;
+  /**
+   * Null when the mission has no authored answers, which scores zero rather
+   * than full marks: "nothing to check against" is not "checked and correct".
+   */
+  answers: MissionAnswers | null;
   diagnosis: { config: MissionDiagnosisConfig; state: DiagnosisState } | null;
   fix: { config: MissionFixConfig; state: FixState } | null;
   run: RunTelemetry | null;
@@ -111,6 +133,7 @@ function evidenceScore(selected: string[], correct: string[], graded: boolean) {
 
 export function gradeMission({
   mission,
+  answers,
   diagnosis,
   fix,
   run,
@@ -118,23 +141,24 @@ export function gradeMission({
   /* -- Root cause -- */
   const chosenCause = diagnosis?.state.rootCauseId ?? null;
   const rootCauseCorrect =
-    Boolean(chosenCause) && chosenCause === diagnosis?.config.correctRootCauseId;
+    Boolean(chosenCause) && Boolean(answers) && chosenCause === answers!.rootCauseId;
   const rootCausePoints = rootCauseCorrect ? SCORE_WEIGHTS.rootCause : 0;
 
   /* -- Evidence -- */
+  const correctEvidenceIds = answers?.evidenceIds ?? [];
   const evidence = evidenceScore(
     diagnosis?.state.evidenceIds ?? [],
-    diagnosis?.config.correctEvidenceIds ?? [],
-    Boolean(diagnosis),
+    correctEvidenceIds,
+    Boolean(diagnosis) && Boolean(answers),
   );
   const evidencePoints = Math.round(SCORE_WEIGHTS.evidence * evidence.fraction);
 
   /* -- Fix -- */
   const chosenFix = fix?.config.options.find((o) => o.id === fix.state.fixId) ?? null;
-  // `resolvesRootCause` is the authored truth; `correctFixId` names the same
-  // option. Reading the flag keeps a mission with several viable fixes honest.
-  const resolved = chosenFix?.resolvesRootCause === true && fix?.state.applied === true;
-  const fixCorrect = chosenFix?.id === fix?.config.correctFixId && Boolean(chosenFix);
+  // One fix resolves the incident and it is the one the answers name — the old
+  // per-option `resolvesRootCause` flag was a second copy of this fact.
+  const fixCorrect = Boolean(chosenFix) && chosenFix!.id === answers?.fixId;
+  const resolved = fixCorrect && fix?.state.applied === true;
   const fixPoints = resolved ? SCORE_WEIGHTS.fix : 0;
 
   /* -- Hints -- */
@@ -167,7 +191,7 @@ export function gradeMission({
       points: evidencePoints,
       max: SCORE_WEIGHTS.evidence,
       correct: evidence.fraction >= 0.99,
-      detail: `${evidence.hits} of ${diagnosis?.config.correctEvidenceIds.length ?? 0} supporting findings cited${
+      detail: `${evidence.hits} of ${correctEvidenceIds.length} supporting findings cited${
         evidence.misses > 0
           ? `, ${evidence.misses} that don't support the cause`
           : ""
@@ -205,7 +229,7 @@ export function gradeMission({
     rootCauseCorrect,
     fixCorrect,
     evidenceHits: evidence.hits,
-    evidenceTotal: diagnosis?.config.correctEvidenceIds.length ?? 0,
+    evidenceTotal: correctEvidenceIds.length,
     evidenceMisses: evidence.misses,
     hintsUsed,
     durationMs,

@@ -3,8 +3,10 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import { ArrowRight, Info, Loader2, PlayCircle } from "lucide-react";
+import { getDiagnosis, loadDiagnosisState } from "@/lib/diagnosis";
 import { getFix, loadFixState } from "@/lib/fix";
-import { completeStage, touchRun } from "@/lib/run";
+import { loadGrade, saveGrade, submitRun } from "@/lib/grade-submission";
+import { completeStage, emptyRun, loadRun, touchRun } from "@/lib/run";
 import {
   allChecksPassed,
   loadVerificationState,
@@ -34,22 +36,29 @@ export function VerificationWorkspace({
 }) {
   const [phase, setPhase] = useState<Phase>("idle");
   const [hydrated, setHydrated] = useState(false);
-  // Whether the fix the player actually applied resolves the root cause. Read
-  // from their saved fix selection, not assumed — this is what makes the
-  // verification a measurement rather than a formality.
+  /**
+   * Whether the applied fix resolves the root cause — **the server's verdict**,
+   * never the browser's. The client no longer holds the answers, so this stays
+   * false until a run comes back graded, which is what makes the verification a
+   * measurement rather than a formality.
+   */
   const [fixResolves, setFixResolves] = useState(false);
+  const [needsSignIn, setNeedsSignIn] = useState(false);
+  const [failed, setFailed] = useState(false);
   const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  // Restore after mount — a completed run comes straight back as "done".
+  // Restore after mount — a run that was already graded comes back as "done".
   useEffect(() => {
     touchRun(config.missionId);
+    const cached = loadGrade(config.missionId);
     const saved = loadVerificationState(config.missionId);
-    setPhase(saved?.completed ? "done" : "idle");
 
-    const fixConfig = getFix(config.missionId);
-    const fixState = fixConfig ? loadFixState(fixConfig) : null;
-    const applied = fixConfig?.options.find((o) => o.id === fixState?.fixId);
-    setFixResolves(applied?.resolvesRootCause === true && fixState?.applied === true);
+    // "Done" requires a grade, not just a local flag: without one there is
+    // nothing truthful to render, so the player runs verification again.
+    if (cached && saved?.completed) {
+      setFixResolves(cached.resolved);
+      setPhase("done");
+    }
 
     setHydrated(true);
     return () => {
@@ -69,9 +78,55 @@ export function VerificationWorkspace({
   // The replay itself is simulated — there is no backend to run traffic
   // against — but what it reports is not: the metrics, logs, request breakdown
   // and checks are all resolved against whether the fix actually worked.
-  const runVerification = () => {
+  /**
+   * Running verification is the commit point: diagnosis and fix are both
+   * locked, so this is where the run is submitted and graded. Grading here
+   * rather than on the results screen is deliberate — a "does this fix work?"
+   * endpoint that recorded nothing would be an answer oracle anyone could
+   * enumerate.
+   */
+  const runVerification = async () => {
     setPhase("running");
-    timer.current = setTimeout(() => setPhase("done"), 1400);
+    setNeedsSignIn(false);
+    setFailed(false);
+
+    const diagnosisConfig = getDiagnosis(config.missionId);
+    const diagnosisState = diagnosisConfig
+      ? loadDiagnosisState(diagnosisConfig)
+      : null;
+    const fixConfig = getFix(config.missionId);
+    const fixState = fixConfig ? loadFixState(fixConfig) : null;
+
+    // The replay is simulated, but the pause is not cosmetic here — it keeps
+    // the fastest possible response from flashing past unread.
+    const [result] = await Promise.all([
+      submitRun({
+        missionId: config.missionId,
+        rootCauseId: diagnosisState?.rootCauseId ?? null,
+        evidenceIds: diagnosisState?.evidenceIds ?? [],
+        fixId: fixState?.fixId ?? null,
+        fixApplied: fixState?.applied === true,
+        telemetry: loadRun(config.missionId) ?? emptyRun(),
+      }),
+      new Promise((resolve) => {
+        timer.current = setTimeout(resolve, 1400);
+      }),
+    ]);
+
+    if (result.status === "unauthenticated") {
+      setNeedsSignIn(true);
+      setPhase("idle");
+      return;
+    }
+    if (result.status === "failed") {
+      setFailed(true);
+      setPhase("idle");
+      return;
+    }
+
+    saveGrade(config.missionId, result.grade);
+    setFixResolves(result.grade.resolved);
+    setPhase("done");
   };
 
   const report = useMemo(
@@ -124,6 +179,40 @@ export function VerificationWorkspace({
                 ? "Running verification — replaying signup traffic and measuring the response…"
                 : "Run verification to compare signup performance before and after your fix."}
             </p>
+
+            {needsSignIn && (
+              // Everything up to here is free to play. Grading is where an
+              // account starts to matter, because the score is recorded — and
+              // the work isn't lost: the run is saved locally until they return.
+              <div
+                role="status"
+                className="max-w-sm rounded-xl border border-violet-400/25 bg-violet-500/[0.08] px-4 py-3"
+              >
+                <p className="text-sm leading-relaxed text-violet-100">
+                  Sign in to have this run graded. Your investigation, diagnosis
+                  and fix are saved — you&apos;ll come straight back here.
+                </p>
+                <Link
+                  href={`/sign-in?next=${encodeURIComponent(
+                    `/missions/${config.missionId}/verification`,
+                  )}`}
+                  className="mt-3 inline-flex items-center gap-2 rounded-lg border border-violet-400/40 bg-violet-500/20 px-4 py-2 text-xs font-semibold text-white transition-colors hover:bg-violet-500/30"
+                >
+                  Sign in with GitHub
+                  <ArrowRight className="h-3.5 w-3.5" />
+                </Link>
+              </div>
+            )}
+
+            {failed && (
+              <p
+                role="alert"
+                className="max-w-sm rounded-xl border border-rose-400/25 bg-rose-500/[0.08] px-4 py-3 text-sm leading-relaxed text-rose-200"
+              >
+                Verification couldn&apos;t reach the server. Your run is saved —
+                try again in a moment.
+              </p>
+            )}
             <button
               type="button"
               onClick={runVerification}

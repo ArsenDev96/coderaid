@@ -2,6 +2,7 @@
 
 import { FileCode2 } from "lucide-react";
 import type { Investigation } from "@/lib/investigation";
+import { CodeText, useCodePreferences } from "@/components/ui/CodeText";
 import {
   MarkEvidenceBar,
   SelectionMark,
@@ -20,6 +21,7 @@ export function CodeInspectionPanel({
   onCollect: (ids: string[]) => void;
 }) {
   const selection = useEvidenceSelection(onCollect);
+  const { palette, showLineNumbers } = useCodePreferences();
 
   return (
     <div>
@@ -43,11 +45,19 @@ export function CodeInspectionPanel({
 
             const body = (
               <>
-                <span className="w-8 shrink-0 select-none text-right text-slate-600">
-                  {line.n}
-                </span>
-                <span className="flex-1 whitespace-pre text-slate-300">
-                  {line.text || " "}
+                {/* Hiding the gutter costs nothing in accessibility: the line
+                    number is already in each selectable line's aria-label. */}
+                {showLineNumbers && (
+                  <span className="w-8 shrink-0 select-none text-right text-slate-600">
+                    {line.n}
+                  </span>
+                )}
+                <span className={`flex-1 whitespace-pre ${palette.plain}`}>
+                  {line.text ? (
+                    <CodeText line={line.text} palette={palette} />
+                  ) : (
+                    " "
+                  )}
                 </span>
               </>
             );

@@ -2,11 +2,15 @@ import { describe, expect, it } from "vitest";
 import {
   DEFAULT_SETTINGS,
   EDITOR_THEME_OPTIONS,
-  LANGUAGE_OPTIONS,
   SETTINGS_KEY,
-  THEME_OPTIONS,
   resetMissionProgress,
 } from "@/lib/settings";
+import {
+  CODE_PALETTES,
+  DEFAULT_CODE_PALETTE_ID,
+  codePalette,
+  tokenizeCode,
+} from "@/lib/code-theme";
 import { STORAGE_KEY as PROFILE_KEY } from "@/lib/onboarding";
 import { PROGRESS_KEY } from "@/lib/progress";
 import {
@@ -29,20 +33,90 @@ function memoryStorage(initial: Record<string, string> = {}) {
 
 describe("settings options", () => {
   it("default to a valid option in every field", () => {
-    expect(THEME_OPTIONS.map((o) => o.id)).toContain(DEFAULT_SETTINGS.theme);
     expect(EDITOR_THEME_OPTIONS.map((o) => o.id)).toContain(
       DEFAULT_SETTINGS.codeEditorTheme,
     );
-    expect(LANGUAGE_OPTIONS.map((o) => o.id)).toContain(
-      DEFAULT_SETTINGS.defaultLanguage,
+  });
+
+  it("stores only preferences something actually reads", () => {
+    // A preference nothing consumes is a control that lies about working.
+    // Both of these are read by the code panels via useCodePreferences().
+    expect(Object.keys(DEFAULT_SETTINGS).sort()).toEqual([
+      "codeEditorTheme",
+      "showLineNumbers",
+    ]);
+  });
+});
+
+describe("code themes", () => {
+  it("gives every offered editor theme a palette", () => {
+    for (const option of EDITOR_THEME_OPTIONS) {
+      expect(CODE_PALETTES[option.id]).toBeDefined();
+    }
+  });
+
+  it("falls back to the default palette for an unknown theme id", () => {
+    expect(codePalette("a-theme-that-was-removed")).toBe(
+      CODE_PALETTES[DEFAULT_CODE_PALETTE_ID],
+    );
+    expect(codePalette(DEFAULT_SETTINGS.codeEditorTheme)).toBe(
+      CODE_PALETTES[DEFAULT_CODE_PALETTE_ID],
     );
   });
 
-  it("only offer languages missions are actually written in", () => {
-    expect(LANGUAGE_OPTIONS.map((o) => o.id)).toEqual([
-      "typescript",
-      "javascript",
-    ]);
+  it("colours a distinct token kind per palette entry", () => {
+    for (const [id, palette] of Object.entries(CODE_PALETTES)) {
+      const classes = Object.values(palette);
+      expect(new Set(classes).size, `${id} reuses a colour`).toBe(
+        classes.length,
+      );
+    }
+  });
+});
+
+describe("tokenizeCode", () => {
+  const rebuilt = (line: string) =>
+    tokenizeCode(line)
+      .map((t) => t.text)
+      .join("");
+
+  it("never drops or reorders a character", () => {
+    for (const line of [
+      "const rows = await db.query(sql);",
+      '  return res.status(202).json({ jobId }); // accepted',
+      "",
+      "   ",
+      "await Promise.all(files.map(async (f) => process(f)))",
+      "const RATE = 1.5, LIMIT = 100;",
+    ]) {
+      expect(rebuilt(line)).toBe(line);
+    }
+  });
+
+  it("classifies keywords, strings, comments and numbers", () => {
+    const tokens = tokenizeCode('const x = "hi"; // 42 note');
+    const kind = (text: string) =>
+      tokens.find((t) => t.text === text)?.kind;
+
+    expect(kind("const")).toBe("keyword");
+    expect(kind('"hi"')).toBe("string");
+    expect(kind("// 42 note")).toBe("comment");
+    // The number is inside the comment, so the comment wins — first match.
+    expect(tokens.some((t) => t.kind === "number")).toBe(false);
+    expect(tokenizeCode("retries = 5").some((t) => t.kind === "number")).toBe(
+      true,
+    );
+  });
+
+  it("does not treat a keyword inside an identifier as a keyword", () => {
+    const tokens = tokenizeCode("const constant = newValue;");
+    expect(tokens.filter((t) => t.kind === "keyword").map((t) => t.text)).toEqual(
+      ["const"],
+    );
+  });
+
+  it("returns nothing for an empty line", () => {
+    expect(tokenizeCode("")).toEqual([]);
   });
 });
 

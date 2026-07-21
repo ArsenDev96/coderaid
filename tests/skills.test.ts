@@ -28,6 +28,7 @@ import {
   skillsToImprove,
 } from "@/lib/skills";
 import { emptyRun } from "@/lib/run";
+import { answersFor } from "@/lib/server/answers";
 
 const mission = getMission("event-loop-overload") as Mission;
 
@@ -35,19 +36,21 @@ const mission = getMission("event-loop-overload") as Mission;
 function perfectRun() {
   const diagnosisConfig = getDiagnosis(mission.id)!;
   const fixConfig = getFix(mission.id)!;
+  const answers = answersFor(mission.id)!;
   return gradeMission({
     mission,
+    answers,
     diagnosis: {
       config: diagnosisConfig,
       state: {
-        rootCauseId: diagnosisConfig.correctRootCauseId,
-        evidenceIds: [...diagnosisConfig.correctEvidenceIds],
+        rootCauseId: answers.rootCauseId,
+        evidenceIds: [...answers.evidenceIds],
         confirmed: true,
       },
     },
     fix: {
       config: fixConfig,
-      state: { fixId: fixConfig.correctFixId, applied: true },
+      state: { fixId: answers.fixId, applied: true },
     },
     run: { ...emptyRun(0), lastActiveAt: 600_000 },
   });

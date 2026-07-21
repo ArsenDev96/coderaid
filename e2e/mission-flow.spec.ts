@@ -36,7 +36,9 @@ test("blocks the results screen before the mission has been played", async ({
   expect(ledger === null || !ledger.includes(MISSION)).toBe(true);
 });
 
-test("plays the event loop incident from briefing to results", async ({ page }) => {
+test("plays the event loop incident up to the grading boundary", async ({
+  page,
+}) => {
   /* ---------------------------- Briefing ---------------------------- */
   await page.goto(`/missions/${MISSION}/briefing`);
   await expect(
@@ -104,26 +106,31 @@ test("plays the event loop incident from briefing to results", async ({ page }) 
   ).toBeDisabled();
   await page.getByRole("button", { name: "Run Verification" }).click();
 
-  const toResults = page.getByRole("link", { name: /Continue to Results/ });
-  await expect(toResults).toBeVisible({ timeout: 15_000 });
-  await toResults.click();
+  /* ------------------- Grading requires an account ------------------ */
+  // Everything above is free to play. Running verification submits the run for
+  // grading, and grading is server-side — so a signed-out player is asked to
+  // sign in here rather than being handed a score the browser made up.
+  await expect(
+    page.getByRole("link", { name: /Sign in with GitHub/ }),
+  ).toBeVisible({ timeout: 15_000 });
 
-  /* ----------------------------- Results ---------------------------- */
-  await expect(page).toHaveURL(new RegExp(`/missions/${MISSION}/results$`));
+  // No grade was cached and no result screen is reachable...
+  const cached = await page.evaluate(
+    (mission) => window.localStorage.getItem(`coderaid:${mission}:grade`),
+    MISSION,
+  );
+  expect(cached).toBeNull();
 
-  // The results screen renders rather than the guard.
-  await expect(page.getByRole("heading", { name: "Not there yet" })).toHaveCount(0);
-  // A correct run scores 100 and is reported as resolved.
-  await expect(page.getByText("100 / 100").first()).toBeVisible();
-  await expect(page.getByText("Incident Resolved").first()).toBeVisible();
+  // ...and the run itself is preserved, so signing in loses no work.
+  const run = await page.evaluate(
+    (mission) => window.localStorage.getItem(`coderaid:${mission}:run`),
+    MISSION,
+  );
+  expect(run).not.toBeNull();
 
-  // And the run was really credited to the ledger, with the mission's full XP.
-  const ledger = await page.evaluate(() => {
-    const raw = window.localStorage.getItem("coderaid:player:progress");
-    return raw ? (JSON.parse(raw) as { totalXp: number; missions: Record<string, { score: number; resolved: boolean }> }) : null;
-  });
-  expect(ledger).not.toBeNull();
-  expect(ledger!.missions[MISSION]?.score).toBe(100);
-  expect(ledger!.missions[MISSION]?.resolved).toBe(true);
-  expect(ledger!.totalXp).toBe(80);
+  // Nothing was credited to the ledger for an ungraded run.
+  const ledger = await page.evaluate(() =>
+    window.localStorage.getItem("coderaid:player:progress"),
+  );
+  expect(ledger === null || !JSON.parse(ledger).missions[MISSION]).toBeTruthy();
 });

@@ -1,7 +1,6 @@
 import type { Metadata } from "next";
 import { Inter, JetBrains_Mono } from "next/font/google";
 import { ProgressProvider } from "@/components/progress/ProgressProvider";
-import { SettingsEffects } from "@/components/settings/SettingsEffects";
 import "./globals.css";
 
 const inter = Inter({
@@ -46,7 +45,6 @@ export default function RootLayout({
   return (
     <html lang="en" className={`${inter.variable} ${jetbrains.variable}`}>
       <body>
-        <SettingsEffects />
         {/* One hydrated progression ledger for the whole app. */}
         <ProgressProvider>{children}</ProgressProvider>
       </body>

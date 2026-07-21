@@ -2,8 +2,6 @@ import { STORAGE_KEY as PROFILE_KEY } from "./onboarding";
 
 /* -------------------------------- Types --------------------------------- */
 
-export type Theme = "dark" | "light";
-
 /**
  * Experience preferences.
  *
@@ -13,29 +11,25 @@ export type Theme = "dark" | "light";
  * second store would let the two drift apart.
  */
 export type UserSettings = {
-  theme: Theme;
   codeEditorTheme: string;
-  defaultLanguage: string;
   showLineNumbers: boolean;
-  soundEffects: boolean;
 };
 
 export const SETTINGS_KEY = "coderaid:user-settings";
 
 export const DEFAULT_SETTINGS: UserSettings = {
-  theme: "dark",
   codeEditorTheme: "one-dark-pro",
-  defaultLanguage: "typescript",
   showLineNumbers: true,
-  soundEffects: true,
 };
 
 /* ------------------------------- Options -------------------------------- */
 
-export const THEME_OPTIONS: { id: Theme; label: string }[] = [
-  { id: "dark", label: "Dark" },
-  { id: "light", label: "Light" },
-];
+/*
+ * There is deliberately no app-theme preference. CodeRaid's palette is dark —
+ * `:root { color-scheme: dark }` in `app/globals.css` — and every surface is
+ * hand-tuned for it, so a light option could only ever be a control that saved
+ * a value nothing rendered.
+ */
 
 /** Editor themes carry a swatch so the select reads at a glance. */
 export const EDITOR_THEME_OPTIONS: {
@@ -50,21 +44,14 @@ export const EDITOR_THEME_OPTIONS: {
   { id: "solarized", label: "Solarized", swatch: "bg-amber-400" },
 ];
 
-/**
- * The languages mission code is actually presented in. SQL is deliberately not
- * here: database content is a future track, so offering it would promise a
- * language no mission is written in today.
+/*
+ * There is deliberately no language preference. Each mission authors its code
+ * in one language (`Investigation["code"].language`), so a stored preference
+ * could never change what the code panel shows — the control was removed
+ * rather than left looking functional.
  */
-export const LANGUAGE_OPTIONS: { id: string; label: string }[] = [
-  { id: "typescript", label: "TypeScript" },
-  { id: "javascript", label: "JavaScript" },
-];
 
 /* ----------------------------- Persistence ------------------------------ */
-
-function isTheme(v: unknown): v is Theme {
-  return v === "dark" || v === "light";
-}
 
 /** Validates a stored id against its option list so edited content can't stick. */
 function oneOf(value: unknown, options: { id: string }[], fallback: string): string {
@@ -82,19 +69,12 @@ export function loadSettings(): UserSettings {
     if (!raw) return DEFAULT_SETTINGS;
     const p = JSON.parse(raw) as Partial<UserSettings>;
     return {
-      theme: isTheme(p.theme) ? p.theme : DEFAULT_SETTINGS.theme,
       codeEditorTheme: oneOf(
         p.codeEditorTheme,
         EDITOR_THEME_OPTIONS,
         DEFAULT_SETTINGS.codeEditorTheme,
       ),
-      defaultLanguage: oneOf(
-        p.defaultLanguage,
-        LANGUAGE_OPTIONS,
-        DEFAULT_SETTINGS.defaultLanguage,
-      ),
       showLineNumbers: bool(p.showLineNumbers, DEFAULT_SETTINGS.showLineNumbers),
-      soundEffects: bool(p.soundEffects, DEFAULT_SETTINGS.soundEffects),
     };
   } catch {
     return DEFAULT_SETTINGS;

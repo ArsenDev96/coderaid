@@ -17,6 +17,13 @@ export default defineConfig({
   resolve: {
     alias: {
       "@": fileURLToPath(new URL("./", import.meta.url)),
+      // `server-only` throws on import outside a React Server Component — that
+      // is its whole job, and it is what keeps the answers out of the browser
+      // bundle. The suite tests those server modules directly in Node, so it
+      // stubs the guard rather than weakening it.
+      "server-only": fileURLToPath(
+        new URL("./tests/stubs/server-only.ts", import.meta.url),
+      ),
     },
   },
   test: {

@@ -65,8 +65,6 @@ export type MissionDiagnosisConfig = {
   minimumEvidenceRequired: number;
   /** Nudges toward the reasoning, never names the cause. */
   hint: string;
-  correctRootCauseId: string;
-  correctEvidenceIds: string[];
 };
 
 export type DiagnosisState = {
@@ -154,12 +152,6 @@ const SIGNUP_LATENCY_DIAGNOSIS: MissionDiagnosisConfig = {
 
   hint: "Compare which operation takes most of the request time and whether the HTTP response waits for it.",
 
-  correctRootCauseId: "synchronous-welcome-email",
-  correctEvidenceIds: [
-    "email-provider-latency",
-    "awaited-email-operation",
-    "database-is-healthy",
-  ],
 };
 
 const EVENT_LOOP_DIAGNOSIS: MissionDiagnosisConfig = {
@@ -259,14 +251,6 @@ const EVENT_LOOP_DIAGNOSIS: MissionDiagnosisConfig = {
 
   hint: "Look for a resource or runtime signal that explains why unrelated requests slow down at the same time.",
 
-  correctRootCauseId: "synchronous-cpu-work-blocking-event-loop",
-  correctEvidenceIds: [
-    "event-loop-lag-spike",
-    "cpu-saturated",
-    "report-generation-dominates",
-    "unrelated-endpoints-delayed",
-    "database-not-saturated",
-  ],
 };
 
 const PROMISE_CASCADE_DIAGNOSIS: MissionDiagnosisConfig = {
@@ -364,13 +348,6 @@ const PROMISE_CASCADE_DIAGNOSIS: MissionDiagnosisConfig = {
 
   hint: "One vendor failing is normal and will keep happening. Ask what the run does with the other 47 results when it does.",
 
-  correctRootCauseId: "promise-all-discards-batch-on-first-rejection",
-  correctEvidenceIds: [
-    "run-aborts-on-first-failure",
-    "successes-discarded",
-    "promise-all-over-mapped-calls",
-    "calls-continue-after-abort",
-  ],
 };
 
 const ASYNC_MAP_DIAGNOSIS: MissionDiagnosisConfig = {
@@ -466,13 +443,6 @@ const ASYNC_MAP_DIAGNOSIS: MissionDiagnosisConfig = {
 
   hint: "The job is not slow and nothing is erroring on the way in. Ask what the job was actually waiting for before it declared success.",
 
-  correctRootCauseId: "mapped-promises-never-awaited",
-  correctEvidenceIds: [
-    "impossible-fast-completion",
-    "unawaited-promise-array",
-    "work-continues-after-completion",
-    "failures-invisible-to-job",
-  ],
 };
 
 const SCHEDULER_OVERLAP_DIAGNOSIS: MissionDiagnosisConfig = {
@@ -567,14 +537,6 @@ const SCHEDULER_OVERLAP_DIAGNOSIS: MissionDiagnosisConfig = {
 
   hint: "Two runs are charging the same invoice. Before blaming the payment provider or a second replica, work out where the second run came from.",
 
-  correctRootCauseId: "interval-fires-before-previous-run-finishes",
-  correctEvidenceIds: [
-    "runs-overlap",
-    "run-exceeds-interval",
-    "interval-does-not-await",
-    "same-invoice-two-runs",
-    "single-instance",
-  ],
 };
 
 const REJECTION_STORM_DIAGNOSIS: MissionDiagnosisConfig = {
@@ -671,14 +633,6 @@ const REJECTION_STORM_DIAGNOSIS: MissionDiagnosisConfig = {
 
   hint: "The process is ending itself, not being ended. Find the promise whose rejection has no caller waiting on it.",
 
-  correctRootCauseId: "unhandled-rejection-in-detached-async-work",
-  correctEvidenceIds: [
-    "unhandled-rejection-crash",
-    "restart-loop",
-    "async-listener-unawaited",
-    "failure-is-off-request-path",
-    "not-killed-by-platform",
-  ],
 };
 
 const JWT_REFRESH_RACE_DIAGNOSIS: MissionDiagnosisConfig = {
@@ -788,14 +742,6 @@ const JWT_REFRESH_RACE_DIAGNOSIS: MissionDiagnosisConfig = {
 
   hint: "Nothing rejected the first refresh. Ask why there was a second one — and what the second one was still holding.",
 
-  correctRootCauseId: "concurrent-refresh-token-rotation-race",
-  correctEvidenceIds: [
-    "refresh-burst-same-token-family",
-    "one-refresh-succeeds-rest-reuse",
-    "every-401-calls-refresh",
-    "parallel-api-calls-one-expiry",
-    "logout-tracks-page-fanout",
-  ],
 };
 
 const HEALTH_CHECK_DIAGNOSIS: MissionDiagnosisConfig = {
@@ -908,14 +854,6 @@ const HEALTH_CHECK_DIAGNOSIS: MissionDiagnosisConfig = {
 
   hint: "The instance being restarted is answering business traffic in 41ms. Ask what the probe is actually measuring.",
 
-  correctRootCauseId: "liveness-probe-coupled-to-transient-dependencies",
-  correctEvidenceIds: [
-    "analytics-timeout-precedes-restart",
-    "health-endpoint-exceeds-probe-timeout",
-    "liveness-probe-runs-deep-dependency-check",
-    "health-span-dominated-by-analytics",
-    "local-requests-still-served",
-  ],
 };
 
 const GRACEFUL_SHUTDOWN_DIAGNOSIS: MissionDiagnosisConfig = {
@@ -1028,14 +966,6 @@ const GRACEFUL_SHUTDOWN_DIAGNOSIS: MissionDiagnosisConfig = {
 
   hint: "The platform gave the process 30 seconds and it used 4 milliseconds. Ask what was still running in the other 29.996.",
 
-  correctRootCauseId: "immediate-process-exit-without-draining-work",
-  correctEvidenceIds: [
-    "sigterm-to-exit-in-milliseconds",
-    "in-flight-requests-at-exit",
-    "exit-called-in-signal-handler",
-    "request-cut-mid-transaction",
-    "jobs-acked-before-completion",
-  ],
 };
 
 const RATE_LIMITER_RACE_DIAGNOSIS: MissionDiagnosisConfig = {
@@ -1147,14 +1077,6 @@ const RATE_LIMITER_RACE_DIAGNOSIS: MissionDiagnosisConfig = {
 
   hint: "The same code was correct on one instance. Ask what changed about the sequence of operations when a second instance appeared.",
 
-  correctRootCauseId: "non-atomic-distributed-rate-limit-counter",
-  correctEvidenceIds: [
-    "same-count-read-by-several-instances",
-    "writes-overwrite-each-other",
-    "read-modify-write-in-application-code",
-    "overshoot-scales-with-replicas",
-    "stored-count-below-actual-volume",
-  ],
 };
 
 const MEMORY_LEAK_DIAGNOSIS: MissionDiagnosisConfig = {
@@ -1271,15 +1193,6 @@ const MEMORY_LEAK_DIAGNOSIS: MissionDiagnosisConfig = {
 
   hint: "Memory that survives an idle queue is not being used — it is being held. Ask what the process still has a reference to once a job is finished with.",
 
-  correctRootCauseId: "long-lived-references-retain-completed-jobs",
-  correctEvidenceIds: [
-    "heap-never-returns-to-baseline",
-    "listener-count-climbs-with-jobs",
-    "max-listeners-warning",
-    "listener-added-per-job-never-removed",
-    "gc-runs-more-but-frees-less",
-    "memory-retained-with-zero-active-jobs",
-  ],
 };
 
 const QUEUE_BACKLOG_DIAGNOSIS: MissionDiagnosisConfig = {
@@ -1394,15 +1307,6 @@ const QUEUE_BACKLOG_DIAGNOSIS: MissionDiagnosisConfig = {
 
   hint: "Capacity was added and throughput fell. Ask what the workers are actually spending their slots on, and what happens to a job that can never succeed.",
 
-  correctRootCauseId: "unbounded-retries-and-missing-backpressure",
-  correctEvidenceIds: [
-    "same-job-retried-endlessly",
-    "provider-429-rate",
-    "immediate-requeue-in-catch",
-    "poison-job-cycle-in-trace",
-    "throughput-falls-as-workers-rise",
-    "backlog-grows-with-empty-dead-letter",
-  ],
 };
 
 const CONNECTION_POOL_DIAGNOSIS: MissionDiagnosisConfig = {
@@ -1516,15 +1420,6 @@ const CONNECTION_POOL_DIAGNOSIS: MissionDiagnosisConfig = {
 
   hint: "The database is doing less work than usual, not more. Count the connections the pool hands out against the ones it gets back, and look at what runs between those two events.",
 
-  correctRootCauseId: "connection-leak-on-error-path",
-  correctEvidenceIds: [
-    "acquire-timeouts",
-    "checkout-without-matching-release",
-    "pool-saturated-idle-zero",
-    "early-return-skips-release",
-    "wait-dominates-request",
-    "query-execution-healthy",
-  ],
 };
 
 const SLOW_API_DIAGNOSIS: MissionDiagnosisConfig = {
@@ -1640,16 +1535,6 @@ const SLOW_API_DIAGNOSIS: MissionDiagnosisConfig = {
 
   hint: "No single query is slow. Ask what changes between a fast request and a slow one — and count the queries in each.",
 
-  correctRootCauseId: "n-plus-one-query-loop",
-  correctEvidenceIds: [
-    "latency-spike",
-    "repeated-item-queries",
-    "query-inside-loop",
-    "query-count-scales",
-    "per-query-time-fast",
-    "repeated-spans-in-trace",
-    "latency-scales-with-order-count",
-  ],
 };
 
 /* ------------------------------- Registry ------------------------------- */

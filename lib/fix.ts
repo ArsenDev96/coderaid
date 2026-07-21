@@ -39,8 +39,6 @@ export type FixOption = {
   title: string;
   description: string;
   icon: FixIconId;
-  /** Whether this option actually addresses the confirmed root cause. */
-  resolvesRootCause: boolean;
   /** Why it does — or doesn't — resolve the root cause. Shown once selected. */
   explanation: string[];
   codeExample?: string;
@@ -55,7 +53,6 @@ export type MissionFixConfig = {
   options: FixOption[];
   /** Nudges toward the reasoning, never names the fix. */
   hint: string;
-  correctFixId: string;
 };
 
 export type FixState = {
@@ -78,7 +75,6 @@ const SIGNUP_LATENCY_FIX: MissionFixConfig = {
       description:
         "Move email sending to a background job/queue so the signup request can return immediately.",
       icon: "async",
-      resolvesRootCause: true,
       explanation: [
         "Eliminates the ~2.7s email provider latency from the critical signup path.",
         "Returns the HTTP response immediately after the user is created.",
@@ -101,7 +97,6 @@ return user;`,
       description:
         "Add indexes and optimize the user insert query to reduce database write latency.",
       icon: "database",
-      resolvesRootCause: false,
       explanation: [
         "The insert already completes in ~31ms — it is not what makes signup slow.",
         "Extra indexes add write overhead and would not help here.",
@@ -119,7 +114,6 @@ await userRepository.create(input);`,
       description:
         "Switch to a lighter hashing algorithm to reduce CPU time during signup.",
       icon: "hash",
-      resolvesRootCause: false,
       explanation: [
         "Password hashing is only ~154ms — a small part of the request.",
         "Weakening the hash trades away security for little latency benefit.",
@@ -135,7 +129,6 @@ const hash = await bcrypt.hash(password, 8);
       description:
         "Scale up CPU and memory to handle more signup requests concurrently.",
       icon: "server",
-      resolvesRootCause: false,
       explanation: [
         "CPU usage is normal — the request is waiting, not computing.",
         "More hardware raises throughput but not this request's duration.",
@@ -153,7 +146,6 @@ resources:
       description:
         "Expand the connection pool to avoid waiting for available connections.",
       icon: "pool",
-      resolvesRootCause: false,
       explanation: [
         "The pool is healthy with zero lock waits — connections are not the bottleneck.",
         "A larger pool adds database load without addressing the delay.",
@@ -166,7 +158,6 @@ resources:
 
   hint: "Choose the fix that removes the slow operation from the critical HTTP request path.",
 
-  correctFixId: "async-welcome-email",
 };
 
 const EVENT_LOOP_FIX: MissionFixConfig = {
@@ -182,7 +173,6 @@ const EVENT_LOOP_FIX: MissionFixConfig = {
       description:
         "Hand the CPU-heavy aggregation to a worker thread and return a job response immediately.",
       icon: "worker",
-      resolvesRootCause: true,
       explanation: [
         "The aggregation runs on a separate thread, so the main thread keeps accepting and serving requests.",
         "The handler stays lightweight: create the job, start the worker, respond.",
@@ -211,7 +201,6 @@ async getWeeklyReport(req: Request, res: Response) {
       description:
         "Make the aggregation call look asynchronous so the handler can await it.",
       icon: "async",
-      resolvesRootCause: false,
       explanation: [
         "A promise does not move work to another thread — the function body still runs to completion on the main thread.",
         "The only thing that changes is when the work starts; the event loop is blocked for the same ~7 seconds.",
@@ -227,7 +216,6 @@ async getWeeklyReport(req: Request, res: Response) {
       description:
         "Raise the pool ceiling so reporting queries stop competing with normal traffic.",
       icon: "pool",
-      resolvesRootCause: false,
       explanation: [
         "The pool is at 6 of 20 connections with zero lock waits — it is not the constraint.",
         "The query itself takes ~128ms of a 7.4s request, so there is nothing there to win back.",
@@ -242,7 +230,6 @@ async getWeeklyReport(req: Request, res: Response) {
       description:
         "Raise the request timeout so slow requests stop being cut off.",
       icon: "timer",
-      resolvesRootCause: false,
       explanation: [
         "Timeouts are the symptom: requests are queueing because the loop is busy, not because the limit is too tight.",
         "A longer timeout keeps more requests waiting in the queue, which makes the pile-up worse under load.",
@@ -257,7 +244,6 @@ async getWeeklyReport(req: Request, res: Response) {
       description:
         "Scale out with PM2 or cluster so more workers can absorb the reporting load.",
       icon: "server",
-      resolvesRootCause: false,
       explanation: [
         "Real mitigation: with more processes, a blocked one takes a smaller share of traffic down with it.",
         "But each process still blocks completely while it builds a report, so the failure mode is unchanged — just rarer.",
@@ -272,7 +258,6 @@ exec_mode: "cluster",
 
   hint: "Only one of these stops JavaScript from occupying the main thread while the report is built.",
 
-  correctFixId: "move-report-generation-to-worker-thread",
 };
 
 const PROMISE_CASCADE_FIX: MissionFixConfig = {
@@ -288,7 +273,6 @@ const PROMISE_CASCADE_FIX: MissionFixConfig = {
       description:
         "Await all 48 calls to completion, persist the ones that worked, and report the ones that didn't by name.",
       icon: "async",
-      resolvesRootCause: true,
       explanation: [
         "Promise.allSettled waits for every call and never rejects, so one bad vendor cannot end the run.",
         "Successful profiles are persisted; failures are collected with the vendor and the reason attached.",
@@ -315,7 +299,6 @@ return runRepository.complete(run.id, { ok: profiles.length, failures });`,
       description:
         "Attach a .catch() to every vendor promise so Promise.all always fulfils.",
       icon: "hash",
-      resolvesRootCause: false,
       explanation: [
         "This does stop the cascade — but it throws away which vendor failed and why.",
         "The run reports success with a silently short result set, so a permanently broken vendor looks identical to a healthy one.",
@@ -332,7 +315,6 @@ return runRepository.complete(run.id, { ok: profiles.length, failures });`,
       description:
         "Wrap each vendor call in a retry so transient 5xx responses do not end the run.",
       icon: "database",
-      resolvesRootCause: false,
       explanation: [
         "Worth having: it absorbs a blip, and northwind's 503s are intermittent.",
         "But retries eventually give up, and when they do the batch dies exactly as it does today.",
@@ -349,7 +331,6 @@ return runRepository.complete(run.id, { ok: profiles.length, failures });`,
       description:
         "Catch the rejection at the batch level and log it before failing the run.",
       icon: "server",
-      resolvesRootCause: false,
       explanation: [
         "The caller already catches this — that is where the 'enrichment run failed' log comes from.",
         "Catching a rejection does not give you back the results of the calls that succeeded; the whole array is gone.",
@@ -368,7 +349,6 @@ return runRepository.complete(run.id, { ok: profiles.length, failures });`,
       description:
         "Replace the parallel batch with a sequential loop so a failure is isolated.",
       icon: "pool",
-      resolvesRootCause: false,
       explanation: [
         "A plain sequential loop still aborts on the first thrown error — the failure is isolated in time, not in effect.",
         "Everything after the failing vendor is never even attempted, which is worse than today.",
@@ -383,7 +363,6 @@ return runRepository.complete(run.id, { ok: profiles.length, failures });`,
 
   hint: "The failing vendor is not going away. Pick the change that lets the run keep what it already fetched and still say what went wrong.",
 
-  correctFixId: "settle-each-vendor-and-record-outcomes",
 };
 
 const ASYNC_MAP_FIX: MissionFixConfig = {
@@ -399,7 +378,6 @@ const ASYNC_MAP_FIX: MissionFixConfig = {
       description:
         "Await the array the map produces, with bounded concurrency, so the job only finishes when the work does.",
       icon: "async",
-      resolvesRootCause: true,
       explanation: [
         "Awaiting Promise.all over the mapped promises makes the job's duration reflect the work it actually did.",
         "A rejected thumbnail now propagates to the job, so the queue can record the failure and retry the batch.",
@@ -425,7 +403,6 @@ await batchRepository.complete(batch.id);`,
       description:
         "Swap the map for a forEach so the unused array of promises is not created.",
       icon: "hash",
-      resolvesRootCause: false,
       explanation: [
         "forEach ignores whatever its callback returns, so an async callback behaves exactly like the map does today.",
         "It is strictly worse: with map you could at least await the array — forEach gives you nothing to await.",
@@ -442,7 +419,6 @@ await batchRepository.complete(batch.id);`,
       description:
         "Add error handling inside the callback so failures are logged against the file.",
       icon: "server",
-      resolvesRootCause: false,
       explanation: [
         "This improves the error message, which is real value — the IMG_0184 failure would name its batch.",
         "But the job still does not wait: it reports success at 14ms whether the work succeeds or fails.",
@@ -463,7 +439,6 @@ await batchRepository.complete(batch.id);`,
       description:
         "Give the job longer to run so it is not cut short before finishing.",
       icon: "timer",
-      resolvesRootCause: false,
       explanation: [
         "Nothing is timing out. The job finishes 14ms in, far under any limit.",
         "The problem is a job that ends too early, not one that is stopped too soon.",
@@ -478,7 +453,6 @@ await batchRepository.complete(batch.id);`,
       description:
         "Sleep at the end of the job to give the in-flight thumbnails time to land.",
       icon: "worker",
-      resolvesRootCause: false,
       explanation: [
         "This is a race, not a fix: the delay is either too short for a big batch or wasted on a small one.",
         "The promises are still unowned, so a rejection is still an unhandled rejection rather than a failed job.",
@@ -493,7 +467,6 @@ await batchRepository.complete(batch.id);
 
   hint: "The job needs to be told to wait for something. Ask what value the mapped callbacks hand back, and who is supposed to hold it.",
 
-  correctFixId: "await-the-mapped-promises",
 };
 
 const SCHEDULER_OVERLAP_FIX: MissionFixConfig = {
@@ -509,7 +482,6 @@ const SCHEDULER_OVERLAP_FIX: MissionFixConfig = {
       description:
         "Replace the interval with a self-scheduling timer, guarded so a run can never start while one is in progress.",
       icon: "async",
-      resolvesRootCause: true,
       explanation: [
         "A setTimeout scheduled in a finally block cannot fire until the previous run has settled, so runs can never overlap.",
         "The in-flight guard is the safety net for anything else that could trigger a run — a manual kick, a redeploy.",
@@ -541,7 +513,6 @@ export function startBillingSync() {
       description:
         "Send a deterministic key with each charge so the gateway rejects a repeat.",
       icon: "hash",
-      resolvesRootCause: false,
       explanation: [
         "This is genuinely worth doing, and it would stop customers being charged twice today.",
         "But the second run still happens: it still reads the same invoices, still calls the gateway, still writes duplicate rows and still fires duplicate internal events.",
@@ -558,7 +529,6 @@ export function startBillingSync() {
       description:
         "Give each run more headroom so it finishes before the next tick.",
       icon: "timer",
-      resolvesRootCause: false,
       explanation: [
         "It buys room — 95 seconds fits comfortably inside 300 — so the duplicates would stop today.",
         "But the run has been getting slower for weeks. Nothing stops it crossing five minutes as invoice volume keeps growing.",
@@ -573,7 +543,6 @@ export function startBillingSync() {
       description:
         "Run a reconciliation job that finds double charges and refunds them.",
       icon: "database",
-      resolvesRootCause: false,
       explanation: [
         "The customer is still charged twice, and only made whole later — the incident is visible to them either way.",
         "Reconciliation also has to reverse everything else the second run did, such as receipts and ledger entries.",
@@ -589,7 +558,6 @@ for (const charge of dupes) await paymentGateway.refund(charge.id);
       description:
         "Move the sync off the main thread so it stops competing for the event loop.",
       icon: "worker",
-      resolvesRootCause: false,
       explanation: [
         "The sync is I/O bound — it waits on the payment gateway and the database, not on CPU.",
         "A worker thread would still be started again by the next tick, so it would overlap with itself exactly as it does now.",
@@ -602,7 +570,6 @@ for (const charge of dupes) await paymentGateway.refund(charge.id);
 
   hint: "One of these stops the second run from existing. The others make the second run less damaging.",
 
-  correctFixId: "self-scheduling-loop-with-run-guard",
 };
 
 const REJECTION_STORM_FIX: MissionFixConfig = {
@@ -618,7 +585,6 @@ const REJECTION_STORM_FIX: MissionFixConfig = {
       description:
         "Give the detached delivery work an owner: catch its failure, record it against the message, and leave it retryable.",
       icon: "async",
-      resolvesRootCause: true,
       explanation: [
         "The listener body is wrapped so no promise leaves the boundary unhandled — the rejection becomes a handled failure with a message id attached.",
         "The message is marked failed rather than lost, so the outbox can retry it instead of stranding it.",
@@ -644,7 +610,6 @@ async function deliver(notification: Notification) {
       description:
         "Listen for unhandledRejection, log it, and let the process carry on.",
       icon: "server",
-      resolvesRootCause: false,
       explanation: [
         "It stops the crash loop, which is why it is such a common first move — and it is a reasonable last-resort safety net.",
         "But it does not handle the failure: the message is neither delivered nor marked failed, so it is stranded exactly as before, just without a restart.",
@@ -662,7 +627,6 @@ async function deliver(notification: Notification) {
       description:
         "Restore the old behaviour where an unhandled rejection only prints a warning.",
       icon: "timer",
-      resolvesRootCause: false,
       explanation: [
         "This deliberately reverts the Node 15 default that made unhandled rejections fatal — that default exists because silent rejections hide real bugs.",
         "Like the process handler, it keeps the service up while every failed delivery is still dropped.",
@@ -677,7 +641,6 @@ async function deliver(notification: Notification) {
       description:
         "Guard the HTTP handler so an error during a request cannot escape.",
       icon: "hash",
-      resolvesRootCause: false,
       explanation: [
         "The route is already wrapped — that try/catch is visible in the handler today.",
         "The rejection happens after res.status(202) has been sent, in work the request no longer owns, so no amount of handling inside the route reaches it.",
@@ -694,7 +657,6 @@ async function deliver(notification: Notification) {
       description:
         "Tune the supervisor so the service comes back quickly after each exit.",
       icon: "pool",
-      resolvesRootCause: false,
       explanation: [
         "The service is already restarting in about 2.3 seconds; making that faster does not reduce the number of crashes.",
         "Every restart still strands the 214 messages the previous process was holding.",
@@ -709,7 +671,6 @@ async function deliver(notification: Notification) {
 
   hint: "Keeping the process alive is not the same as handling the failure. Ask what should happen to the message whose delivery failed.",
 
-  correctFixId: "own-the-error-at-the-async-boundary",
 };
 
 const JWT_REFRESH_RACE_FIX: MissionFixConfig = {
@@ -725,7 +686,6 @@ const JWT_REFRESH_RACE_FIX: MissionFixConfig = {
       description:
         "Share a single in-flight refresh promise across concurrent 401s, so exactly one rotation happens and everyone else waits for its result.",
       icon: "async",
-      resolvesRootCause: true,
       explanation: [
         "The first 401 starts the refresh and stores its promise; every later 401 awaits the same promise instead of starting its own, so only one request ever presents the old token.",
         "Rotation and reuse detection are untouched — they were behaving correctly. The client stops giving them a false positive to detect.",
@@ -749,7 +709,6 @@ export function refreshSession(): Promise<Session> {
       description:
         "Raise the access-token TTL from 15 minutes to 24 hours so expiry is rare.",
       icon: "timer",
-      resolvesRootCause: false,
       explanation: [
         "Expiries become rare, so the bug fires far less often — which is exactly why this looks like it worked for the first day.",
         "The race is untouched: whenever a token does expire, the same burst of parallel refreshes happens and the same session is revoked.",
@@ -764,7 +723,6 @@ export function refreshSession(): Promise<Session> {
       description:
         "Return the same refresh token every time so a second caller can never present a stale one.",
       icon: "server",
-      resolvesRootCause: false,
       explanation: [
         "The symptom disappears immediately: with nothing to rotate, no request can present a superseded token.",
         "It removes the mechanism instead of fixing the caller. A long-lived, non-rotating refresh token cannot be detected as stolen, because reuse is now indistinguishable from normal use.",
@@ -781,7 +739,6 @@ return { accessToken: signAccess(user), refreshToken: presented };
       description:
         "When /auth/refresh returns 401, back off and try again before giving up.",
       icon: "pool",
-      resolvesRootCause: false,
       explanation: [
         "By the time the retry runs, reuse detection has already revoked the whole family, so the retry presents a token belonging to a dead family and fails too.",
         "Retrying a deliberate security rejection also looks like an attack from the server's side, and can trip lockout or alerting.",
@@ -800,7 +757,6 @@ return { accessToken: signAccess(user), refreshToken: presented };
       description:
         "Treat presentation of a rotated-out token as valid and hand back the current session.",
       icon: "hash",
-      resolvesRootCause: false,
       explanation: [
         "It does make the logouts stop, and it is tempting because the second caller really is the same legitimate browser.",
         "But the server cannot tell that. Accepting a superseded token is precisely the case reuse detection exists to catch: an attacker replaying a stolen refresh token presents exactly the same thing.",
@@ -817,7 +773,6 @@ return { accessToken: signAccess(user), refreshToken: presented };
       description:
         "Drop the refresh flow entirely and send the user back to the login page.",
       icon: "database",
-      resolvesRootCause: false,
       explanation: [
         "It makes the behaviour consistent, which is genuinely better than being logged out at random — but consistent in the wrong direction.",
         "Every routine 15-minute expiry now ends the session, so the refresh mechanism no longer does anything.",
@@ -830,7 +785,6 @@ return { accessToken: signAccess(user), refreshToken: presented };
 
   hint: "Rotation and reuse detection are both working as designed. The thing to change is how many callers are allowed to start a refresh.",
 
-  correctFixId: "single-flight-refresh-with-safe-token-rotation",
 };
 
 const HEALTH_CHECK_FIX: MissionFixConfig = {
@@ -846,7 +800,6 @@ const HEALTH_CHECK_FIX: MissionFixConfig = {
       description:
         "Liveness answers only whether the process is alive and not irrecoverably stuck. Readiness reports whether this instance can serve traffic right now, using short bounded dependency checks.",
       icon: "server",
-      resolvesRootCause: true,
       explanation: [
         "Liveness stops depending on anything outside the process, so a third-party slowdown can no longer be mistaken for a dead instance — the restarts stop.",
         "Readiness keeps the dependency checks, with per-dependency timeouts, so an instance that genuinely cannot serve is removed from traffic instead of being killed and rebuilt.",
@@ -870,7 +823,6 @@ async ready() {
       description:
         "Give the health endpoint far longer to answer so a slow dependency no longer trips it.",
       icon: "timer",
-      resolvesRootCause: false,
       explanation: [
         "It stops today's restarts, because today's dependency took five seconds — which makes it a reasonable emergency mitigation while you fix the real thing.",
         "But liveness still means 'every dependency answered', so the next dependency that takes 31 seconds restarts the fleet again, and you are back here with a bigger number.",
@@ -887,7 +839,6 @@ async ready() {
       description:
         "Require more consecutive probe failures before the platform restarts a container.",
       icon: "pool",
-      resolvesRootCause: false,
       explanation: [
         "It slows the flapping down, and briefly looks like a fix while the provider recovers.",
         "The dependency was slow for twenty minutes; more consecutive failures are exactly what a twenty-minute outage produces, so the restarts arrive anyway, just later.",
@@ -903,7 +854,6 @@ async ready() {
       description:
         "Drop the probes so nothing can restart or deregister an instance.",
       icon: "hash",
-      resolvesRootCause: false,
       explanation: [
         "The restarts stop, because nothing is watching any more.",
         "The platform also loses its only way to notice a genuinely dead or deadlocked process, and traffic keeps being routed to instances that cannot serve it.",
@@ -919,7 +869,6 @@ async ready() {
       description:
         "Run more replicas so enough remain healthy while others cycle.",
       icon: "worker",
-      resolvesRootCause: false,
       explanation: [
         "More capacity does mask the 5xx spike, and scaling out during an incident is a legitimate stabiliser.",
         "Every new instance runs the same health handler and calls the same slow dependency, so the restart rate scales with the fleet rather than being diluted by it.",
@@ -934,7 +883,6 @@ async ready() {
       description:
         "Catch every dependency error and report the instance as healthy regardless.",
       icon: "database",
-      resolvesRootCause: false,
       explanation: [
         "Correct for liveness — and that instinct is half the real fix — but this applies it to readiness as well.",
         "An instance that has genuinely lost its database now reports healthy, so the platform keeps sending it traffic it cannot serve.",
@@ -949,7 +897,6 @@ async ready() {
 
   hint: "Two different questions are being answered by one endpoint: 'is this process alive?' and 'can it serve traffic right now?'. Only one of them justifies a restart.",
 
-  correctFixId: "separate-liveness-readiness-and-bounded-dependency-checks",
 };
 
 const GRACEFUL_SHUTDOWN_FIX: MissionFixConfig = {
@@ -965,7 +912,6 @@ const GRACEFUL_SHUTDOWN_FIX: MissionFixConfig = {
       description:
         "Fail readiness, stop accepting new requests and new jobs, wait for what is already running, close resources, and exit on completion or on a timeout.",
       icon: "server",
-      resolvesRootCause: true,
       explanation: [
         "Readiness fails first, so the platform stops routing new traffic here before the server stops accepting it — that ordering is what removes the 502s.",
         "server.close() stops new connections while letting active requests finish, and the queue consumer stops prefetching so no job is acknowledged that cannot be completed.",
@@ -990,7 +936,6 @@ const GRACEFUL_SHUTDOWN_FIX: MissionFixConfig = {
       description:
         "Add a fixed delay to the signal handler so requests have some time to finish.",
       icon: "timer",
-      resolvesRootCause: false,
       explanation: [
         "It genuinely helps, and that is what makes it dangerous: most deploys get quieter, so the fix looks proven.",
         "Nothing is actually being waited on. The delay is a guess against an unknown amount of remaining work — a checkout that takes longer than the guess is still cut mid-transaction.",
@@ -1009,7 +954,6 @@ const GRACEFUL_SHUTDOWN_FIX: MissionFixConfig = {
       title: "Have callers retry the failed requests",
       description: "Push retry configuration to clients so 502s are retried.",
       icon: "pool",
-      resolvesRootCause: false,
       explanation: [
         "Retries are a reasonable complement to a correct shutdown, but they cannot substitute for one.",
         "The interrupted checkout already authorised a payment before it was cut. Retrying a non-idempotent operation risks charging twice rather than recovering cleanly.",
@@ -1025,7 +969,6 @@ const GRACEFUL_SHUTDOWN_FIX: MissionFixConfig = {
       description:
         "Run extra instances so there is more capacity while old ones are replaced.",
       icon: "worker",
-      resolvesRootCause: false,
       explanation: [
         "The overall error percentage falls, because the same number of dropped requests is measured against more traffic.",
         "Every replaced instance still drops whatever it was holding, so the absolute number of broken checkouts is unchanged.",
@@ -1040,7 +983,6 @@ const GRACEFUL_SHUTDOWN_FIX: MissionFixConfig = {
       description:
         "Register a no-op handler so the process is not asked to stop early.",
       icon: "hash",
-      resolvesRootCause: false,
       explanation: [
         "Nothing changes for the better: the platform sends SIGKILL after its grace period, and SIGKILL cannot be handled at all.",
         "The same requests are dropped, but now with no log line and no opportunity to do anything about it.",
@@ -1055,7 +997,6 @@ const GRACEFUL_SHUTDOWN_FIX: MissionFixConfig = {
       description:
         "Keep the current ordering but add a wait after the pool is closed.",
       icon: "database",
-      resolvesRootCause: false,
       explanation: [
         "This is the current bug with an extra step, and it is worth understanding why the order matters so much.",
         "The in-flight requests you are now waiting for need the pool you just closed, so they fail immediately instead of completing — the wait accomplishes nothing.",
@@ -1069,7 +1010,6 @@ process.exit(0);`,
 
   hint: "Order matters more than duration. Ask what has to stop first so that what is already running can finish.",
 
-  correctFixId: "bounded-graceful-shutdown-with-draining",
 };
 
 const RATE_LIMITER_RACE_FIX: MissionFixConfig = {
@@ -1085,7 +1025,6 @@ const RATE_LIMITER_RACE_FIX: MissionFixConfig = {
       description:
         "Replace read-modify-write with a single atomic increment-and-expire in the store, so concurrent requests serialise on the counter itself.",
       icon: "async",
-      resolvesRootCause: true,
       explanation: [
         "The increment happens once, inside the store, and every caller gets back its own distinct count — there is no window between reading and writing for another instance to slip into.",
         "The expiry is set in the same atomic step, so a key can never be left without a TTL by a race between the increment and the expire.",
@@ -1106,7 +1045,6 @@ return next();
       description:
         "Serialise the read-modify-write inside Node so two requests cannot interleave.",
       icon: "worker",
-      resolvesRootCause: false,
       explanation: [
         "It removes interleaving within one process, and on a single instance the counter becomes exactly correct — which is why this passes a local load test convincingly.",
         "The race is between instances, not within one. Eight processes each hold their own mutex and know nothing about the other seven, so the same value is still read eight times.",
@@ -1125,7 +1063,6 @@ return next();
       description:
         "Set the limit to what clients are actually achieving so the numbers agree.",
       icon: "timer",
-      resolvesRootCause: false,
       explanation: [
         "The alert stops firing, because the threshold has been moved to wherever the bug happens to land.",
         "The counter is still wrong, and it is wrong by an amount that changes with the replica count — so the effective limit moves every time the service scales.",
@@ -1140,7 +1077,6 @@ return next();
       description:
         "Detect a failed write to the shared store and try it again.",
       icon: "pool",
-      resolvesRootCause: false,
       explanation: [
         "This targets a failure mode the evidence rules out: the store reports zero errors and a 2ms p99, so no write is failing.",
         "The writes all succeed. The problem is that they succeed at overwriting each other, which a retry cannot detect — every instance believes its write was correct.",
@@ -1155,7 +1091,6 @@ return next();
       description:
         "Re-read the value just before the write to confirm it has not changed.",
       icon: "hash",
-      resolvesRootCause: false,
       explanation: [
         "It narrows the window, which makes the overshoot smaller and the bug much harder to reproduce.",
         "The window is not closed. Two instances can still pass the second read and write in the same interval, because there is no atomicity between the check and the write.",
@@ -1173,7 +1108,6 @@ if (first === second) await store.set(key, second + 1, { ttl: 60 });
       description:
         "Add API instances so no single instance handles enough traffic to race.",
       icon: "server",
-      resolvesRootCause: false,
       explanation: [
         "This moves in exactly the wrong direction, and the metrics say so: overshoot goes 0% → 19% → 47% as instances go 1 → 3 → 8.",
         "More instances means more concurrent readers of the same value, so more increments are lost, not fewer.",
@@ -1186,7 +1120,6 @@ if (first === second) await store.set(key, second + 1, { ttl: 60 });
 
   hint: "The counter is correct whenever only one thing touches it at a time. Ask which component is in a position to guarantee that for every instance at once.",
 
-  correctFixId: "atomic-shared-rate-limit-operation",
 };
 
 /* ------------------------------- Registry ------------------------------- */
@@ -1210,7 +1143,6 @@ const MEMORY_LEAK_FIX: MissionFixConfig = {
       description:
         "Remove the per-job listener in a finally block, keep only small metadata about recent jobs, and cap any diagnostic history.",
       icon: "worker",
-      resolvesRootCause: true,
       explanation: [
         "The listener is removed on every exit path, so the closure — and the job payload it captures — becomes unreachable as soon as the job ends.",
         "Recent-job history keeps ids and timings instead of buffers, and is bounded, so it cannot grow without limit.",
@@ -1243,7 +1175,6 @@ metrics.gauge("worker.listeners", () => worker.listenerCount("progress"));`,
       description:
         "Give the worker a larger heap so it can absorb the growth without hitting the memory threshold.",
       icon: "server",
-      resolvesRootCause: false,
       explanation: [
         "The heap grows by roughly 1.2GB every four hours and never levels off; a bigger ceiling only changes how long it takes to reach.",
         "Larger heaps make major collections longer, so the pauses the workers already suffer get worse.",
@@ -1258,7 +1189,6 @@ node --max-old-space-size=4096 dist/workers/image-job.worker.js`,
       description:
         "Recycle each worker every hour so the process never lives long enough to accumulate dangerous amounts of memory.",
       icon: "timer",
-      resolvesRootCause: false,
       explanation: [
         "This hides the leak behind a scheduled outage instead of removing it: the memory is still retained, it is just discarded with the process.",
         "Restarts interrupt in-flight image jobs and add cold-start latency to every cycle.",
@@ -1273,7 +1203,6 @@ setInterval(() => pool.recycleWorker(), 60 * 60 * 1000);`,
       description:
         "Expose the garbage collector and run a collection at the end of each job to reclaim what the job allocated.",
       icon: "async",
-      resolvesRootCause: false,
       explanation: [
         "Garbage collection only reclaims unreachable objects. The listeners still hold their jobs, so those objects are reachable and a forced collection cannot free them.",
         "The evidence already shows collections running four times more often and reclaiming a tenth as much — the collector is not the thing that is failing.",
@@ -1289,7 +1218,6 @@ global.gc?.();`,
       description:
         "Drop concurrency from 4 to 1 so fewer image buffers are ever in memory at the same time.",
       icon: "pool",
-      resolvesRootCause: false,
       explanation: [
         "Only 8.4MB of the 1.41GB snapshot belongs to jobs that are actually running — concurrent work is not what is filling the heap.",
         "The retained listeners accumulate per completed job, so lowering concurrency slows the growth without stopping it.",
@@ -1304,7 +1232,6 @@ const pool = new WorkerPool({ concurrency: 1 });`,
       description:
         "Spread the same job volume across more workers so each one grows more slowly before it is recycled.",
       icon: "server",
-      resolvesRootCause: false,
       explanation: [
         "Retention is per completed job, so the total leaked memory across the fleet is unchanged — it is only divided differently.",
         "Every added worker leaks at its own rate and eventually hits the same threshold and the same restart.",
@@ -1317,7 +1244,6 @@ const pool = new WorkerPool({ size: 12 });`,
 
   hint: "The heap holds 1.19GB in closures that belong to jobs which finished hours ago. Ask what has to happen when a job ends for those closures to become unreachable.",
 
-  correctFixId: "cleanup-listeners-and-bound-retained-state",
 };
 
 const QUEUE_BACKLOG_FIX: MissionFixConfig = {
@@ -1333,7 +1259,6 @@ const QUEUE_BACKLOG_FIX: MissionFixConfig = {
       description:
         "Cap attempts with exponential backoff and jitter, dead-letter jobs that can never succeed, and rate-limit the service to what the provider will actually accept.",
       icon: "timer",
-      resolvesRootCause: true,
       explanation: [
         "Classifying failures separates a malformed payload, which will never succeed, from a 429, which will succeed later — and each gets the treatment it deserves.",
         "A capped attempt count with exponential backoff and jitter stops one poison job from re-entering a worker slot dozens of times a second.",
@@ -1365,7 +1290,6 @@ export async function processNotification(job: Job<Notification>) {
       description:
         "Scale the worker pool from 24 to 48 so the queue is drained faster.",
       icon: "server",
-      resolvesRootCause: false,
       explanation: [
         "Going 8 → 24 workers already took successful deliveries from 240/min to 90/min; the relationship is inverse, and doubling again continues it.",
         "More workers mean more concurrent calls to a provider that is already rejecting 61% of them, so the throttling deepens.",
@@ -1380,7 +1304,6 @@ worker.concurrency = 48;`,
       description:
         "Treat every failure as transient and retry in a tight loop so no notification is ever lost.",
       icon: "async",
-      resolvesRootCause: false,
       explanation: [
         "This is what the code does today, and it is precisely what produced attempt 4,812 on a job whose payload can never be valid.",
         "A tight retry loop against a rate-limited provider is indistinguishable from a self-inflicted load test.",
@@ -1397,7 +1320,6 @@ while (true) {
       description:
         "Raise the HTTP timeout on delivery calls so throttled requests have longer to complete.",
       icon: "timer",
-      resolvesRootCause: false,
       explanation: [
         "A 429 is an immediate, deliberate rejection — it is not a slow response waiting for more time.",
         "Holding a worker slot open longer for a call that has already been refused reduces throughput further.",
@@ -1412,7 +1334,6 @@ provider.setTimeout(120_000);`,
       description:
         "Drop any job that fails on its first attempt so no job can ever cycle through a worker twice.",
       icon: "database",
-      resolvesRootCause: false,
       explanation: [
         "It does clear the backlog, by discarding every notification that hit a transient 429 — which is 61% of them.",
         "Rate limiting is temporary by definition; a job refused now would have succeeded seconds later.",
@@ -1429,7 +1350,6 @@ provider.setTimeout(120_000);`,
       description:
         "Drain the 184,000 backlogged messages so the workers can start again from a clean state.",
       icon: "pool",
-      resolvesRootCause: false,
       explanation: [
         "The depth is a symptom. With the retry behaviour unchanged, the same poison job and the same 429s rebuild the backlog within the hour.",
         "Purging destroys legitimate notifications that were only waiting behind the churn.",
@@ -1442,7 +1362,6 @@ await queue.drain();`,
 
   hint: "Two different failures are sharing one code path: one job that can never succeed, and many that would succeed if they were tried later. Ask what each of them should cost the pool.",
 
-  correctFixId: "bounded-retries-dead-letter-and-backpressure",
 };
 
 const CONNECTION_POOL_FIX: MissionFixConfig = {
@@ -1458,7 +1377,6 @@ const CONNECTION_POOL_FIX: MissionFixConfig = {
       description:
         "Wrap connection use in scoped acquisition so every exit path releases, shorten how long a connection is held, and put a bound on acquisition.",
       icon: "pool",
-      resolvesRootCause: true,
       explanation: [
         "A finally block — or a withConnection helper that owns the lifecycle — releases on the error path as reliably as on the success path, so a missing order costs nothing.",
         "Acquiring the connection only around the queries that need it keeps the unrelated billing API call off the pool entirely.",
@@ -1492,7 +1410,6 @@ router.get("/orders/:id", async (req, res) => {
       description:
         "Raise the maximum from 20 to 100 connections so there is enough headroom for the traffic.",
       icon: "server",
-      resolvesRootCause: false,
       explanation: [
         "Leaked connections are never returned, so a larger pool is a larger number to leak through — it postpones exhaustion, it does not prevent it.",
         "The pool is losing roughly one connection per missing-order lookup, at 2.1% of requests; the arithmetic is unchanged by the ceiling.",
@@ -1507,7 +1424,6 @@ const pool = createPool({ max: 100 });`,
       description:
         "Give requests longer than 10 seconds to acquire a connection so fewer of them time out.",
       icon: "timer",
-      resolvesRootCause: false,
       explanation: [
         "The connections are gone, not late — waiting longer for one that will never be released only extends the hang.",
         "Longer waits hold client sockets and request memory open, so the failure spreads upward instead of being contained.",
@@ -1522,7 +1438,6 @@ const pool = createPool({ acquireTimeoutMillis: 60_000 });`,
       description:
         "Scale the API horizontally so the load — and the pool pressure — is spread across more processes.",
       icon: "server",
-      resolvesRootCause: false,
       explanation: [
         "Each instance has its own pool and its own copy of the defect, so each one leaks and starves independently.",
         "More instances mean more total connections held idle-in-session against the same database.",
@@ -1537,7 +1452,6 @@ replicas: 12`,
       description:
         "Catch acquisition timeouts and retry in a loop so requests eventually get a connection.",
       icon: "async",
-      resolvesRootCause: false,
       explanation: [
         "There are no free connections to retry into — all twenty are checked out by handlers that already returned.",
         "Retrying adds more waiters to a queue that is already 34 deep, so it lengthens every wait.",
@@ -1554,7 +1468,6 @@ while (true) {
       description:
         "Add an index and rewrite the item lookup so connections are held for less time.",
       icon: "database",
-      resolvesRootCause: false,
       explanation: [
         "The query already runs in 12ms and never reaches the slow-query log; there is no meaningful time left to remove.",
         "Leaked connections are held forever, so shortening a 12ms query by a few milliseconds changes nothing about them.",
@@ -1567,7 +1480,6 @@ CREATE INDEX CONCURRENTLY idx_order_items_order_id ON order_items(order_id);`,
 
   hint: "Compare the number of checkout events with the number of release events on the same connection id, and ask which lines run between them when something goes wrong.",
 
-  correctFixId: "release-connections-in-finally-and-bound-pool-waits",
 };
 
 const SLOW_API_FIX: MissionFixConfig = {
@@ -1583,7 +1495,6 @@ const SLOW_API_FIX: MissionFixConfig = {
       description:
         "Load all order items for the returned orders in a single query — or through the ORM's relation loading — and attach them in memory.",
       icon: "database",
-      resolvesRootCause: true,
       explanation: [
         "One additional query replaces 48, so the request costs two round trips regardless of how many orders it returns.",
         "Latency stops scaling with page size: the response time for 48 orders becomes close to the response time for 8.",
@@ -1617,7 +1528,6 @@ return orders;`,
       description:
         "Index the foreign key so each per-order lookup runs faster than its current 42ms.",
       icon: "hash",
-      resolvesRootCause: false,
       explanation: [
         "The count is the problem, not the cost of each one: even a 5ms query executed 48 times still adds nearly a quarter of a second of round trips.",
         "Nothing reaches the slow-query log today, so there is little per-query time available to reclaim.",
@@ -1632,7 +1542,6 @@ CREATE INDEX CONCURRENTLY idx_order_items_order_id ON order_items(order_id);`,
       description:
         "Give the service more database connections so the extra queries have somewhere to run.",
       icon: "pool",
-      resolvesRootCause: false,
       explanation: [
         "Pool wait is 3ms and the database sits at 22% CPU — the service is not waiting for a connection.",
         "A bigger pool lets the same request issue its 49 queries with less queuing, which is not where the 2.4 seconds went.",
@@ -1647,7 +1556,6 @@ const pool = createPool({ max: 60 });`,
       description:
         "Issue all 48 item queries at once instead of sequentially so the wall-clock time collapses.",
       icon: "async",
-      resolvesRootCause: false,
       explanation: [
         "The request still issues 49 queries — the N+1 pattern is intact, it has only been made concurrent.",
         "Forty-eight simultaneous queries per request against a pool of twenty means requests now contend for connections, and a larger page size makes it worse.",
@@ -1670,7 +1578,6 @@ await Promise.all(
       description:
         "Put a short-lived cache in front of GET /api/orders so repeated requests skip the work entirely.",
       icon: "server",
-      resolvesRootCause: false,
       explanation: [
         "Order lists are per user and change on every checkout, so the hit rate is low and stale data is visible immediately.",
         "Every miss pays the full 49-query cost, and the first request after any write always misses.",
@@ -1686,7 +1593,6 @@ if (cached) return cached;`,
       description:
         "Raise the gateway timeout so the slow responses stop being cut off during checkout.",
       icon: "timer",
-      resolvesRootCause: false,
       explanation: [
         "Requests already succeed — the error rate is 0.4% and unchanged. They are slow, not failing.",
         "A longer timeout makes the symptom less visible to monitoring while the user still waits 2.4 seconds.",
@@ -1699,7 +1605,6 @@ server.requestTimeout = 30_000;`,
 
   hint: "Each query is already fast. Ask how many of them one request should need, and where the related rows could be collected in a single statement.",
 
-  correctFixId: "bulk-fetch-related-data",
 };
 
 export const fixConfigs: Record<string, MissionFixConfig> = {

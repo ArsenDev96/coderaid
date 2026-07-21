@@ -5,18 +5,12 @@ import Link from "next/link";
 import { ArrowLeft, ArrowRight, Sparkles, Zap } from "lucide-react";
 import { useProgress } from "@/components/progress/ProgressProvider";
 import { canStart, nextMissionId } from "@/lib/availability";
-import { getDiagnosis, loadDiagnosisState } from "@/lib/diagnosis";
-import { getFix, loadFixState } from "@/lib/fix";
-import {
-  gradeMission,
-  rewardFor,
-  skillRewardFor,
-  type MissionGrade,
-} from "@/lib/grading";
+import { loadGrade } from "@/lib/grade-submission";
+import { rewardFor, skillRewardFor, type MissionGrade } from "@/lib/grading";
 import { MISSION_FLOW, getMission, type Mission } from "@/lib/missions";
 import { creditRun, skillLevelFromXp, skillXpFor } from "@/lib/progress";
 import { loadResultsState, narrativeFor, saveResultsState, type MissionResultConfig } from "@/lib/results";
-import { completeStage, loadRun } from "@/lib/run";
+import { completeStage } from "@/lib/run";
 import { getSkill } from "@/lib/skills";
 import { ResultsHeader, ResultsMissionRecap, ScoreBreakdown } from "./ResultsHeader";
 import { PerformanceImprovement } from "./PerformanceImprovement";
@@ -27,14 +21,15 @@ import { WhatYouLearned } from "./WhatYouLearned";
 /**
  * The results screen.
  *
- * Everything shown here is produced from the run the player just finished: the
- * grading engine reads their diagnosis, evidence and fix against the mission's
- * authored answers, and the resulting score, XP and skill gains are credited to
- * the progression ledger exactly once.
+ * Everything shown here comes from the grade the **server** produced when the
+ * player ran verification: it read their diagnosis, evidence and fix against
+ * answers the browser never sees, recorded the run, and returned the breakdown.
+ * This screen renders that verdict and credits it to the ledger exactly once —
+ * it cannot compute a score, which is precisely the property we want.
  *
- * Grading happens after mount because the run lives in `localStorage`. Until
- * then the screen renders nothing rather than a placeholder score — a fake 0
- * flashing before the real number would be worse than a moment of blank.
+ * It reads after mount because the grade is cached client-side. Until then the
+ * screen renders nothing rather than a placeholder score — a fake 0 flashing
+ * before the real number would be worse than a moment of blank.
  */
 export function ResultsWorkspace({
   mission,
@@ -47,6 +42,8 @@ export function ResultsWorkspace({
   const [grade, setGrade] = useState<MissionGrade | null>(null);
   const [gains, setGains] = useState<SkillGain[]>([]);
   const [xpAdded, setXpAdded] = useState(0);
+  /** No graded run to show — the player never completed verification. */
+  const [ungraded, setUngraded] = useState(false);
   const credited = useRef(false);
 
   useEffect(() => {
@@ -56,28 +53,14 @@ export function ResultsWorkspace({
     // Reaching this screen is itself the last stage of the flow.
     completeStage(mission.id, "Complete");
 
-    const diagnosisConfig = getDiagnosis(mission.id);
-    const fixConfig = getFix(mission.id);
-    const result = gradeMission({
-      mission,
-      diagnosis: diagnosisConfig
-        ? {
-            config: diagnosisConfig,
-            state: loadDiagnosisState(diagnosisConfig) ?? {
-              rootCauseId: null,
-              evidenceIds: [],
-              confirmed: false,
-            },
-          }
-        : null,
-      fix: fixConfig
-        ? {
-            config: fixConfig,
-            state: loadFixState(fixConfig) ?? { fixId: null, applied: false },
-          }
-        : null,
-      run: loadRun(mission.id),
-    });
+    // The grade was computed and recorded by the server when the player ran
+    // verification. This screen renders it — it no longer knows the answers, so
+    // it cannot compute one, which is exactly the property we want.
+    const result = loadGrade(mission.id);
+    if (!result) {
+      setUngraded(true);
+      return;
+    }
     setGrade(result);
 
     // Skill levels are read before crediting so the before/after is honest.
@@ -137,10 +120,34 @@ export function ResultsWorkspace({
     };
   }, [config.nextMissionId, mission.id, view]);
 
+  if (ungraded) {
+    // Reachable by typing the URL, or by signing out between verification and
+    // here. There is no honest score to show, so it sends them back to earn one
+    // rather than rendering a zero they didn't score.
+    return (
+      <div className="mx-auto max-w-md py-16 text-center">
+        <h2 className="text-xl font-semibold text-white">
+          This run hasn&apos;t been graded yet
+        </h2>
+        <p className="mt-3 text-sm leading-relaxed text-slate-400">
+          Scores are recorded when you run verification. Head back and run it to
+          see how you did.
+        </p>
+        <Link
+          href={`/missions/${mission.id}/verification`}
+          className="mt-6 inline-flex items-center gap-2 rounded-xl border border-violet-400/40 bg-gradient-to-r from-violet-600 to-violet-500 px-5 py-2.5 text-sm font-semibold text-white shadow-neon transition-transform hover:scale-[1.02]"
+        >
+          Go to Verification
+          <ArrowRight className="h-4 w-4" />
+        </Link>
+      </div>
+    );
+  }
+
   if (!grade) {
     return (
       <div className="py-20 text-center text-sm text-slate-500">
-        Grading your run…
+        Loading your results…
       </div>
     );
   }

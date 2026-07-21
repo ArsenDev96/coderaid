@@ -88,6 +88,8 @@ export function FixWorkspace({
             selectedId={fixId}
             onSelect={setFixId}
           />
+          {/* Describes the option without judging it — the verdict is the
+              server's, and arrives at verification. */}
           <FixExplanationPanel option={selectedOption} />
         </div>
       </div>

@@ -1,0 +1,19 @@
+{
+  "//": [
+    "Config for the tsx-run CLI scripts only — never for the app build.",
+    "`lib/server/answers.ts` guards itself with `import \"server-only\"`, which",
+    "throws outside a React Server Component. That is exactly what keeps the",
+    "answers out of the browser bundle, so the guard stays in place; the",
+    "validator simply runs with it stubbed, the same way the Vitest suite does.",
+    "Aliasing it in the root tsconfig instead would disable the guard for the",
+    "whole application."
+  ],
+  "extends": "../tsconfig.json",
+  "compilerOptions": {
+    "baseUrl": "..",
+    "paths": {
+      "@/*": ["./*"],
+      "server-only": ["./tests/stubs/server-only.ts"]
+    }
+  }
+}

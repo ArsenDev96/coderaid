@@ -1,47 +1,23 @@
 "use client";
 
-import { AlertTriangle, Check, Lightbulb } from "lucide-react";
+import { Lightbulb } from "lucide-react";
 import type { FixOption } from "@/lib/fix";
-
-/* --------------------------- Minimal highlighter ------------------------ */
-
-const TOKENS =
-  /(\/\/[^\n]*|#[^\n]*|"[^"]*"|'[^']*'|`[^`]*`|\b(?:async|await|const|let|var|return|function|new|for|of|in|if|else)\b)/g;
-const KEYWORD = /^(?:async|await|const|let|var|return|function|new|for|of|in|if|else)$/;
-
-/** Keyword/string/comment colouring — enough to read as code, not a full lexer. */
-function highlight(line: string) {
-  return line
-    .split(TOKENS)
-    .filter((p) => p !== "")
-    .map((part, i) => {
-      if (part.startsWith("//") || part.startsWith("#")) {
-        return (
-          <span key={i} className="text-slate-500">
-            {part}
-          </span>
-        );
-      }
-      if (/^["'`]/.test(part)) {
-        return (
-          <span key={i} className="text-emerald-300">
-            {part}
-          </span>
-        );
-      }
-      if (KEYWORD.test(part)) {
-        return (
-          <span key={i} className="text-violet-300">
-            {part}
-          </span>
-        );
-      }
-      return <span key={i}>{part}</span>;
-    });
-}
+import { CodeText, useCodePreferences } from "@/components/ui/CodeText";
 
 /* -------------------------------- Panel --------------------------------- */
 
+/**
+ * What a selected fix does.
+ *
+ * The verdict — "why this fix" versus "why this fix falls short" — used to
+ * appear the moment an option was *selected*, so clicking all five read the
+ * answer key before choosing. The browser no longer holds that verdict at all:
+ * only the server knows which fix resolves, and it says so at verification.
+ *
+ * What remains here is what the player is meant to reason *from*: the option's
+ * own description and its implementation. The full explanation is shown on the
+ * results screen, next to the outcome it earned.
+ */
 export function FixExplanationPanel({
   option,
 }: {
@@ -63,66 +39,55 @@ export function FixExplanationPanel({
     );
   }
 
-  const resolves = option.resolvesRootCause;
-
   return (
     <div className="flex flex-col gap-4">
-      {/* Why this fix */}
       <section
         aria-live="polite"
         className="rounded-2xl border border-white/[0.06] bg-white/[0.02] p-4 sm:p-5"
       >
         <h3 className="text-sm font-semibold text-white sm:text-base">
-          {resolves ? "Why this fix?" : "Why this fix falls short"}
+          {option.title}
         </h3>
-
-        <ul className="mt-4 flex flex-col gap-3">
-          {option.explanation.map((point) => (
-            <li key={point} className="flex items-start gap-2.5">
-              <span
-                aria-hidden
-                className={`mt-0.5 grid h-4 w-4 shrink-0 place-items-center rounded-full ${
-                  resolves
-                    ? "text-emerald-400"
-                    : "text-amber-400"
-                }`}
-              >
-                {resolves ? (
-                  <Check className="h-3.5 w-3.5" strokeWidth={3} />
-                ) : (
-                  <AlertTriangle className="h-3.5 w-3.5" strokeWidth={2.4} />
-                )}
-              </span>
-              <span className="text-sm leading-relaxed text-slate-300">
-                {point}
-              </span>
-            </li>
-          ))}
-        </ul>
+        <p className="mt-3 text-sm leading-relaxed text-slate-300">
+          {option.description}
+        </p>
+        <p className="mt-4 rounded-lg border border-white/[0.06] bg-white/[0.02] px-3 py-2 text-xs leading-relaxed text-slate-400">
+          Apply this fix and run verification to find out whether it resolves the
+          incident. That&apos;s the call you&apos;re being scored on.
+        </p>
       </section>
 
-      {/* Implementation example */}
-      {option.codeExample && (
-        <section className="rounded-2xl border border-white/[0.06] bg-white/[0.02] p-4 sm:p-5">
-          <h3 className="text-sm font-semibold text-white sm:text-base">
-            Typical implementation
-          </h3>
-          <div className="thin-scroll mt-3 overflow-x-auto rounded-xl border border-white/[0.06] bg-base-950/70 p-3">
-            <ol className="min-w-max font-mono text-xs leading-6">
-              {option.codeExample.split("\n").map((line, i) => (
-                <li key={i} className="flex gap-4">
-                  <span className="w-4 shrink-0 select-none text-right text-slate-600">
-                    {i + 1}
-                  </span>
-                  <code className="whitespace-pre text-slate-300">
-                    {line ? highlight(line) : " "}
-                  </code>
-                </li>
-              ))}
-            </ol>
-          </div>
-        </section>
-      )}
+      {option.codeExample && <CodeExample source={option.codeExample} />}
+    </div>
+  );
+}
+
+/**
+ * The implementation snippet, in the player's editor theme.
+ *
+ * Its own component so the preference hook runs unconditionally — the panel
+ * above returns early when no fix is selected.
+ */
+function CodeExample({ source }: { source: string }) {
+  const { palette, showLineNumbers } = useCodePreferences();
+
+  return (
+    <div className="thin-scroll mt-3 overflow-x-auto rounded-xl border border-white/[0.06] bg-base-950/70 p-3">
+      <ol className="min-w-max font-mono text-xs leading-6">
+        {source.split("\n").map((line, i) => (
+          <li key={i} className="flex gap-4">
+            {/* The list is an <ol>, so the ordering survives without the gutter. */}
+            {showLineNumbers && (
+              <span className="w-4 shrink-0 select-none text-right text-slate-600">
+                {i + 1}
+              </span>
+            )}
+            <code className={`whitespace-pre ${palette.plain}`}>
+              {line ? <CodeText line={line} palette={palette} /> : " "}
+            </code>
+          </li>
+        ))}
+      </ol>
     </div>
   );
 }

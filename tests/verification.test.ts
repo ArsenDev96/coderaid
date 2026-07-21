@@ -5,6 +5,7 @@ import {
   resolveVerification,
   type MissionVerificationConfig,
 } from "@/lib/verification";
+import { answersFor } from "@/lib/server/answers";
 import { getFix } from "@/lib/fix";
 import { PLAYABLE_MISSION_IDS } from "@/lib/availability";
 
@@ -105,11 +106,12 @@ describe("every playable mission's verification", () => {
     }
   });
 
-  it("has exactly one fix option that resolves the root cause", () => {
+  it("names a resolving fix that exists, for every playable mission", () => {
     for (const missionId of PLAYABLE_MISSION_IDS) {
       const fix = getFix(missionId);
-      const resolving = fix?.options.filter((o) => o.resolvesRootCause) ?? [];
-      expect(resolving.map((o) => o.id)).toEqual([fix?.correctFixId]);
+      const answers = answersFor(missionId);
+      expect(answers, ).toBeDefined();
+      expect(fix?.options.map((o) => o.id)).toContain(answers!.fixId);
     }
   });
 });

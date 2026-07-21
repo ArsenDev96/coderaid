@@ -34,6 +34,8 @@ import {
 import { resultsConfigs, type MissionResultConfig } from "./results";
 import { verificationConfigs, type MissionVerificationConfig } from "./verification";
 import type { MissionDiagnosisConfig } from "./diagnosis";
+import type { MissionAnswers } from "./grading";
+import { MISSION_ANSWERS } from "./server/answers";
 import { SKILL_DEFS } from "./skills";
 
 /* -------------------------------- Types --------------------------------- */
@@ -73,6 +75,8 @@ export type ValidationInput = {
   fixes: Record<string, MissionFixConfig>;
   verifications: Record<string, MissionVerificationConfig>;
   results: Record<string, MissionResultConfig>;
+  /** The mission answers, which live server-side (`lib/server/answers.ts`). */
+  answers: Record<string, MissionAnswers>;
 };
 
 export const LIVE_CONTENT: ValidationInput = {
@@ -82,6 +86,7 @@ export const LIVE_CONTENT: ValidationInput = {
   fixes: fixConfigs,
   verifications: verificationConfigs,
   results: resultsConfigs,
+  answers: MISSION_ANSWERS,
 };
 
 /* ------------------------------- Helpers -------------------------------- */
@@ -359,7 +364,11 @@ function validateInvestigation(c: Collector, inv: Investigation): void {
 
 /* ----------------------------- Diagnosis rules -------------------------- */
 
-function validateDiagnosis(c: Collector, d: MissionDiagnosisConfig): void {
+function validateDiagnosis(
+  c: Collector,
+  d: MissionDiagnosisConfig,
+  answers: MissionAnswers | undefined,
+): void {
   const stage = "diagnosis" as const;
 
   for (const id of duplicates(d.rootCauses.map((r) => r.id))) {
@@ -369,20 +378,38 @@ function validateDiagnosis(c: Collector, d: MissionDiagnosisConfig): void {
     c.error(stage, `Duplicate diagnosis evidence id "${id}".`);
   }
 
+  // The answers live in `lib/server/answers.ts` now, so this is where the two
+  // halves are checked against each other: with the answer no longer sitting
+  // beside the options it names, a renamed option would otherwise silently
+  // make a mission ungradeable.
+  const correctEvidenceIds = answers?.evidenceIds ?? [];
   c.check(
     stage,
-    d.rootCauses.some((r) => r.id === d.correctRootCauseId),
-    `correctRootCauseId "${d.correctRootCauseId}" is not one of the offered root causes.`,
+    Boolean(answers),
+    "No answers are authored for this mission — it can be played but not graded.",
   );
-  c.check(stage, d.rootCauses.length >= 2, "A diagnosis needs at least two root-cause options.");
 
-  const evidenceIds = new Set(d.evidence.map((e) => e.id));
-  for (const id of d.correctEvidenceIds) {
-    c.check(stage, evidenceIds.has(id), `correctEvidenceIds references unknown evidence "${id}".`);
+  if (answers) {
+    c.check(
+      stage,
+      d.rootCauses.some((r) => r.id === answers.rootCauseId),
+      `answers.rootCauseId "${answers.rootCauseId}" is not one of the offered root causes.`,
+    );
+
+    const evidenceIds = new Set(d.evidence.map((e) => e.id));
+    for (const id of correctEvidenceIds) {
+      c.check(
+        stage,
+        evidenceIds.has(id),
+        `answers.evidenceIds references unknown evidence "${id}".`,
+      );
+    }
+    for (const id of duplicates(correctEvidenceIds)) {
+      c.error(stage, `answers.evidenceIds lists "${id}" twice.`);
+    }
   }
-  for (const id of duplicates(d.correctEvidenceIds)) {
-    c.error(stage, `correctEvidenceIds lists "${id}" twice.`);
-  }
+
+  c.check(stage, d.rootCauses.length >= 2, "A diagnosis needs at least two root-cause options.");
 
   c.check(
     stage,
@@ -398,8 +425,8 @@ function validateDiagnosis(c: Collector, d: MissionDiagnosisConfig): void {
   // support the cause, and a perfect score becomes unreachable.
   c.check(
     stage,
-    d.correctEvidenceIds.length >= d.minimumEvidenceRequired,
-    `Only ${d.correctEvidenceIds.length} supporting findings are authored, but ${d.minimumEvidenceRequired} selections are required.`,
+    correctEvidenceIds.length >= d.minimumEvidenceRequired,
+    `Only ${correctEvidenceIds.length} supporting findings are authored, but ${d.minimumEvidenceRequired} selections are required.`,
   );
 
   if (blank(d.hint)) c.error(stage, "Diagnosis hint is empty.");
@@ -408,28 +435,35 @@ function validateDiagnosis(c: Collector, d: MissionDiagnosisConfig): void {
 
 /* -------------------------------- Fix rules ----------------------------- */
 
-function validateFix(c: Collector, f: MissionFixConfig): void {
+function validateFix(
+  c: Collector,
+  f: MissionFixConfig,
+  answers: MissionAnswers | undefined,
+): void {
   const stage = "fix" as const;
 
   for (const id of duplicates(f.options.map((o) => o.id))) {
     c.error(stage, `Duplicate fix option id "${id}".`);
   }
 
-  const resolving = f.options.filter((o) => o.resolvesRootCause);
-  c.check(stage, resolving.length > 0, "No fix option resolves the root cause.");
+  // The resolving fix is now named once, server-side, instead of being both
+  // flagged per option and named again by `correctFixId`. There is nothing left
+  // for the two to disagree about — what remains is checking that the answer
+  // still points at an option that exists.
   c.check(
     stage,
-    f.options.some((o) => o.id === f.correctFixId),
-    `correctFixId "${f.correctFixId}" is not one of the offered fixes.`,
+    Boolean(answers),
+    "No answers are authored for this mission — it can be played but not graded.",
   );
-  // Grading treats `resolvesRootCause` as the truth and `correctFixId` as the
-  // headline answer; if they disagree the mission grades one thing and teaches
-  // another.
-  c.check(
-    stage,
-    resolving.some((o) => o.id === f.correctFixId),
-    `correctFixId "${f.correctFixId}" does not resolve the root cause.`,
-  );
+  if (answers) {
+    c.check(
+      stage,
+      f.options.some((o) => o.id === answers.fixId),
+      `answers.fixId "${answers.fixId}" is not one of the offered fixes.`,
+    );
+  }
+  // A single-option fix stage isn't a choice, so nothing can be got wrong.
+  c.check(stage, f.options.length >= 2, "A fix stage needs at least two options.");
 
   for (const option of f.options) {
     if (blank(option.title)) c.error(stage, `Fix "${option.id}" has no title.`);
@@ -726,7 +760,7 @@ export function validateMissions(
         diag.missionId === mission.id,
         `Diagnosis config declares missionId "${diag.missionId}".`,
       );
-      validateDiagnosis(c, diag);
+      validateDiagnosis(c, diag, input.answers[mission.id]);
     }
     if (fix) {
       c.check(
@@ -734,7 +768,7 @@ export function validateMissions(
         fix.missionId === mission.id,
         `Fix config declares missionId "${fix.missionId}".`,
       );
-      validateFix(c, fix);
+      validateFix(c, fix, input.answers[mission.id]);
     }
     if (ver) {
       c.check(

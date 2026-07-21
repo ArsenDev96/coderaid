@@ -51,7 +51,7 @@ npm run test:e2e          # Playwright — one mission through the real browser
 
 All of them run non-interactively. `npm run test:watch` runs Vitest in watch mode.
 
-The Vitest suite is **425 tests across 13 files**, including a parameterised suite that puts every
+The Vitest suite is **432 tests across 13 files**, including a parameterised suite that puts every
 one of the 14 playable missions through the same perfect / wrong / hint / replay / stage-guard
 contract.
 
@@ -177,7 +177,7 @@ finished.
 
 ```
 app/
-  layout.tsx           Root layout: fonts, metadata, <SettingsEffects/>, <ProgressProvider/>
+  layout.tsx           Root layout: fonts, metadata, <ProgressProvider/>
   page.tsx             Landing page
   start/               Onboarding wizard (4 steps)
   dashboard/           Player home
@@ -190,7 +190,7 @@ app/
 components/
   <landing sections>   Header, HeroSection, GamePreview, ComparisonSection, HowItWorks,
                        MissionPreview, SkillsGrid, CareerPath, FinalCTA, Footer
-  ui/                  Logo, Reveal, AvailabilityBadge
+  ui/                  Logo, Reveal, AvailabilityBadge, CodeText
   progress/            ProgressProvider — one hydrated ledger for the whole app
   missions/StageGate   Client-side stage prerequisite guard
   dashboard/ onboarding/ missions/ skills/ achievements/ leaderboards/ settings/
@@ -204,6 +204,7 @@ lib/
   skills.ts            Canonical Node.js skill taxonomy
   stage-access.ts      Stage prerequisites (pure)
   mission-validation.ts Content validation rules (pure)
+  code-theme.ts        Code tokenizer + editor-theme palettes (pure)
   investigation.ts diagnosis.ts fix.ts verification.ts results.ts
   dashboard.ts achievements.ts leaderboards.ts onboarding.ts settings.ts data.ts types.ts
 
@@ -259,7 +260,7 @@ All keys are namespaced `coderaid:` so progress reset can sweep them.
 | Key | Shape |
 | --- | --- |
 | `coderaid:profile` | `{ name, avatarId, slogan, pathId, experienceId, step, completed }` |
-| `coderaid:user-settings` | `{ theme, codeEditorTheme, defaultLanguage, showLineNumbers, soundEffects }` |
+| `coderaid:user-settings` | `{ codeEditorTheme, showLineNumbers }` |
 | `coderaid:player:progress` | `{ version, totalXp, skillXp, missions, activeDays, achievements }` |
 | `coderaid:{missionId}:run` | `{ startedAt, lastActiveAt, stagesCompleted[], hintsUsed[] }` |
 | `coderaid:{missionId}:investigation` | `{ activeTool, collectedEvidenceIds[] }` |
@@ -286,8 +287,8 @@ difference, a worse one adds nothing, and refreshing the results screen can't fa
 - **Responsiveness:** multi-column grids collapse to single columns; the career rail and code/log
   panels scroll horizontally inside their own containers so the page body never scrolls sideways.
 
-Light theme is selectable in settings and stored, but the light palette is not implemented yet — the
-settings panel says so explicitly.
+CodeRaid is dark-only, declared once as `:root { color-scheme: dark }`. There is no theme control:
+every surface is hand-tuned dark, so an option would only have saved a value nothing rendered.
 
 ## Progression reachable from the current content
 

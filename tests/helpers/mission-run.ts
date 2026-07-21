@@ -19,6 +19,7 @@ import {
   saveInvestigationState,
 } from "@/lib/investigation";
 import { getMission, type Mission } from "@/lib/missions";
+import { answersFor } from "@/lib/server/answers";
 import { creditRun, saveLedger, stampAchievements, type Ledger } from "@/lib/progress";
 import { saveResultsState } from "@/lib/results";
 import { completeStage, loadRun, recordHint, touchRun } from "@/lib/run";
@@ -101,24 +102,25 @@ export function play(
 
   for (const hint of hints) recordHint(missionId, hint);
 
+  const answers = answersFor(missionId)!;
   const wrongCause = diagnosis.rootCauses.find(
-    (c) => c.id !== diagnosis.correctRootCauseId,
+    (c) => c.id !== answers.rootCauseId,
   )!;
   const irrelevant = diagnosis.evidence.filter(
-    (e) => !diagnosis.correctEvidenceIds.includes(e.id),
+    (e) => !answers.evidenceIds.includes(e.id),
   );
   saveDiagnosisState(missionId, {
-    rootCauseId: correctDiagnosis ? diagnosis.correctRootCauseId : wrongCause.id,
+    rootCauseId: correctDiagnosis ? answers.rootCauseId : wrongCause.id,
     evidenceIds: correctEvidence
-      ? [...diagnosis.correctEvidenceIds]
+      ? [...answers.evidenceIds]
       : irrelevant.map((e) => e.id),
     confirmed: true,
   });
   completeStage(missionId, "Diagnosis");
 
-  const wrongFix = fix.options.find((o) => !o.resolvesRootCause)!;
+  const wrongFix = fix.options.find((o) => o.id !== answers.fixId)!;
   saveFixState(missionId, {
-    fixId: correctFix ? fix.correctFixId : wrongFix.id,
+    fixId: correctFix ? answers.fixId : wrongFix.id,
     applied: true,
   });
   completeStage(missionId, "Fix");
@@ -148,6 +150,7 @@ export function collectResults(
 
   const grade = gradeMission({
     mission,
+    answers: answersFor(missionId) ?? null,
     diagnosis: {
       config: diagnosisConfig,
       state: read(missionId, "diagnosis")!,

@@ -10,6 +10,7 @@ import {
   scoreBand,
   skillRewardFor,
   verdict,
+  type MissionAnswers,
 } from "@/lib/grading";
 import { getMission, type Mission } from "@/lib/missions";
 import { emptyRun, type RunTelemetry } from "@/lib/run";
@@ -33,8 +34,6 @@ const diagnosisConfig: MissionDiagnosisConfig = {
     { id: "noise", source: "database", title: "Noise", description: "…" },
   ],
   hint: "…",
-  correctRootCauseId: "right",
-  correctEvidenceIds: ["a", "b", "c"],
 };
 
 const fixConfig: MissionFixConfig = {
@@ -47,7 +46,6 @@ const fixConfig: MissionFixConfig = {
       title: "Good",
       description: "…",
       icon: "worker",
-      resolvesRootCause: true,
       explanation: ["…"],
       codeExample: "…",
     },
@@ -56,13 +54,21 @@ const fixConfig: MissionFixConfig = {
       title: "Bad",
       description: "…",
       icon: "pool",
-      resolvesRootCause: false,
       explanation: ["…"],
       codeExample: "…",
     },
   ],
   hint: "…",
-  correctFixId: "good",
+};
+
+/**
+ * The fixture's answers, supplied to the grader the way a route handler
+ * supplies the real ones — the configs above no longer decide what is correct.
+ */
+const FIXTURE_ANSWERS: MissionAnswers = {
+  rootCauseId: "right",
+  evidenceIds: ["a", "b", "c"],
+  fixId: "good",
 };
 
 type RunOptions = {
@@ -72,7 +78,7 @@ type RunOptions = {
   applied?: boolean;
   hints?: string[];
   /** Omits the diagnosis or fix stage entirely — an abandoned run. */
-  stages?: { diagnosis?: boolean; fix?: boolean; run?: boolean };
+  stages?: { diagnosis?: boolean; fix?: boolean; run?: boolean; answers?: boolean };
 };
 
 function grade(options: RunOptions = {}) {
@@ -100,6 +106,7 @@ function grade(options: RunOptions = {}) {
 
   return gradeMission({
     mission,
+    answers: stages.answers === false ? null : FIXTURE_ANSWERS,
     diagnosis:
       stages.diagnosis === false
         ? null
