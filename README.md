@@ -90,10 +90,14 @@ contract.
 serves it through Playwright's `webServer`, then plays `event-loop-overload` from briefing to
 results in Chromium and checks that a directly typed results URL is blocked beforehand.
 
-CI runs the five checks above, in the same order, on every push to `main` and every pull request
-targeting it — see [`.github/workflows/ci.yml`](.github/workflows/ci.yml). It builds on Node 20 with
-npm dependency caching and has no deployment step. The browser smoke test runs as a **separate job**,
-so a browser download can never mask a failure in the pure checks.
+CI runs `typecheck → lint → validate:missions → build → test` on every push to `main` and every pull
+request targeting it — see [`.github/workflows/ci.yml`](.github/workflows/ci.yml). It builds on
+Node 20 with npm dependency caching, needs no environment variables, and has no deployment step. The
+browser smoke test runs as a **separate job**, so a browser download can never mask a failure in the
+pure checks.
+
+`build` runs **before** `test` deliberately: the bundle-secrecy guard needs `.next` to exist, and
+skips itself when it doesn't. With the old ordering it skipped on every CI run.
 
 `validate:missions` reads the live catalogue, the five stage registries **and the server-side
 answers**, and reports every content mistake the type system can't see — an `answers.rootCauseId`

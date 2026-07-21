@@ -189,7 +189,13 @@ It must never be given a `NEXT_PUBLIC_` prefix.
 > removed answer fields, and **skips itself when `.next` is absent**. That makes the suite work on a
 > clean checkout, but it also means a *stale* `.next` produces phantom failures: a build predating
 > the migration still contains `correctRootCauseId` in its chunks. If that test fails, delete
-> `.next` and rebuild before believing it. CI runs `build` before `test` for this reason.
+> `.next` and rebuild before believing it. **CI now runs `build` before `test` for this reason** —
+> it did not until 2026-07-21, which meant the guard skipped on every CI run since it was written.
+
+The build does **not** require the Supabase environment variables. Verified by moving `.env.local`
+aside and building clean: the keys are only read when a route handler or the browser client actually
+runs, so a deploy that forgets them fails at request time rather than at build time. That is worth
+knowing before trusting a green build.
 
 Static generation is unchanged for the mission routes: 20 missions × 6 stage routes are still
 prerendered. `/missions/map`, `/sign-in` and the four `app/api/*` routes are dynamic.
@@ -487,30 +493,61 @@ gate is still permissive on purpose: the player commits to an answer here and fi
 which is how an incident actually works.
 
 ### Stage 4 — Fix `/missions/[id]/fix`
-Single-select from 5 fix options (both playable missions author 5); selecting one swaps in an
-explanation panel with bullets and a code example. The gate is still `Boolean(fixId)` — any option
-can be applied — but which one is applied now decides everything downstream. Reaching the stage at
-all requires a confirmed diagnosis (§15.3).
+Single-select from 5–6 fix options; selecting one swaps in an explanation panel with bullets and a
+code example. The gate is still `Boolean(fixId)` — any option can be applied — but which one is
+applied decides everything downstream. Reaching the stage at all requires a confirmed diagnosis
+(§15.3).
+
+**The panel shows a description and code, and no verdict.** It has none to show: the per-option
+`resolvesRootCause` flag it used to read was deleted with the rest of the answers, so nothing on
+this screen can tell the player whether the fix they are looking at is the right one. That was the
+last place the correct answer was visible before committing to it.
 State: `{ fixId, applied }`.
 The "Confirmed Root Cause" card shows **the player's own diagnosis**, read back from the saved
 diagnosis state, falling back to the authored line only when nothing was saved. Choosing a fix for
 a cause you didn't pick would be incoherent.
 
-### Stage 5 — Verification `/missions/[id]/verification`
-Phase machine `idle → running → done`. "Run Verification" still fires a `setTimeout(1400ms)` — there
-is no backend to replay traffic against — but **what it reports is derived**:
-`resolveVerification(config, fixResolves)` reads the player's saved fix, and when it doesn't resolve
-the root cause the metrics hold at their "before" values, the chart's after-line matches its
+### Stage 5 — Verification `/missions/[id]/verification` — **the commit point**
+This is where the run is graded and recorded, and it is the only stage that requires an account.
+
+"Run Verification" POSTs the player's diagnosis, evidence, fix, telemetry and local date to
+`/api/runs`, which grades against answers the browser has never seen, writes the row, stamps any
+achievement crossed, and returns `{ grade, ledger, credit }`. The client caches the grade and the
+credit for the results screen and `adopt()`s the ledger, so the dashboard updates immediately
+without the browser deriving any of it.
+
+**`fixResolves` is the server's verdict, never the browser's.** It stays `false` until a run comes
+back graded — which is what makes the verification a measurement rather than a formality. Grading
+*here* rather than on the results screen is deliberate: verification is the point where diagnosis
+and fix are both locked, and the obvious alternative — an endpoint answering "does fix X resolve
+this?" without recording anything — would be an answer oracle anyone could enumerate.
+
+A signed-out player gets an inline prompt to sign in, and **their work is preserved**: the run,
+diagnosis and fix stay in `localStorage`, and the `?next=` parameter returns them to this exact
+stage. Nothing is graded and nothing is cached, so they lose no progress by not having an account
+until this moment.
+
+Phase machine `idle → running → done`. The replay itself is still a `setTimeout(1400ms)` — there is
+no service to replay traffic against — but **what it reports is derived**:
+`resolveVerification(config, fixResolves)` reads the server's verdict, and when the fix doesn't
+resolve the root cause the metrics hold at their "before" values, the chart's after-line matches its
 before-line, the request breakdown still shows the slow span on the critical path, the logs are the
 pre-fix logs, and every check with `dependsOnFix !== false` fails. Checks about unrelated subsystems
 stay true either way. Reaching `done` records `completeStage("Verification")`.
-State: `{ run, completed }`.
+State: `{ run, completed }` — and "done" now requires a cached grade, not just the local flag:
+without one there is nothing truthful to render, so the player runs verification again.
 
 ### Stage 6 — Results `/missions/[id]/results`
-On mount: `completeStage("Complete")`, then `gradeMission()` over the saved diagnosis, fix and run
-telemetry, then `creditRun()` into the ledger — best-run-wins, so a refresh cannot farm XP. Shows
-the real score with its **full breakdown**, the real XP earned, the real elapsed time, the real
-stage count, per-skill XP gains with before/after levels, and a narrative chosen by the verdict
+On mount: `completeStage("Complete")`, then it **reads** the grade the server returned at
+verification (cached under `coderaid:{id}:grade`) and the credit it measured
+(`coderaid:{id}:credit`). It no longer grades and no longer credits: the run was recorded one stage
+earlier, so **there is nothing here for a refresh to repeat**. If no grade is cached the screen says
+so and links back to verification rather than inventing a score.
+
+Shows the real score with its **full breakdown**, the real XP earned, the real elapsed time, the
+real stage count, per-skill XP gains with before/after levels (`levelAfter` from the live ledger,
+`levelBefore` from that total minus what this run added — both server-derived figures), and a
+narrative chosen by the verdict
 (`config.resolved` vs `config.unresolved`). An unresolved run gets a "Run It Again" action and its
 impact panel is relabelled "Impact you missed" rather than crediting improvements that never
 happened. The Next Mission link resolves through `canStart` / `nextMissionId` against the player's
@@ -1291,10 +1328,12 @@ Genuinely outstanding:
    own history — and whether that is even coherent with an append-only ledger — is undecided.
 8. No error boundaries, no analytics. Loading states now exist on the leaderboard and the ledger.
 9. ~~**No CI.**~~ **Resolved.** `.github/workflows/ci.yml` runs
-   `typecheck → lint → test → validate:missions → build` on pushes to `main` and pull requests
+   `typecheck → lint → validate:missions → build → test` on pushes to `main` and pull requests
    targeting it, on Node 20 with npm caching and no deployment step (§15.4).
-   **Needs updating for the migration:** the workflow predates the Supabase env vars, and `build`
-   now requires `NEXT_PUBLIC_SUPABASE_URL` and `NEXT_PUBLIC_SUPABASE_ANON_KEY`.
+   **Reordered 2026-07-21:** `build` used to run last, after `test`. Because
+   `tests/bundle-secrecy.test.ts` skips itself when `.next` is absent, and a CI checkout is always
+   clean, the answer-leak guard skipped on every CI run from the day it was written. It now runs.
+   No environment variables are needed — the build does not read the Supabase keys.
 10. ~~**`recommendedStartingMission("junior")` points at a mission in development.**~~ **Resolved.**
    All three onboarding suggestions — `event-loop-overload` (beginner), `promise-all-cascade`
    (junior) and `user-signup-latency-spike` (mid) — are fully authored and start without falling
@@ -1497,8 +1536,14 @@ exercise it — that is a content edit in `lib/skills.ts`, not a threshold chang
 
 The organising rule for this pass: **the things that were previously verified by hand — "does it
 compile", "is the content coherent", "does a wrong run actually score badly" — are now verified by a
-command.** All five commands in §2 run non-interactively and were run to produce the results recorded
-there.
+command.** All **six** gates in §2 run non-interactively and were run to produce the results recorded
+there: `typecheck`, `lint`, `validate:missions`, `build`, `test`, and `npx playwright test`.
+
+The rule has a limit worth stating plainly, because the Supabase migration moved the important
+logic across it: **a gate can only check what it can reach without a session.** Grading, the ledger,
+the claim and the leaderboard are all behind authentication, so none of them is covered by the six.
+They were verified against the live database by hand (§16.6). Closing that gap — §12 item 2 — is
+what would make this section's claim true again rather than mostly true.
 
 ### 15.1 The test suite — `tests/`, Vitest, 460 tests across 16 files
 
@@ -1609,8 +1654,28 @@ answers cannot reach the browser still holds.
 
 Runs on pushes to `main` and pull requests targeting `main`, on `ubuntu-latest` with Node 20 and
 `actions/setup-node@v4`'s built-in npm cache. Steps, in order: `npm ci`, `npm run typecheck`,
-`npm run lint`, `npm run test`, `npm run validate:missions`, `npm run build`. In-progress runs for
-the same ref are cancelled. **There is no deployment step** — the workflow only verifies.
+`npm run lint`, `npm run validate:missions`, **`npm run build`, then `npm run test`**. A second job
+runs the Playwright smoke test, kept separate so a browser download can't mask a failure in the pure
+checks. In-progress runs for the same ref are cancelled. **There is no deployment step** — the
+workflow only verifies. **No environment variables are required**; the build never reads the
+Supabase keys.
+
+**Reordered 2026-07-21, and the reason is worth recording.** `build` used to run *last*, after
+`test`. `tests/bundle-secrecy.test.ts` — the check that greps the real build output for the answer
+fields removed from the client bundle — skips itself when `.next` is absent, so that a clean
+checkout can still run the suite. A CI checkout is always clean. **So the guard skipped on every CI
+run from the day it was written**, and would have reported success while a leaked answer sat in the
+bundle. Verified both ways locally: with no `.next` the file reports `1 passed | 2 skipped`; after a
+build, `3 passed`.
+
+The general lesson, since this is the second time it has bitten in one pass: **a test that can skip
+itself is only as good as the thing that guarantees its precondition.** The other victim was a
+stale `.next` producing 40 phantom leaks from a pre-migration build (§2). Both failure modes are
+silent in opposite directions — one hides a real leak, the other invents one.
+
+What CI still does **not** cover: anything requiring a session. Grading, the ledger, the claim and
+the leaderboard were all verified by hand against the live database (§16.6), and the Playwright job
+stops at the sign-in wall. That is §12 item 2, and it is the most valuable gap left.
 
 ### 15.3 Stage prerequisites — `lib/stage-access.ts` + `components/missions/StageGate.tsx`
 

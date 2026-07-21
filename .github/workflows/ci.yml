@@ -34,16 +34,21 @@ jobs:
       - name: Lint
         run: npm run lint
 
-      - name: Test
-        run: npm run test
-
       # Mission content is hand-authored TypeScript that compiles even when it
       # is wrong; this is the check that reads it as content.
       - name: Validate mission content
         run: npm run validate:missions
 
+      # MUST run before the tests. `tests/bundle-secrecy.test.ts` greps the real
+      # build output for the answer fields that were removed from the client
+      # bundle, and skips itself when `.next` is absent so a clean checkout can
+      # still run the suite. On a fresh CI checkout that meant it skipped every
+      # time — the one guard protecting the answers was silently doing nothing.
       - name: Build
         run: npm run build
+
+      - name: Test
+        run: npm run test
 
   # Kept separate from the gates above: a browser download is slower and
   # flakier than the pure checks, and it must not be able to mask them.
