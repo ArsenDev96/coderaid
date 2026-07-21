@@ -1,195 +1,245 @@
 import { describe, expect, it } from "vitest";
 import {
-  CURRENT_USER_ID,
   DEFAULT_FILTERS,
-  HOME_COMPANY,
-  HOME_COUNTRY,
-  currentPlayerEntry,
+  PERIODS,
+  formatXp,
   getCurrentUser,
   getLeaderboard,
   getRankSummary,
   getStandings,
-  formatXp,
+  type LeaderboardPeriod,
+  type StandingsRow,
 } from "@/lib/leaderboards";
-import {
-  EMPTY_LEDGER,
-  SKILL_XP_PER_LEVEL,
-  levelFromXp,
-  type Ledger,
-  type MissionRecord,
-} from "@/lib/progress";
 
-function record(
-  missionId: string,
-  completedOn: string,
-  over: Partial<MissionRecord> = {},
-): MissionRecord {
+/**
+ * The leaderboard's ranking rules, over real standings.
+ *
+ * This suite used to assert things about a roster of thirty invented players —
+ * that the Country tab held the Armenians, that the seeded population made the
+ * percentile look right. All of that is gone with the roster. What is left is
+ * the part that was always the real contract: given standings, produce ranks.
+ */
+
+function row(over: Partial<StandingsRow> & { id: string }): StandingsRow {
   return {
-    missionId,
-    completedAt: `${completedOn}T09:00:00.000Z`,
-    completedOn,
-    score: 90,
-    xpEarned: 120,
-    durationMs: 600_000,
-    hintsUsed: 0,
-    resolved: true,
-    attempts: 1,
+    username: over.id,
+    level: 1,
+    successRate: 100,
+    focus: "runtime",
+    difficulty: "Medium",
+    xp: { week: 0, month: 0, all: 0 },
+    missions: { week: 0, month: 0, all: 0 },
     ...over,
   };
 }
 
-function ledgerWith(records: MissionRecord[], over: Partial<Ledger> = {}): Ledger {
-  const missions = Object.fromEntries(records.map((r) => [r.missionId, r]));
-  return {
-    ...EMPTY_LEDGER,
-    missions,
-    totalXp: records.reduce((n, r) => n + r.xpEarned, 0),
+function withXp(id: string, xp: number, over: Partial<StandingsRow> = {}) {
+  return row({
+    id,
+    xp: { week: xp, month: xp, all: xp },
+    missions: { week: 1, month: 1, all: 1 },
     ...over,
-  };
+  });
 }
 
-describe("a new player's leaderboard row", () => {
-  const me = currentPlayerEntry(EMPTY_LEDGER, "Engineer");
+describe("getStandings", () => {
+  it("ranks by the selected period's XP", () => {
+    const rows = [
+      row({ id: "a", xp: { week: 10, month: 500, all: 500 }, missions: { week: 1, month: 5, all: 5 } }),
+      row({ id: "b", xp: { week: 90, month: 90, all: 90 }, missions: { week: 3, month: 3, all: 3 } }),
+    ];
 
-  it("is a real level-1 row with nothing earned", () => {
-    expect(me.id).toBe(CURRENT_USER_ID);
-    expect(me.level).toBe(1);
-    expect(me.xp).toEqual({ week: 0, month: 0, all: 0 });
-    expect(me.missions).toEqual({ week: 0, month: 0, all: 0 });
-    expect(me.successRate).toBe(0);
-    expect(me.isCurrentUser).toBe(true);
+    expect(getStandings(rows, "week").map((p) => p.id)).toEqual(["b", "a"]);
+    expect(getStandings(rows, "month").map((p) => p.id)).toEqual(["a", "b"]);
   });
 
-  it("ranks last in the global standings rather than being hidden", () => {
-    const standings = getStandings("global", "all", me);
-    expect(standings.at(-1)?.isCurrentUser).toBe(true);
-    expect(getCurrentUser("global", "all", me)?.rank).toBe(standings.length);
-  });
-
-  it("is placed in the player's home country and company scopes", () => {
-    expect(me.country).toBe(HOME_COUNTRY);
-    expect(me.company).toBe(HOME_COMPANY);
-    expect(getCurrentUser("country", "all", me)).toBeDefined();
-    expect(getCurrentUser("company", "all", me)).toBeDefined();
-    expect(getCurrentUser("friends", "all", me)).toBeDefined();
-  });
-});
-
-describe("the player's derived figures", () => {
-  // Today is fixed by the ledger dates relative to `now` inside `xpSince`,
-  // so use dates that are unambiguously old.
-  const ledger = ledgerWith([
-    record("event-loop-overload", "2020-01-01", { xpEarned: 80 }),
-    record("user-signup-latency-spike", "2020-01-02", {
-      xpEarned: 140,
-      resolved: false,
-    }),
-  ]);
-  const me = currentPlayerEntry(ledger, "Engineer");
-
-  it("derives all-time XP and level from the ledger", () => {
-    expect(me.xp.all).toBe(220);
-    expect(me.level).toBe(levelFromXp(220));
-  });
-
-  it("derives period XP from when each mission was completed", () => {
-    expect(me.xp.week).toBe(0);
-    expect(me.xp.month).toBe(0);
-    expect(me.missions.week).toBe(0);
-  });
-
-  it("derives the mission count from the actual records", () => {
-    expect(me.missions.all).toBe(2);
-  });
-
-  it("derives the success rate from resolved runs", () => {
-    expect(me.successRate).toBe(50);
-  });
-
-  it("derives focus from the player's strongest skill category", () => {
-    const runtime = currentPlayerEntry(
-      ledgerWith([], { skillXp: { "event-loop": SKILL_XP_PER_LEVEL * 5 } }),
-      "Engineer",
-    );
-    expect(runtime.focus).toBe("runtime");
-
-    const apis = currentPlayerEntry(
-      ledgerWith([], { skillXp: { "request-performance": SKILL_XP_PER_LEVEL * 5 } }),
-      "Engineer",
-    );
-    expect(apis.focus).toBe("apis");
-  });
-});
-
-describe("the fictional roster", () => {
-  it("is unchanged by the player's own progress", () => {
-    const empty = getStandings("global", "all", null);
-    const withPlayer = getStandings(
-      "global",
+  it("assigns ranks from 1 with no gaps", () => {
+    const ranked = getStandings(
+      [withXp("a", 30), withXp("b", 20), withXp("c", 10)],
       "all",
-      currentPlayerEntry(ledgerWith([record("x", "2020-01-01")]), "Engineer"),
     );
-    const others = withPlayer.filter((p) => !p.isCurrentUser);
-    expect(others.map((p) => ({ id: p.id, xp: p.xp }))).toEqual(
-      empty.map((p) => ({ id: p.id, xp: p.xp })),
-    );
+    expect(ranked.map((p) => p.rank)).toEqual([1, 2, 3]);
   });
 
-  it("re-ranks against real period XP rather than relabelling one table", () => {
-    const week = getStandings("global", "week", null);
-    const all = getStandings("global", "all", null);
-    expect(week.map((p) => p.xp)).not.toEqual(all.map((p) => p.xp));
-    expect([...week].sort((a, b) => b.xp - a.xp).map((p) => p.id)).toEqual(
-      week.map((p) => p.id),
+  /**
+   * Stability matters more than it looks: standings are refetched, and two
+   * players tied on XP must not swap places because a third person played.
+   */
+  it("breaks ties deterministically — missions, then name", () => {
+    const rows = [
+      row({ id: "zoe", username: "zoe", xp: { week: 0, month: 0, all: 50 }, missions: { week: 0, month: 0, all: 1 } }),
+      row({ id: "abe", username: "abe", xp: { week: 0, month: 0, all: 50 }, missions: { week: 0, month: 0, all: 1 } }),
+      row({ id: "max", username: "max", xp: { week: 0, month: 0, all: 50 }, missions: { week: 0, month: 0, all: 3 } }),
+    ];
+
+    // More incidents first, then alphabetical among the rest.
+    expect(getStandings(rows, "all").map((p) => p.username)).toEqual([
+      "max",
+      "abe",
+      "zoe",
+    ]);
+    // And the same answer every time it is asked.
+    expect(getStandings([...rows].reverse(), "all").map((p) => p.username)).toEqual([
+      "max",
+      "abe",
+      "zoe",
+    ]);
+  });
+
+  it("reports the period's own figures, not the all-time ones", () => {
+    const [player] = getStandings(
+      [row({ id: "a", xp: { week: 5, month: 50, all: 500 }, missions: { week: 1, month: 2, all: 9 } })],
+      "week",
     );
+    expect(player.xp).toBe(5);
+    expect(player.missionsCompleted).toBe(1);
+  });
+
+  it("is empty when nobody has played", () => {
+    expect(getStandings([], "all")).toEqual([]);
   });
 });
 
-describe("the rank summary", () => {
-  it("never reports a top-0% percentile", () => {
-    const top = getStandings("global", "all", null)[0];
-    expect(top.rank).toBe(1);
+describe("getLeaderboard", () => {
+  const field = [
+    withXp("a", 100),
+    withXp("b", 90),
+    withXp("c", 80),
+    withXp("d", 70, { focus: "debugging" }),
+    withXp("e", 60, { difficulty: "Hard" }),
+  ];
 
-    const me = currentPlayerEntry(EMPTY_LEDGER, "Engineer");
-    const summary = getRankSummary("global", "all", me)!;
-    expect(summary.percentile).toBeGreaterThanOrEqual(1);
-    expect(summary.xp).toBe(0);
-    expect(summary.missions).toBe(0);
+  it("puts the top three on the podium and the rest in the table", () => {
+    const { podium, rows, total } = getLeaderboard(field, "all");
+    expect(podium.map((p) => p.id)).toEqual(["a", "b", "c"]);
+    expect(rows.map((p) => p.id)).toEqual(["d", "e"]);
+    expect(total).toBe(5);
   });
 
-  it("has nothing to report when the player isn't in the field", () => {
-    expect(getRankSummary("global", "all", null)).toBeNull();
-  });
-});
-
-describe("the rendered leaderboard", () => {
-  it("puts the scope's real top three on the podium", () => {
-    const { podium, rows, total } = getLeaderboard(
-      "global",
-      "all",
-      DEFAULT_FILTERS,
-      currentPlayerEntry(EMPTY_LEDGER, "Engineer"),
-    );
-    expect(podium.map((p) => p.rank)).toEqual([1, 2, 3]);
-    expect(rows.every((r) => r.rank > 3)).toBe(true);
-    expect(total).toBe(podium.length + rows.length);
-  });
-
-  it("keeps ranks meaningful when a filter narrows the table", () => {
-    const filtered = getLeaderboard("global", "all", {
+  /**
+   * Filtering after ranking is the point: a filtered view narrows *who is
+   * listed*, never what anyone's position is.
+   */
+  it("filters the table without renumbering ranks", () => {
+    const { rows } = getLeaderboard(field, "all", {
       ...DEFAULT_FILTERS,
-      difficulty: "Easy",
+      category: "debugging",
     });
-    for (const row of filtered.rows) {
-      const unfiltered = getStandings("global", "all").find((p) => p.id === row.id);
-      expect(row.rank).toBe(unfiltered?.rank);
+    expect(rows.map((p) => p.id)).toEqual(["d"]);
+    expect(rows[0].rank).toBe(4);
+  });
+
+  it("filters by difficulty", () => {
+    const { rows } = getLeaderboard(field, "all", {
+      ...DEFAULT_FILTERS,
+      difficulty: "Hard",
+    });
+    expect(rows.map((p) => p.id)).toEqual(["e"]);
+  });
+
+  it("limits Similar Level to a band around the signed-in player", () => {
+    const rows = [
+      withXp("me", 100, { level: 10, isCurrentUser: true }),
+      withXp("near", 90, { level: 12 }),
+      withXp("far", 80, { level: 40 }),
+      withXp("d", 70, { level: 11 }),
+      withXp("e", 60, { level: 99 }),
+    ];
+
+    const { rows: table } = getLeaderboard(rows, "all", {
+      ...DEFAULT_FILTERS,
+      playerScope: "similar",
+    });
+    expect(table.map((p) => p.id)).toEqual(["d"]);
+  });
+
+  it("has an empty podium and no rows for an empty board", () => {
+    const { podium, rows, total } = getLeaderboard([], "all");
+    expect(podium).toEqual([]);
+    expect(rows).toEqual([]);
+    expect(total).toBe(0);
+  });
+});
+
+describe("getCurrentUser", () => {
+  it("finds the signed-in player's ranked row", () => {
+    const rows = [withXp("a", 100), withXp("me", 50, { isCurrentUser: true })];
+    expect(getCurrentUser(rows, "all")).toMatchObject({ id: "me", rank: 2 });
+  });
+
+  it("returns undefined when the player isn't ranked", () => {
+    expect(getCurrentUser([withXp("a", 100)], "all")).toBeUndefined();
+  });
+});
+
+describe("getRankSummary", () => {
+  /**
+   * The percentile is measured against the real number of ranked players. The
+   * old seeded population of 12,480 made every percentile flattering and none
+   * of them true.
+   */
+  it("measures the percentile against the real population", () => {
+    const rows = [
+      withXp("a", 100),
+      withXp("me", 50, { isCurrentUser: true }),
+      withXp("c", 10),
+    ];
+
+    const summary = getRankSummary(rows, "all")!;
+    expect(summary.rank).toBe(2);
+    expect(summary.population).toBe(3);
+    expect(summary.percentile).toBe(67);
+  });
+
+  it("never reports a top-0% that reads as a bug", () => {
+    const rows = [withXp("me", 100, { isCurrentUser: true })];
+    for (let i = 0; i < 500; i++) rows.push(withXp(`p${i}`, 1));
+    expect(getRankSummary(rows, "all")!.percentile).toBeGreaterThanOrEqual(1);
+  });
+
+  it("returns null when the player isn't on the board", () => {
+    expect(getRankSummary([withXp("a", 1)], "all")).toBeNull();
+    expect(getRankSummary([], "all")).toBeNull();
+  });
+
+  it("labels the period it summarises", () => {
+    for (const { id } of PERIODS) {
+      const summary = getRankSummary(
+        [withXp("me", 10, { isCurrentUser: true })],
+        id as LeaderboardPeriod,
+      )!;
+      expect(summary.periodLabel).toBe(
+        PERIODS.find((p) => p.id === id)!.label.toLowerCase(),
+      );
     }
   });
 });
 
 describe("formatXp", () => {
   it("groups thousands", () => {
+    expect(formatXp(1234567)).toBe("1,234,567");
     expect(formatXp(0)).toBe("0");
-    expect(formatXp(61200)).toBe("61,200");
+  });
+});
+
+describe("the fictional roster", () => {
+  /**
+   * A regression guard for the thing phase 5 removed. The board used to ship
+   * thirty invented players and a `TOTAL_PLAYERS = 12480`; if either comes
+   * back, every number on the page becomes a claim nobody earned.
+   */
+  it("is gone, and cannot come back through this module", async () => {
+    const mod = (await import("@/lib/leaderboards")) as Record<string, unknown>;
+    for (const banned of [
+      "ROSTER",
+      "TOTAL_PLAYERS",
+      "HOME_COUNTRY",
+      "HOME_COMPANY",
+      "CURRENT_USER_ID",
+      "currentPlayerEntry",
+      "SCOPES",
+    ]) {
+      expect(mod[banned], `${banned} should not be exported`).toBeUndefined();
+    }
   });
 });

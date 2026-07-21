@@ -1,17 +1,26 @@
 # CodeRaid — Current State of the Codebase
 
 > **Purpose of this document.** A complete, self-contained snapshot of what exists in the CodeRaid
-> repository as of 2026-07-20. It is written to be handed to a planning model (ChatGPT) that has
+> repository as of 2026-07-21. It is written to be handed to a planning model (ChatGPT) that has
 > **no access to the code**, so it can plan next steps without re-deriving anything. Everything
 > below is verified against the source, not aspirational.
 >
-> **TL;DR:** CodeRaid is a Next.js 14 front-end prototype of a **Node.js backend debugging and
-> interview-preparation simulator**. The MVP scope is *Node.js and JavaScript-runtime problems inside
-> backend services only*. Databases, caching, system design and cloud reliability are visible as
-> clearly marked **future tracks** — not playable, CTAs disabled, excluded from progress. The full UI
-> surface exists (landing, onboarding, dashboard, mission browser + map, a 6-stage mission flow,
-> skills, achievements, leaderboards, settings). **There is no backend, no database, no auth, no API
-> layer.** All content is hand-authored TypeScript; all progression is `localStorage`.
+> **TL;DR:** CodeRaid is a Next.js 14 **Node.js backend debugging and interview-preparation
+> simulator**, backed by Supabase (Postgres + GitHub OAuth). The MVP scope is *Node.js and
+> JavaScript-runtime problems inside backend services only*. Databases, caching, system design and
+> cloud reliability are visible as clearly marked **future tracks** — not playable, CTAs disabled,
+> excluded from progress. The full UI surface exists (landing, onboarding, dashboard, mission browser
+> + map, a 6-stage mission flow, skills, achievements, leaderboards, settings).
+>
+> **Progress is server-authoritative.** The mission answers live behind `import "server-only"`, the
+> grading runs in a route handler holding the service-role key, and the progression ledger — XP,
+> level, rank, streak, skills, achievements — is *derived in Postgres from the runs the player
+> actually finished*. The browser cannot compute a score, assert an unlock, or add to a total. See
+> §16 for the whole architecture.
+>
+> **What is still `localStorage`:** the in-progress state of a mission you are playing (which
+> evidence you marked, which root cause you picked, run telemetry) and your local preferences. None
+> of it is scored. It is working state, and it is why a mission can be played without an account.
 >
 > **14 of 20 missions are now playable end to end** — all of Chapter 1, Chapter 2 and Chapter 3,
 > which is the entire Node.js MVP — and
@@ -75,6 +84,40 @@
 > records what `npm audit --omit=dev` actually reports and why the remainder is unreachable here.
 > §12 item 3 ("6 of 14 missions playable") was left stale by the Chapter 2 and 3 passes and is
 > corrected.
+>
+> **New in the Supabase migration (2026-07-21) — the largest change since the catalogue was
+> written.** CodeRaid stopped being a front-end prototype. Every claim in this document about "no
+> backend", client-side grading or a `localStorage` ledger was true before this pass and is not now;
+> the affected sections have been rewritten and §16 is new.
+>
+> - **Auth.** Supabase project live, GitHub OAuth only. `players`, `mission_runs` (append-only),
+>   `player_active_days`, `player_achievements`, and a `best_runs` view. RLS grants SELECT on your
+>   own rows and UPDATE on your own *profile columns only*; there is deliberately **no insert policy
+>   on anything scored**, so route handlers holding the service-role key are the only writer.
+> - **The answers left the bundle.** `correctRootCauseId`, `correctEvidenceIds`, `correctFixId` and
+>   the 79 per-option `resolvesRootCause` flags were **deleted** from the stage configs and now live
+>   in `lib/server/answers.ts` behind `import "server-only"`. The generator proved the
+>   `resolvesRootCause` flags were redundant: exactly one fix resolved, and it always equalled
+>   `correctFixId`. `tests/bundle-secrecy.test.ts` greps the real build output to keep them out.
+> - **Grading moved to `POST /api/runs`**, at the moment the player clicks **Run Verification** —
+>   the commit point. Grading on the results screen instead, or exposing a "does fix X resolve?"
+>   endpoint that recorded nothing, would have been an answer oracle anyone could enumerate.
+> - **The ledger moved to Postgres (step D).** `GET/POST /api/ledger` derives it from `best_runs` +
+>   `player_active_days` + `player_achievements`. `Ledger` is unchanged as a wire shape, so no
+>   consumer of `useProgress()` changed. Achievements are stamped server-side; the results screen no
+>   longer credits anything, and shows gains the server **measured** by diffing the ledger around
+>   the insert.
+> - **Phase 4:** `POST /api/claim` imports a pre-account `localStorage` ledger, once, as ordinary
+>   `mission_runs` rows marked `source = 'claimed'`.
+> - **Phase 5:** the leaderboard is real. The **30 hand-written fictional players and
+>   `TOTAL_PLAYERS = 12480` are deleted**, along with the Friends, Country and Company scopes that
+>   nothing could filter on.
+> - **Removed rather than kept**, on the principle that a control nothing can honour is worse than
+>   no control: the light theme, `defaultLanguage`, `soundEffects`, the three dead leaderboard
+>   scopes, and the promise that "Reset Progress" erases earned XP.
+>
+> The suite is **460 tests across 16 files**. All six gates green: `typecheck`, `lint`, `test`,
+> `validate:missions`, `build`, `playwright`.
 
 ---
 
@@ -112,30 +155,44 @@ The README (`README.md`) has been rewritten to match this positioning and is no 
 | Icons | `lucide-react` |
 | Animation | `framer-motion` (reduced-motion aware) |
 | Fonts | `next/font/google` — Inter (`--font-inter`), JetBrains Mono (`--font-jetbrains`) |
-| Backend | **none** — zero `route.ts`, zero server actions, zero DB, zero auth |
-| Tests | **Vitest 2** — `tests/`, 13 files, 432 tests, Node environment, `@/*` alias |
+| Backend | **Supabase** — Postgres + GitHub OAuth. Four route handlers under `app/api/`; no server actions |
+| Auth | `@supabase/ssr` 0.12 + `@supabase/supabase-js` 2 — GitHub OAuth only, cookie sessions |
+| Tests | **Vitest 2** — `tests/`, 16 files, 460 tests, Node environment, `@/*` alias |
 | Browser smoke | **Playwright 1.61** — `e2e/`, 2 Chromium tests against the production build |
 | Lint | **ESLint 8 + `eslint-config-next`**, committed `.eslintrc.json` extending `next/core-web-vitals` |
 | Content validation | `tsx scripts/validate-missions.ts` over `lib/mission-validation.ts` |
 
-Scripts: `npm run dev | build | start | lint | typecheck | test | test:watch | validate:missions`.
+Scripts: `npm run dev | build | start | lint | typecheck | test | test:watch | validate:missions`,
+plus `npx playwright test`.
 
-Dev dependencies added in this pass: `eslint`, `eslint-config-next`, `vitest`, `tsx`,
-`vite-tsconfig-paths`. No runtime dependency changed.
+Runtime dependencies added by the migration: `@supabase/ssr`, `@supabase/supabase-js`.
 
-### Verified command results (re-run 2026-07-20, after the Chapter 2 pass)
+### Environment
+
+`.env.local` holds three variables — `NEXT_PUBLIC_SUPABASE_URL`, `NEXT_PUBLIC_SUPABASE_ANON_KEY`
+and `SUPABASE_SERVICE_ROLE_KEY`. The service-role key is read only inside `lib/supabase/admin.ts`,
+which begins with `import "server-only"`, so no import path can pull it toward the browser bundle.
+It must never be given a `NEXT_PUBLIC_` prefix.
+
+### Verified command results (re-run 2026-07-21, after the Supabase migration)
 
 | Command | Result |
 | --- | --- |
 | `npm run typecheck` | **passes clean**, no errors |
 | `npm run lint` | **runs non-interactively** — "No ESLint warnings or errors" |
-| `npm run test` | **432 passed** across 13 files |
+| `npm run test` | **460 passed** across 16 files |
 | `npm run validate:missions` | **0 errors, 0 warnings** — 20 missions checked, 14 fully playable |
-| `npm run build` | **succeeds**, "Compiled successfully", **134 static pages generated** |
+| `npm run build` | **succeeds**, "Compiled successfully" |
+| `npx playwright test` | **2 passed** (Chromium, against the production build) |
 
-The 134 pages = 20 missions × 6 stage routes (120) + the landing, onboarding, dashboard, missions,
-skills, achievements, leaderboards, settings, sign-in, demo and framework pages. `/missions/map` is
-the only dynamically rendered route.
+> **A note on `npm run test` and the build.** `tests/bundle-secrecy.test.ts` greps `.next` for the
+> removed answer fields, and **skips itself when `.next` is absent**. That makes the suite work on a
+> clean checkout, but it also means a *stale* `.next` produces phantom failures: a build predating
+> the migration still contains `correctRootCauseId` in its chunks. If that test fails, delete
+> `.next` and rebuild before believing it. CI runs `build` before `test` for this reason.
+
+Static generation is unchanged for the mission routes: 20 missions × 6 stage routes are still
+prerendered. `/missions/map`, `/sign-in` and the four `app/api/*` routes are dynamic.
 
 ---
 
@@ -147,7 +204,14 @@ app/
   globals.css                Tailwind layers + .surface / .chip / .text-gradient utilities
   page.tsx                   Marketing landing page
   start/                     Onboarding wizard (4 steps)
-  sign-in/  demo/            Placeholder routes (PlaceholderPage)
+  sign-in/                   Real GitHub OAuth sign-in (SignInCard)
+  demo/                      Placeholder route (PlaceholderPage)
+  auth/callback/route.ts     OAuth code exchange → session cookie
+  auth/sign-out/route.ts     POST only
+  api/runs/route.ts          THE TRUST BOUNDARY — grade a run and record it
+  api/ledger/route.ts        GET the derived ledger · POST an active day
+  api/claim/route.ts         One-time import of a pre-account local ledger
+  api/leaderboard/route.ts   Real standings, signed-in players only
   dashboard/                 Player home
   missions/                  Mission browser
   missions/map/              Mission map (chapter rail + details panel)
@@ -160,7 +224,9 @@ components/
                              PlaceholderPage
   ui/                        Logo, Reveal, AvailabilityBadge (+ AvailabilityNote),
                              CodeText (+ useCodePreferences)
-  progress/                  ProgressProvider — hydrates the ledger, useProgress()
+  progress/                  ProgressProvider — fetches the server ledger, useProgress();
+                             ClaimProgressBanner (phase-4 import offer)
+  auth/                      SignInCard
   dashboard/                 DashboardShell, DashboardSidebar, DashboardTopBar, DashboardGreeting,
                              NextAction, DailyRaid, CareerProgress, RecommendedMissions,
                              SkillsSummary, usePlayer
@@ -176,8 +242,12 @@ lib/
   types.ts data.ts           Landing-page types + marketing content
   missions.ts                Mission catalogue, chapters, tracks, flow, briefing resolution
   availability.ts            CANONICAL gating model (playability, CTAs, progress, PlayerView)
-  progress.ts                CANONICAL progression ledger: XP, levels, ranks, skill XP, streak
-  grading.ts                 CANONICAL grading engine: scores a run against the authored answers
+  progress.ts                CANONICAL ledger SHAPE + pure maths: XP curve, levels, ranks,
+                             skill XP, streak, creditBetween (what a run added)
+  grading.ts                 CANONICAL grading engine. Takes `answers` as an INPUT, so the
+                             server module depends on the public contract, not the reverse
+  grade-submission.ts        Client: submit a run, cache the returned grade + credit
+  ledger-client.ts           Client: fetch the ledger, record an active day, claim a local one
   run.ts                     Per-mission run telemetry: timing, stages completed, hints used
   skills.ts                  CANONICAL Node.js skill taxonomy
   stage-access.ts            Pure stage-prerequisite rules (what StageGate enforces)
@@ -186,21 +256,50 @@ lib/
   investigation.ts diagnosis.ts fix.ts verification.ts results.ts   Per-stage content + state
   dashboard.ts achievements.ts leaderboards.ts onboarding.ts settings.ts
 
+lib/server/                  ALL of these begin with `import "server-only"`
+  answers.ts                 THE SECRET: every mission's correct root cause, evidence and fix
+  submission.ts              Parses untrusted submissions; bounds lists, clamps duration,
+                             validates the player's local date to ±1 day
+  ledger.ts                  Derives the Ledger from Postgres; stamps achievements
+  claim.ts                   Validates a pre-account ledger; re-derives every XP figure
+  standings.ts               Derives the leaderboard from best_runs + players
+
+lib/supabase/                env.ts · client.ts (browser) · server.ts (session) ·
+                             admin.ts (service-role — the only writer of anything scored)
+
+supabase/migrations/
+  0001_init.sql              Tables, best_runs view, RLS, handle_new_user trigger
+  0002_claim_local_progress.sql  players.claimed_at, mission_runs.source, claim uniqueness
+
 scripts/
   validate-missions.ts       CLI wrapper: grouped output, non-zero exit on errors
+  tsconfig.json              Stubs `server-only` so the CLI can import lib/server/answers.ts
 
 tests/                       Vitest — pure domain logic + end-to-end mission flows
   grading  progress  availability  verification  skills  achievements
   leaderboards  mission-validation  settings  mission-flow
+  bundle-secrecy  ledger-derivation  claim
+  stubs/server-only.ts       Aliased by vitest.config.ts so server modules import in Node
 
+e2e/                         Playwright — mission-flow.spec.ts
 .eslintrc.json               next/core-web-vitals
-vitest.config.ts             Node environment, @/* alias mirroring tsconfig
+vitest.config.ts             Node environment, @/* alias, `server-only` → tests/stubs
 ```
 
 ---
 
 ## 4. Architecture principles currently in force
 
+0. **The browser may state what the player *chose*; the server decides what it was *worth*.** This
+   is the principle the migration exists to establish, and it subsumes several below. The client
+   sends a root cause, an evidence list and a fix; a route handler pairs those with answers the
+   browser has never seen, grades them, and records the result. Every number the app displays —
+   score, XP, level, rank, streak, skill level, achievement, leaderboard position — is derived from
+   those recorded runs. See §16.
+0b. **RLS decides which *row* you may touch, never which *values* you may put in it.** That is
+   precisely why grading cannot live in the database policy layer, and why there is no insert
+   policy on `mission_runs`, `player_achievements` or `player_active_days` at all. The service-role
+   key in a route handler is the only writer of anything scored.
 1. **Server components render, client components hold state.** Each mission stage route is a server
    component that looks up static config and renders a `"use client"` `*Workspace` component.
 2. **Static generation for everything.** Mission stage routes export `generateStaticParams()` over
@@ -218,6 +317,8 @@ vitest.config.ts             Node environment, @/* alias mirroring tsconfig
    ```
    No component reads `localStorage` during render. Date formatting avoids server/client divergence
    (`formatUnlockDate` parses `YYYY-MM-DD` by hand instead of using `Date`).
+   **This still governs mission working state — but not the ledger**, which is fetched rather than
+   read, and never written by the browser at all.
 5. **Defensive load validation.** Every loader re-validates persisted ids against the current config
    and drops stale/derived flags, wrapped in `try/catch`, guarded by `typeof window === "undefined"`.
 6. **Namespaced storage.** All keys start with `coderaid:` so reset can sweep the namespace.
@@ -234,7 +335,17 @@ vitest.config.ts             Node environment, @/* alias mirroring tsconfig
    what makes both directly testable in a Node environment.
 10. **Nothing about a player may be authored.** No fixture score, XP total, streak, rank, skill
     level or completion history exists anywhere. The validator actively fails a results config that
-    reintroduces a `score`, `xpEarned`, `duration` or `steps` field.
+    reintroduces a `score`, `xpEarned`, `duration` or `steps` field. **This rule took the
+    leaderboard's thirty fictional players with it in phase 5** — they were the last authored
+    people in the repo, and `tests/leaderboards.test.ts` now fails if any of them come back.
+11. **A control nothing can honour is worse than no control.** The light theme, `defaultLanguage`
+    and `soundEffects` were deleted for this reason; so were the Friends, Country and Company
+    leaderboard scopes, which had no data model behind them. When Reset Progress could no longer
+    erase earned XP — runs are append-only — its copy changed to say what it actually does rather
+    than keep a promise it could not keep.
+12. **The evidence is stored; the conclusion is derived.** There is deliberately no `total_xp`
+    column, no stored rank and no stored streak. A stored total is a second source of truth that
+    starts disagreeing with the runs behind it the moment anybody plays.
 
 ---
 
@@ -370,7 +481,8 @@ Single-select root cause + multi-select supporting evidence + a collapsible hint
 blocker. Opening the hint calls `recordHint(missionId, "diagnosis")` —
 once, no matter how often it is toggled — and costs 5 points at grading time.
 State: `{ rootCauseId, evidenceIds[], confirmed }`.
-**`correctRootCauseId` and `correctEvidenceIds` are now read** — by `gradeMission()` (§14.2). The
+**The correct root cause and evidence are no longer in this config at all** — they live in
+`lib/server/answers.ts` and are read only by `gradeMission()` inside `POST /api/runs` (§14.2, §16). The
 gate is still permissive on purpose: the player commits to an answer here and finds out later,
 which is how an incident actually works.
 
@@ -573,7 +685,7 @@ Difficulty Easy · severity **high** · 20 min · 80 XP · `rewardSkillId: "even
   returns `202 Accepted` with a job id. The other four are deliberately plausible:
   `Promise.resolve()` (explained as *not* moving work off the thread), a bigger connection pool, a
   longer HTTP timeout, and more PM2 processes — the last presented as genuine but partial mitigation
-  and still `resolvesRootCause: false`, so only the worker path resolves.
+  and still wrong, since only the id named by `answers.fixId` resolves.
 - **Verification** — 6 metrics (lag 6.8s→35ms, API p95 5.2s→240ms, report request 7.4s→120ms as an
   accepted job, throughput 85→210 req/min, timeouts 8.4%→0.3%, DB stable), an 8-point before/after
   chart, a 3-span 120ms breakdown against a 7,388ms unresolved one, 6 success logs, 5 checks — of
@@ -833,38 +945,56 @@ fix actually worked, and `hintFreeResolved` counts resolved runs where no hint w
 | `production-incident-master` | On-Call Veteran | resolved with briefing severity > low ≥ 10 |
 | `backend-engineer-rank` | Backend Engineer Rank | `totalXp ≥ rankMinXp("Backend Engineer")` = 10,000 |
 
-**Unlock times are recorded, not authored.** The authored `unlockedAt` literals are gone;
-`useAchievements()` derives the set, and `stampAchievements(ledger, ids)` writes an ISO timestamp
-the first time an id crosses its threshold. A stamped time never moves on a later visit, so
-"unlocked 2 days ago" is a fact. UI: hexagon SVG badges, category tabs with counts, a summary with
+**Unlock times are recorded, not authored — and now stamped by the server.** The authored
+`unlockedAt` literals are gone. `useAchievements()` is a **pure read**: it derives the set from the
+ledger and writes nothing. The stamping happens in `syncAchievements()` on the server, inside the
+same request that recorded the run or the active day which crossed the threshold, and an id already
+stamped keeps its original time. That was the last place the browser still asserted something it
+had earned — and `player_achievements` has no insert policy, so the claim could only ever have been
+advisory. UI: hexagon SVG badges, category tabs with counts, a summary with
 a 7-dot streak strip fed by the real streak, and "latest" / "next to unlock" aside.
 
 Note the honest consequence: three skill-level achievements need level 7, and some skills have only
 one authored mission behind them. Those stay locked until more content exists — which is a true
 statement about the catalogue rather than something to paper over.
 
-### Leaderboards — `lib/leaderboards.ts`
+### Leaderboards — `lib/leaderboards.ts` + `lib/server/standings.ts` (rewritten, phase 5)
 
-A **30-entry hardcoded roster of fictional players** — with no current-user row in it. The player's
-own entry is built at render time by `currentPlayerEntry(ledger, username, avatarId)`:
+**Every row is a real player.** The 30-entry hardcoded roster of fictional players, the
+`TOTAL_PLAYERS = 12,480` constant, `HOME_COUNTRY = "Armenia"` and `HOME_COMPANY = "Koreez"` are all
+**deleted**. They were the last authored people in the repo.
 
-- `level` from the XP curve, `xp` per period from `xpSince(ledger, 7 | 30)` and `totalXp`,
-- `missions` per period from when each mission was actually completed,
-- `successRate` from the share of their runs that resolved,
-- `focus` from their strongest skill category, so the category filter tells the truth about them.
+`lib/server/standings.ts` reads `best_runs` and `players` and produces one `StandingsRow` per player
+who has finished at least one incident:
 
-`rosterWith(me)` appends it and the whole field is ranked together, so **rank, percentile, period XP
-and mission counts are genuinely theirs**. A new player ranks last with 0 XP at level 1 — not, as
-before, row 4 at level 24. `useCurrentPlayerEntry()` returns null until the ledger hydrates, so the
-server and first client paint agree.
+- `xp` and `missions` **per period** (week / month / all), counted from each run's `completed_on` —
+  the player's own calendar date, so the periods line up with what the streak counts;
+- `level` from the XP curve, `successRate` from the share of their best runs that resolved;
+- `focus` from where their skill XP actually went, resolved through the skill taxonomy;
+- `difficulty` from the band they mostly clear, ties breaking toward the harder one.
 
-Each roster entry's `focus` uses the skill category ids (`runtime` | `node-core` | `apis` |
-`debugging`), and `CATEGORY_OPTIONS` derives from `SKILL_CATEGORIES`, so the filter can't drift from
-the taxonomy. Scopes: global / friends / country (`Armenia`) / company (`Koreez`). Periods: week /
-month (default) / all. Filters (category / difficulty / player scope incl. "similar level ±5",
-measured against the player's **real** level) apply **after** ranking, so a displayed rank means a
-true scope position; the podium is always the unfiltered top 3. Percentile uses
-`TOTAL_PLAYERS = 12,480` for global scope.
+`lib/leaderboards.ts` is now **pure ranking over that data** — `getStandings`, `getLeaderboard`,
+`getCurrentUser`, `getRankSummary` — which is what keeps it testable in Node. Ties break by
+incidents cleared, then name, so standings are stable across refetches rather than depending on row
+order.
+
+**Privacy.** `GET /api/leaderboard` requires a session and returns 401 otherwise: the standings
+carry other players' GitHub-derived display names, and nobody opted into publishing those. The page
+renders a sign-in explanation rather than an empty board. The projection is the whole window onto
+another player — name, avatar, level, XP, incidents, success rate, focus, difficulty. **No email**
+(there is no email column, deliberately) and **no run detail**, so the board cannot leak which
+answers anyone chose. `isCurrentUser` is stamped per request in the route, not in the shared
+derivation, so one player's view cannot be returned to another.
+
+**Scopes: Global only.** Friends, Country and Company were removed with the roster — there is no
+friends graph, and a player has no country or company. They would have been tabs that filtered
+nothing. Periods (week / month / all) and the category, difficulty and "similar level ±5" filters
+survive, because all four are derivable from real play. Filters apply **after** ranking, so a
+displayed rank means a true position; the podium is always the unfiltered top 3.
+
+**The percentile is measured against the real population**, and only shown once there are ≥ 20
+ranked players — below that the plain count says more ("2nd of 3" beats "Top 67%"). The seeded
+12,480 made every percentile a compliment nobody had earned.
 
 **`RANK_CHANGE` was deleted.** Nothing records what the player's rank was last week, so the arrow
 could only ever have been decoration. The panel shows incidents cleared in the period instead.
@@ -951,13 +1081,18 @@ theme row now do something. Pure, like `lib/stage-access.ts` and `lib/mission-va
 
 ## 9. Persistence — the complete storage contract
 
-Everything is `localStorage`. There is no network I/O of any kind.
+Storage is now split by a single question: **is it scored?** Anything scored lives in Postgres and
+is written only by a route handler. Everything below is *working state* — what you have done so far
+in a mission you are playing, and how you like the app configured. None of it decides a number, and
+that is exactly why a mission can be played without an account.
 
 | Key | Written by | Shape |
 | --- | --- | --- |
 | `coderaid:profile` | onboarding, settings profile | `{ name, avatarId, slogan, pathId, experienceId, step, completed }` |
 | `coderaid:user-settings` | settings experience | `{ codeEditorTheme, showLineNumbers }` — stored values from a previous shape are dropped by the loader |
-| `coderaid:player:progress` | the results screen, via `creditRun` | **The progression ledger** — `{ version: 2, totalXp, skillXp: Record<skillId, number>, missions: Record<missionId, MissionRecord>, activeDays: string[], achievements: Record<achievementId, isoDate> }` |
+| `coderaid:player:progress` | **nothing, any more** | The pre-migration ledger. Read-only: shown to a signed-out player who earned it before accounts existed, and cleared once phase 4 imports it. No code path writes this key. |
+| `coderaid:{missionId}:grade` | verification | The grade **the server returned** — cached so the results screen renders the same verdict without a second round trip or a second run row |
+| `coderaid:{missionId}:credit` | verification | What the run added, as the server measured it: `{ xpAdded, skillXpAdded, firstCompletion }` |
 | `coderaid:{missionId}:run` | every stage | `{ startedAt, lastActiveAt, stagesCompleted: MissionStage[], hintsUsed: string[] }` — the run telemetry the grade is computed from |
 | `coderaid:{missionId}:investigation` | investigation | `{ activeTool, collectedEvidenceIds: string[] }` |
 | `coderaid:{missionId}:diagnosis` | diagnosis | `{ rootCauseId, evidenceIds: string[], confirmed }` |
@@ -966,24 +1101,30 @@ Everything is `localStorage`. There is no network I/O of any kind.
 | `coderaid:{missionId}:results` | results | `{ claimed, score }` |
 
 `MissionRecord` is `{ missionId, completedAt, completedOn, score, xpEarned, durationMs, hintsUsed,
-resolved, attempts }` — the evidence behind every derived number, kept at the player's **best**
-score per mission.
+resolved, attempts }` — still the ledger's wire shape, now produced by `lib/server/ledger.ts` from
+`best_runs` rather than written by the browser.
 
-Two invariants are enforced on read (`parseLedger`), not trusted:
+Two invariants are enforced on read (`coerceLedger`), not trusted — and they apply to the **server's
+response** as much as to stored JSON, because both are values this tick did not construct:
 
-- `totalXp` is recomputed as the sum of the mission records, so a partial or hand-edited write can
-  never leave the headline XP disagreeing with the history behind it.
+- `totalXp` is recomputed as the sum of the mission records, so nothing can leave the headline XP
+  disagreeing with the history behind it.
 - Anything without `version: 2` — corrupt JSON, or the old
   `{ xpFromMissions, skillPoints, claimedMissions }` shape — resets to `EMPTY_LEDGER` rather than
   throwing or half-loading.
 
 Events, not storage keys: `coderaid:settings-changed` (settings sync) and `coderaid:progress-changed`
-(fired after every ledger write, so every mounted view refreshes together; the native `storage`
-event covers other tabs).
+(fired after a local write, so every mounted view re-reads; the ledger itself is refetched rather
+than re-read, and the native `storage` event covers other tabs).
 
 `resetMissionProgress()` sweeps the whole `coderaid:` namespace except `coderaid:profile` and
-`coderaid:user-settings` — which now means it genuinely resets the player to zero XP, level 1, no
-skills and no completed missions, keeping only who they are and how they like the app configured.
+`coderaid:user-settings`. **What that means now depends on whether you are signed in**, and the UI
+says so rather than promising more than it can do:
+
+- **Signed out** — it genuinely resets you to zero. The ledger is local.
+- **Signed in** — it clears saved stage state so every mission replays from its briefing, and
+  nothing else. Runs are append-only by design, so earned XP survives. The dialog lists exactly
+  that. Replaying can only improve a score; a worse attempt is recorded and changes nothing.
 
 ---
 
@@ -1022,46 +1163,51 @@ namespace-scoped progress reset · leaderboard scope/period/filter/pagination ·
 filter + detail drawer · **availability gating** (badges, disabled CTAs, notes, recommendations
 and next-mission links, derived from which stage configs exist) — plus, new in this pass:
 
-- **Grading.** `lib/grading.ts` scores the run against the authored answers: root cause 45,
-  evidence 25 (a balanced F-score, so padding the case with irrelevant findings costs precision),
-  fix 30, minus 5 per hint opened. A wrong diagnosis with a wrong fix now scores 0 and resolves
-  nothing. XP earned is `mission.xp × score / 100`.
+- **Grading, server-side.** `lib/grading.ts` scores the run: root cause 45, evidence 25 (a balanced
+  F-score, so padding the case with irrelevant findings costs precision), fix 30, minus 5 per hint
+  opened. A wrong diagnosis with a wrong fix scores 0 and resolves nothing. XP earned is
+  `mission.xp × score / 100`. **The answers are an input, not something the module knows**, and only
+  `POST /api/runs` ever pairs them with a submission. The formula is deliberately public — knowing
+  the root cause is worth 45 points tells you nothing about *which* root cause is right — which is
+  what lets the results screen render a breakdown the server computed.
 - **Verification measures something.** `resolveVerification()` branches on whether the applied fix
   actually resolves the root cause. A wrong fix reports unchanged metrics, the slow span still on
   the critical path, the pre-fix logs and failed checks — except checks about unrelated subsystems
   (`dependsOnFix: false`), which stay true either way.
-- **Progression.** One ledger (`lib/progress.ts`, `coderaid:player:progress`, `version: 2`) holds
-  total XP, per-skill XP, one record per completed mission, active days and achievement unlock
-  times. XP → level → rank are formulas over it: `xpForLevel(L) = 50·L·(L−1)`, rank from
-  `CAREER_RANKS.minXp`. Crediting keeps the best run per mission, so a refresh cannot farm XP and a
-  worse replay cannot reduce progress.
+- **Progression, derived in Postgres.** The ledger holds total XP, per-skill XP, one record per
+  completed mission, active days and achievement unlock times — all derived from `best_runs`,
+  `player_active_days` and `player_achievements`. XP → level → rank are still formulas over it:
+  `xpForLevel(L) = 50·L·(L−1)`, rank from `CAREER_RANKS.minXp`. Best-run-wins is now a **query**
+  rather than a mutation, so a refresh cannot farm XP and a worse replay cannot reduce progress —
+  properties that fall out of the schema rather than being enforced by client code.
 - **Run telemetry.** `lib/run.ts` records when a mission was started, which stages were completed
   and which hints were opened — so score, elapsed time and step count are measured, not authored.
 - **Skills accumulate.** `lib/skills.ts` authors definitions only (`SKILL_DEFS`); level, XP and
   progress are resolved against the ledger by `skillsFor(ledger)`. 40 XP per skill level, cap 10.
-- **Achievements** derive from the ledger and stamp their real unlock time on first crossing.
-  "Unassisted Debugger" now measures genuinely hint-free runs; the "Resolved" achievements count
-  runs that actually resolved.
-- **The player's leaderboard row** is built from their ledger by `currentPlayerEntry()` and
-  re-ranked against the roster, so rank, percentile, period XP and mission counts are all real.
+- **Achievements** derive from the ledger and are stamped **by the server** on first crossing.
+  "Unassisted Debugger" measures genuinely hint-free runs; the "Resolved" achievements count runs
+  that actually resolved.
+- **The whole leaderboard is real**, not just the player's row: every entry is a player who has
+  finished an incident, ranked by runs this server graded.
+- **Auth.** GitHub OAuth, real. Missions play free; the wall is at Run Verification, because that is
+  where a score starts being recorded.
 
 **Mocked or static:**
 - All logs, metrics, traces, code, DB stats and chart series are hand-authored literals. They are
   the *scenario*; what is now dynamic is which of them the verification reports back.
 - **The verification "run" is still a `setTimeout(1400ms)`.** Nothing executes or replays anything
   — but what it reports is derived from the player's fix rather than fixed in advance.
-- **The other 12,479 leaderboard players are fictional.** Without a backend they have to be. The
-  player's own row is not.
 - Availability gating is client-side UI only; all 120 stage URLs are statically generated and
   directly navigable, so a typed URL still reaches the "still being written" placeholder. For
-  missions that *do* have content, `StageGate` (§15.3) now blocks a later stage whose prerequisite
-  state doesn't exist — but that too is client-side consistency protection, not security, and the
-  ledger remains editable from devtools.
+  missions that *do* have content, `StageGate` (§15.3) blocks a later stage whose prerequisite state
+  doesn't exist — but that is client-side consistency protection, not security. **It no longer needs
+  to be security:** the ledger is not editable from devtools any more, and skipping straight to
+  verification submits an empty diagnosis, which the server grades as zero.
 - `DAILY_RAID` is copy only — now labelled Coming Soon with a disabled CTA and no XP figure, so it
   no longer advertises a reward the ledger could never credit.
 - There is no light palette, and no control offers one — CodeRaid is dark, declared once as
   `:root { color-scheme: dark }` in `app/globals.css`.
-- `/sign-in` and `/demo` are placeholder pages. There is no auth.
+- `/demo` is still a placeholder page. `/sign-in` is real.
 
 ---
 
@@ -1104,12 +1250,24 @@ Fixed in the "quality gates and second mission" pass, 2026-07-20 (do not re-plan
 - **The authored-status audit is closed and pinned by a test.** No mission carries `"current"` or
   `"completed"`; `user-signup-latency-spike` was already `available` before this pass.
 
+Fixed in the Supabase migration, 2026-07-21 (do not re-plan these):
+
+- ~~**No backend, no auth, no server-authoritative state.**~~ **Resolved.** Supabase + GitHub OAuth;
+  answers behind `server-only`; grading and every scored write in route handlers holding the
+  service-role key; the ledger derived in Postgres. The ledger is no longer editable from devtools,
+  and a direct `POST` to `mission_runs` with a player's own token returns **403** — verified.
+- ~~**The leaderboard field is fictional.**~~ **Resolved.** The 30 authored players and
+  `TOTAL_PLAYERS = 12,480` are deleted; standings come from `best_runs`.
+- **Progress survives the browser.** A pre-account local ledger can be imported once (§16.4).
+
 Genuinely outstanding:
 
-1. **No backend, no auth, no server-authoritative state.** Progress lives in one browser, and the
-   ledger is trivially editable from devtools. This is the migration surface (§9).
-2. **The leaderboard field is fictional.** The player's own row is real and really ranked, but the
-   30 others are authored. Real standings need item 1.
+1. **The verification run is still a 1400ms timer.** What it *reports* is real; the replay is not.
+   Nothing executes or measures anything — this is the largest remaining piece of theatre.
+2. **No component tests; browser coverage is one mission deep**, and the authenticated round-trip is
+   covered by throwaway probes rather than a committed test. The Playwright suite still stops at the
+   sign-in wall, because it has no session. Minting one in CI (a service-role-created user, as the
+   probes do) would let the graded path be covered by the gates rather than by hand.
 3. **Content scale is still the bottleneck — but the bottleneck has moved.** All 14 Node.js
    missions are playable, so the problem is no longer *finishing* the MVP but *growing past it*:
    at 1,830 total XP the catalogue cannot reach the Backend Engineer rank (10,000 XP), and Chapters
@@ -1123,28 +1281,32 @@ Genuinely outstanding:
    have several missions behind them. It is a true statement about the catalogue, not a bug — it
    resolves itself as missions are written. `chapter-one-cleared` is genuinely achievable, and a
    Chapter 2 clear is now reachable the same way.
-5. **The verification run is still a 1400ms timer.** What it *reports* is real; the replay is not.
-6. No error boundaries, no loading states, no analytics.
-7. ~~**No CI.**~~ **Resolved.** `.github/workflows/ci.yml` runs
+5. **Every page load costs three Postgres round trips.** `ProgressProvider` POSTs `/api/ledger` on
+   mount, which upserts the active day, rebuilds the ledger, syncs achievements and rebuilds it
+   again. Honest at this scale; the fix when it isn't is caching, not a stored total.
+6. **The leaderboard reads every row of `best_runs` on each request.** Fine at one row per player
+   per completed mission; the fix when it isn't is a materialised view refreshed on write.
+7. **There is no server-side reset.** Runs are append-only, so "Reset Progress" cannot erase earned
+   XP for a signed-in player. The copy says so, but whether an account should be able to wipe its
+   own history — and whether that is even coherent with an append-only ledger — is undecided.
+8. No error boundaries, no analytics. Loading states now exist on the leaderboard and the ledger.
+9. ~~**No CI.**~~ **Resolved.** `.github/workflows/ci.yml` runs
    `typecheck → lint → test → validate:missions → build` on pushes to `main` and pull requests
    targeting it, on Node 20 with npm caching and no deployment step (§15.4).
-8. **No component tests; browser coverage is one mission deep.** The Vitest suite covers pure logic
-   and the full mission flows through the real modules against an in-memory `localStorage`. A
-   Playwright Chromium smoke test now drives `event-loop-overload` from briefing to results through
-   the real UI and checks that a directly typed results URL is blocked — but that is one mission of
-   fourteen, and there are still no component-level tests.
-9. ~~**`recommendedStartingMission("junior")` points at a mission in development.**~~ **Resolved.**
+   **Needs updating for the migration:** the workflow predates the Supabase env vars, and `build`
+   now requires `NEXT_PUBLIC_SUPABASE_URL` and `NEXT_PUBLIC_SUPABASE_ANON_KEY`.
+10. ~~**`recommendedStartingMission("junior")` points at a mission in development.**~~ **Resolved.**
    All three onboarding suggestions — `event-loop-overload` (beginner), `promise-all-cascade`
    (junior) and `user-signup-latency-spike` (mid) — are fully authored and start without falling
    back. `tests/chapter-two.test.ts` pins all three, including that each suggestion's title matches
    the catalogue entry it names. The map is still a static literal rather than being derived from
    `recommendedMission()`; that remains an option, not a defect.
-10. ~~**One known content warning** from the validator.~~ **Resolved.** `slow-api-incident`'s four
+11. ~~**One known content warning** from the validator.~~ **Resolved.** `slow-api-incident`'s four
     missing stages were authored in the Chapter 3 pass, so the validator now reports **0 errors and
     0 warnings** across all 20 catalogued missions. (The earlier `user-signup-latency-spike` warning
     — a diagnosis evidence option, `no-errors-in-logs`, with no matching investigation evidence —
     had already been fixed by authoring the missing investigation item under the same id.)
-11. **npm audit — measured properly on 2026-07-21, and the previous claim here was wrong.** This
+12. **npm audit — measured properly on 2026-07-21, and the previous claim here was wrong.** This
     item used to say all 13 findings were "transitive, dev-only… nothing reaches the shipped
     bundle". They are not: `npm audit --omit=dev` reported **2 production findings (1 critical, 1
     moderate)** against `next@14.2.5` itself. **`next` was upgraded to 14.2.35** (an in-range patch;
@@ -1212,12 +1374,15 @@ nothing authored is allowed to claim a player did something.** Where those used 
 `DEMO_PLAYER`, authored skill levels, `status: "completed"` on missions, a hardcoded leaderboard
 row — the authored half was removed and the player half moved to the ledger.
 
-### 14.1 The ledger — `lib/progress.ts`
+### 14.1 The ledger — `lib/progress.ts` (shape + maths) · `lib/server/ledger.ts` (derivation)
 
-`Ledger` is the single source of truth for earned progress. `EMPTY_LEDGER` is a *valid* ledger — a
-brand-new player — which is what keeps the app server-renderable: the server renders the zero state
-and the client re-renders with the real one after mount. Every consumer takes a `Ledger` (or a
-`PlayerView`) argument and defaults to the empty one.
+`Ledger` is the single source of truth for earned progress. **Since step D it is derived in
+Postgres**, but `lib/progress.ts` still owns the *shape* and all the pure arithmetic below, which is
+what keeps the formulas testable in Node and unchanged for every consumer.
+
+`EMPTY_LEDGER` is a *valid* ledger — a brand-new player — which is what keeps the app
+server-renderable: the server renders the zero state and the client re-renders once the real one
+arrives. Every consumer takes a `Ledger` (or a `PlayerView`) argument and defaults to the empty one.
 
 | Derived value | From |
 | --- | --- |
@@ -1227,19 +1392,32 @@ and the client re-renders with the real one after mount. Every consumer takes a 
 | `skillLevelFromXp(xp)` | 40 XP per level, capped at 10. |
 | `bestScore` / `successRate` / `xpSince` / `missionsSince` | The mission records. |
 
-`creditRun()` keeps the **best run per mission**: a replay that scores higher tops the award up to
-the new total, a replay that scores the same or lower changes nothing. That makes crediting
-idempotent — a refresh on the results screen cannot farm XP — while still rewarding a genuinely
-better second attempt, and it means a bad replay can never reduce progress.
+**Best-run-wins is now a query, not a mutation.** The `best_runs` view selects the highest-scoring
+run per player per mission (ties breaking toward the earlier run, so a later equal score cannot
+restamp the achievement dates derived from it), and the ledger sums those. A replay that scores
+lower changes nothing because it simply isn't the row the view returns — the property falls out of
+the schema instead of being enforced by client code. `creditRun()` still exists in
+`lib/progress.ts` and is still tested, but the app no longer calls it.
+
+`creditBetween(before, after, missionId)` replaced it at the call site: the server reads the ledger
+either side of the insert and **measures** what the run added. That is how the results screen can
+truthfully show "+0 XP" on a worse replay without knowing the rule that made it zero.
 
 ### 14.2 The grading engine — `lib/grading.ts`
 
 | Component | Weight | Measured against |
 | --- | --- | --- |
-| Root cause | 45 | `correctRootCauseId` |
-| Supporting evidence | 25 | Balanced F-score vs `correctEvidenceIds` — recall *and* precision, so padding the case costs marks |
-| Fix applied | 30 | The chosen option's `resolvesRootCause`, and that it was actually applied |
+| Root cause | 45 | `answers.rootCauseId` |
+| Supporting evidence | 25 | Balanced F-score vs `answers.evidenceIds` — recall *and* precision, so padding the case costs marks |
+| Fix applied | 30 | `answers.fixId`, and that the fix was actually applied |
 | Hints | −5 each | `run.hintsUsed` |
+
+**`answers` is a parameter, not something this module knows.** `MissionAnswers` is *defined* here —
+in the module that uses it — so `lib/server/answers.ts` depends on the public contract rather than
+the other way round, and no client module ever needs to reach into the server module even for a
+type. The old per-option `resolvesRootCause` flag is gone: a fix resolves exactly when it is the one
+`answers.fixId` names, and the flag was a second copy of that fact (all 79 of them agreed with
+`correctFixId`, which is how we knew they were redundant).
 
 `resolved` is true only when the applied fix resolves the root cause. `xpEarned` is
 `mission.xp × score / 100`. Skill XP goes to the mission's `rewardSkillId` at full rate and to
@@ -1251,11 +1429,23 @@ resolved and unresolved cases. An unresolved run gets a "Run It Again" action.
 
 ### 14.3 The provider — `components/progress/ProgressProvider.tsx`
 
-Mounted in the root layout. Hydrates the ledger and the onboarding identity once, exposes
-`{ ledger, view, player, avatar, slogan, hydrated, update, refresh }` via `useProgress()`, and
-listens for both `coderaid:progress-changed` (same tab) and `storage` (other tabs). `update()` does
-a read-modify-write against storage rather than state, so two updates in one tick cannot drop each
-other. Called outside a provider it returns the zero state, so no component can crash on it.
+Mounted in the root layout. On mount it POSTs `/api/ledger` with the player's **local** date —
+opening the app is activity, and a streak is counted in local days — and adopts the ledger that
+comes back. It exposes
+`{ ledger, view, player, avatar, slogan, hydrated, source, authenticated, claimable, adopt, refresh }`
+via `useProgress()`.
+
+Two sources, and which one is in use is itself exposed:
+
+- **signed in** → `source: "server"`, authoritative.
+- **signed out (or the server is unreachable)** → `source: "local"`, the pre-migration
+  `localStorage` ledger, **read-only**. Nothing writes it, so it can never diverge into a second set
+  of earned numbers. It exists so a player who earned progress before accounts existed still sees it
+  and can claim it, rather than being shown a zero that reads as a reset.
+
+**`update()` is gone**, replaced by `adopt(ledger)` — which only accepts a ledger the *server*
+returned. There is deliberately no way to hand the provider one the client computed. Called outside
+a provider `useProgress()` returns the zero state, so no component can crash on it.
 
 ### 14.4 What this closed
 
@@ -1310,12 +1500,18 @@ compile", "is the content coherent", "does a wrong run actually score badly" —
 command.** All five commands in §2 run non-interactively and were run to produce the results recorded
 there.
 
-### 15.1 The test suite — `tests/`, Vitest, 432 tests
+### 15.1 The test suite — `tests/`, Vitest, 460 tests across 16 files
 
 Node environment, no DOM, no component testing library. `vitest.config.ts` re-declares the `@/*`
-alias so tests import modules exactly the way the app does. Anything needing `localStorage` supplies
-an in-memory `Storage` (either injected, as `loadLedger(storage)` and `resetMissionProgress(storage)`
-already allow, or via a `globalThis.window` shim in the flow tests).
+alias so tests import modules exactly the way the app does, **and aliases `server-only` to
+`tests/stubs/server-only.ts`** so the server modules can be imported and tested in Node. Anything
+needing `localStorage` supplies an in-memory `Storage` (either injected, as `loadLedger(storage)`
+and `resetMissionProgress(storage)` already allow, or via a `globalThis.window` shim in the flow
+tests).
+
+Nothing in the suite talks to Supabase. The pure rules that decide what crosses the trust boundary
+are tested directly; the round trip itself was verified by hand (§16.6) and is the debt in §12
+item 2.
 
 | File | Covers |
 | --- | --- |
@@ -1325,7 +1521,10 @@ already allow, or via a `globalThis.window` shim in the flow tests).
 | `verification.test.ts` | Both branches of `resolveVerification`, dependent vs independent checks, purity (the authored config is never mutated), and — across *every* playable mission — that a failed run fails at least one check and that exactly one fix option resolves |
 | `skills.test.ts` | Zero start, primary vs supporting reward shares, unrelated skills uncredited, derived levels after crediting, unique ids, valid categories, mission back-references, `skillsToImprove` only suggesting actionable skills, category averages |
 | `achievements.test.ts` | Nothing unlocked at zero, resolved-only counting, completed-but-unresolved, hint-free from real telemetry, skill-level achievements, `perfect-diagnosis` at exactly 100, timestamps stamped once and never moved, ordering, idempotent re-derivation |
-| `leaderboards.test.ts` | New player ranked last rather than hidden, period XP from completion dates, mission count from records, success rate from resolved runs, focus from strongest category, the fictional roster unchanged by the player, real re-ranking per period, percentile floored at 1, ranks surviving filters |
+| `leaderboards.test.ts` | **Rewritten for real standings.** Ranking by the selected period, gapless ranks, deterministic tie-breaks (incidents then name, stable when the input order flips), period figures rather than all-time, podium/table split, filters narrowing the table **without renumbering ranks**, the similar-level band, percentile measured against the real population and floored at 1, empty-board cases — plus a guard that the fictional roster, `TOTAL_PLAYERS`, `HOME_COUNTRY`, `HOME_COMPANY` and `currentPlayerEntry` cannot come back |
+| `ledger-derivation.test.ts` | **New.** `creditBetween` for a first completion, an improved replay, a worse replay adding nothing, and never reporting a negative award; `parseLocalDate` accepting a day either side of the server's and discarding anything further; `coerceLedger` recomputing `totalXp` from the records it was sent and rejecting anything that isn't a version-2 ledger |
+| `claim.test.ts` | **New.** A genuine run kept with rewards re-derived; a submitted XP figure ignored entirely; scores clamped; unknown, coming-soon and prototype-polluting mission ids dropped; good rows kept when one is unusable; duration and hints bounded; `parseClaimDate` keeping real past dates but refusing the future and anything older than the app |
+| `bundle-secrecy.test.ts` | **New.** Greps the real `.next` output for the four removed answer field names, and for any serialised `rootCauseId:"…"` / `fixId:"…"` pairing. Deliberately does **not** grep for bare answer ids — those are radio-button values and are legitimately in the bundle; the secret is which id is correct. Skips itself when `.next` is absent (see the warning in §2) |
 | `settings.test.ts` | Option defaults valid, **the stored key set pinned so a preference nothing reads can't return**, the code tokenizer (lossless round-trip, keyword/string/comment/number classification, no keyword-inside-identifier) and the editor palettes (one per offered theme, unknown id falling back, no colour reused within a palette), reset protecting identity/preferences and sweeping unknown stage keys, plus every stage-prerequisite rule |
 | `mission-validation.test.ts` | The live catalogue has zero errors and agrees with `availability` about playability; a valid fixture passes; **37 invalid-fixture cases** (8 catalogue, 7 investigation, 5 diagnosis, 5 fix, 6 verification, 6 results) each breaking exactly one rule, so a failure names the rule it broke |
 | `mission-flow.test.ts` | **The four flows, end to end through the real modules**, walked in detail for the reference mission — see below |
@@ -1356,8 +1555,8 @@ results screen's mount logic (grade → `creditRun` → `stampAchievements` → 
 so **a mission added to the five stage registries automatically inherits the whole contract** — and
 if any part of it fails, the mission is not finished. Per mission it asserts:
 
-- **Content**: at least five root causes and five fixes; exactly one fix with `resolvesRootCause`,
-  matching `correctFixId`; key evidence spanning at least three different tools (so no single log
+- **Content**: at least five root causes and five fixes; `answers.fixId` naming exactly one of the
+  offered fixes; key evidence spanning at least three different tools (so no single log
   line gives the answer away); at least two non-key findings as negative evidence; a canonical
   `rewardSkillId` that is the primary skill, with at least one supporting skill behind it.
 - **Perfect run**: 100, resolved, full mission XP, full primary-skill XP, every verification check
@@ -1390,8 +1589,8 @@ half-authored mission is how a dead-end CTA happens.
 | Catalogue | Unique mission ids (and a warning on duplicate indexes); chapter ids exist; XP and duration are positive integers; difficulty is known; title/description/objectives/reward label non-empty; `rewardSkillId` is a canonical skill; skill definitions only reference real missions; future-track missions carry a future status and no reward skill; Node.js missions avoid future-only categories, are never `coming-soon`, and always carry a `rewardSkillId` |
 | Stage completeness | All five configs present ⇒ playable; any subset ⇒ a warning naming the missing stages; a fully authored Node.js mission whose status still hides it is an **error** |
 | Investigation | Unique evidence ids; every `evidenceId` referenced from logs, metrics, code, database or trace resolves; key evidence exists; `requiredKeyClues > 0` and ≤ the key evidence authored; every enabled tool has content; no duplicate tools; the trace tool and trace content imply each other; non-empty non-negative latency series with an in-range deploy marker; positive trace root; non-empty objective |
-| Diagnosis | Unique root-cause and evidence ids; `correctRootCauseId` exists; ≥2 options; every `correctEvidenceId` exists and appears once; `minimumEvidenceRequired` positive and ≤ options; **the correct evidence set is large enough to satisfy the minimum** (else a perfect score is unreachable); non-empty hint and prompt |
-| Fix | Unique option ids; at least one option resolves; `correctFixId` exists **and** resolves — the two must agree, because grading reads the flag and the UI teaches the id; non-empty title, description, explanation and code example per option |
+| Diagnosis | Unique root-cause and evidence ids; **`answers.rootCauseId` is one of the offered root causes**; ≥2 options; every id in `answers.evidenceIds` exists and appears once; `minimumEvidenceRequired` positive and ≤ options; **the correct evidence set is large enough to satisfy the minimum** (else a perfect score is unreachable); non-empty hint and prompt; a mission with no authored answers is flagged — it can be played but not graded |
+| Fix | Unique option ids; **`answers.fixId` is one of the offered fixes**; non-empty title, description, explanation and code example per option |
 | Verification | Unique metric and check ids; before/after/label/delta present; **at least one check depends on the fix**; success and unresolved logs both present; both summaries complete; chart series non-empty, equal-length, non-negative, positive `yMax`, `fixFraction` in 0–1; both request breakdowns non-empty with non-negative durations and a positive total (a warning if the spans exceed it) |
 | Results | `missionId` matches the catalogue key; `skillImprovement.skillId` is canonical; lessons non-empty; both narratives complete; fix recap complete; metrics present with before/after and valid sparklines; `nextMissionId` resolves; **no obsolete `score` / `xpEarned` / `duration` / `steps` / `status` field** |
 | Cross-stage | A diagnosis evidence option with no matching investigation evidence is a warning — the player could never have collected it |
@@ -1400,6 +1599,11 @@ Current output: **20 missions checked · 14 fully playable · 0 errors · 0 warn
 warning — `slow-api-incident`, partially authored — was closed by writing its remaining four stages
 in the Chapter 3 pass. The earlier `user-signup-latency-spike` evidence warning had been fixed by
 adding the matching `no-errors-in-logs` investigation item.
+
+**This is the one place the answers are cross-checked against the public options**, which is why the
+validator has to import a `server-only` module. It runs through `scripts/tsconfig.json`, which stubs
+`server-only` **for the CLI only** — the app's own build is untouched, so the guarantee that the
+answers cannot reach the browser still holds.
 
 ### 15.4 CI — `.github/workflows/ci.yml`
 
@@ -1437,12 +1641,127 @@ opens.
 investigation workspace's `min(requiredKeyClues, #keyEvidence)` clamp) and the ledger via
 `useProgress()`, then renders either its children or a "Not there yet" panel linking back. It renders
 nothing until hydrated — flashing the stage and then replacing it with a lock would be worse than a
-moment of blank. This is consistency protection for the front end, **not security**; there is no
-server to enforce anything against.
+moment of blank. This is consistency protection for the front end, **not security** — but since the
+migration it no longer needs to be. Skipping straight to verification submits an empty diagnosis,
+which the server grades as zero.
 
 ---
 
-*Updated 2026-07-20 — the "Chapter 3 complete" pass: `memory-leak-worker`, `worker-queue-backlog`,
+## 16. The server-authoritative architecture (new 2026-07-21)
+
+The one-sentence version: **the browser may state what the player chose; the server decides what it
+was worth.**
+
+### 16.1 The schema — `supabase/migrations/`
+
+| Table | Holds | Written by |
+| --- | --- | --- |
+| `players` | Identity and preferences only. Nothing scored. **No email column** — `auth.users` is a SQL join away, and not duplicating it is one less thing to leak. | The `handle_new_user` trigger on sign-up; the player, for their own profile columns |
+| `mission_runs` | **Append-only.** Every graded run: score, XP, resolved, per-skill award, what they submitted, telemetry, `completed_on`, and `source` (`played` \| `claimed`) | Route handlers only |
+| `player_active_days` | `(player_id, day)`. Opening the app is activity, which is what a streak measures — so it is not derivable from runs alone | Route handlers only |
+| `player_achievements` | `(player_id, achievement_id, unlocked_at)`, stamped on the crossing | Route handlers only |
+| `best_runs` (view) | `distinct on (player_id, mission_id) … order by score desc, completed_at asc`, plus an `attempts` count | — |
+
+**There is deliberately no `total_xp` column**, no stored rank and no stored streak. The runs are the
+evidence; every figure is derived from them.
+
+### 16.2 The trust model
+
+RLS grants `SELECT` on your own rows and `UPDATE` on your own **profile columns only**, via a
+column-level `GRANT`. There is **no insert, update or delete policy on any scored table**. The
+service-role key bypasses RLS, so route handlers are the only writer of anything a player is scored
+on.
+
+The reasoning is worth keeping: **RLS decides which *row* you may touch, never which *values* you
+may write into it.** A policy can say "you may only insert runs for yourself"; it cannot say "and
+the score must be the one you actually earned". So grading cannot live there.
+
+Verified empirically, with a real session: a player POSTing directly to `mission_runs`,
+`player_achievements` or `player_active_days` gets **403** on all three, and PATCHing their own
+`players.claimed_at` gets **403** because it is not in the column grant.
+
+### 16.3 The endpoints
+
+| Route | Does | Notes |
+| --- | --- | --- |
+| `POST /api/runs` | **The trust boundary.** Auth → parse → grade → insert → stamp achievements → return `{ grade, ledger, credit }` | Called when the player clicks **Run Verification** |
+| `GET /api/ledger` | The derived ledger + whether a claim is available | 401 signed out, never an empty ledger — those are different facts |
+| `POST /api/ledger` | Records the player's local date as an active day, then reads | One request, because that is what the provider needs on mount |
+| `POST /api/claim` | One-time import of a pre-account ledger | §16.4 |
+| `GET /api/leaderboard` | Real standings | 401 signed out — the rows name other people |
+
+**Why grading happens at verification, not on the results screen.** Running verification is the
+commit point: diagnosis and fix are both locked. Grading later would mean the results screen could
+be refreshed to re-grade, and — worse — the obvious alternative, a "does fix X resolve the root
+cause?" endpoint that recorded nothing, would be an **answer oracle anyone could enumerate**. The
+run is recorded at the same moment its verdict is revealed.
+
+**What the client still owns, and why it is safe.** `hintsUsed` is client-reported telemetry and can
+be under-reported; that is inherent to telemetry the client owns, and is why the *answer*, not the
+telemetry, carries the score. `completedOn` is the player's local date, because streaks are counted
+in local days and the server cannot compute another timezone's "today" — so it is accepted only
+within ±1 day of the server's own UTC date. The most a forged one can buy is a day the player nearly
+had.
+
+### 16.4 Phase 4 — claiming a pre-account ledger
+
+`POST /api/claim` turns a `localStorage` ledger into ordinary `mission_runs` rows marked
+`source = 'claimed'`. Synthesising runs rather than importing totals is the point: a claimed total
+would be a number with no evidence behind it, which is the one thing the schema exists to prevent.
+After the claim, the player's progress derives from runs like everyone else's, and a replay improves
+it under the same best-run rule.
+
+| Trusted | Not trusted |
+| --- | --- |
+| The score, whether it resolved, roughly when | XP and skill awards — **recomputed** from the live catalogue |
+| | Which missions exist — anything not currently playable is dropped |
+| | The date — bounded to between 730 days ago and tomorrow |
+
+A ledger claiming 999,999 XP for an 80-XP mission gets 80 (pinned by a test, and verified against
+the live database). One-time, guarded by `players.claimed_at` **and** a partial unique index on
+`(player_id, mission_id) where source = 'claimed'` — the flag alone would lose a double-submit race,
+and an index cannot. `claimed_at` is not in the column grant, so a player cannot reset their own
+flag and import twice.
+
+The banner offering it appears only for a signed-in player who genuinely has one, states what will
+*actually* be imported (not what the local ledger contains — those differ when it holds a renamed
+mission id), and clears the local ledger afterwards so only one copy survives.
+
+### 16.5 What the browser can no longer do
+
+- **Compute a score.** It doesn't have the answers.
+- **Add to any total.** `update()` is gone from the provider; `adopt()` takes only server responses.
+- **Assert an achievement.** `useAchievements()` is a pure read.
+- **Farm XP by refreshing.** The results screen credits nothing, and best-run-wins is a view.
+- **Edit the ledger from devtools.** There is no ledger in `localStorage` to edit.
+
+### 16.6 Verified, not assumed
+
+Every claim above was checked against the live Supabase project by driving the real UI with
+Playwright and a service-role-minted session, then reading Postgres back. The probes are not
+committed — see §12 item 2, which is the honest debt this leaves. What they confirmed:
+
+- a perfect run records one row (score 100, 80 XP, six skills), returns a ledger and a credit, and
+  stamps `first-mission` and `perfect-diagnosis` server-side;
+- the dashboard renders that XP with **`coderaid:player:progress` absent entirely**;
+- a deliberately bad replay scored 19, added **+0 XP**, left the ledger at 80, incremented
+  `attempts` to 2, and left both runs in the append-only history;
+- `completed_on` matches the *browser's* local date, and a forged `2020-01-01` active day is
+  discarded;
+- a claim imports only real missions, recomputes the XP, keeps genuine past dates, and 409s on a
+  second attempt;
+- the leaderboard ranks two real players correctly by period, marks `isCurrentUser` per requester,
+  exposes no email or answer data, and 401s when signed out.
+
+---
+
+*Updated 2026-07-21 — the **Supabase migration**: GitHub OAuth, a Postgres schema whose organising
+rule is that runs are the evidence and every figure is derived from them, the mission answers moved
+behind `import "server-only"`, grading moved into `POST /api/runs` at the verification commit point,
+the progression ledger derived in Postgres rather than held in `localStorage`, a one-time import for
+players who earned progress before accounts existed, and a real leaderboard — which deleted the
+thirty fictional players and the 12,480-strong invented population. 460 tests across 16 files; all
+six gates green. See §16. Preceded by the "Chapter 3 complete" pass: `memory-leak-worker`, `worker-queue-backlog`,
 `connection-pool-exhaustion` and `slow-api-incident` fully authored, making Chapter 3 the third
 complete chapter and closing the Node.js MVP at **14 of 14 missions playable**. The validator's last
 warning is gone (0 errors, 0 warnings); the suite grew to 425 tests across 13 files with a new

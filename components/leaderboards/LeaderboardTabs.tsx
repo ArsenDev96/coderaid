@@ -1,53 +1,36 @@
 "use client";
 
-import { CalendarRange, ChevronDown } from "lucide-react";
-import {
-  PERIODS,
-  SCOPES,
-  type LeaderboardPeriod,
-  type LeaderboardScope,
-} from "@/lib/leaderboards";
+import { CalendarRange, ChevronDown, Globe } from "lucide-react";
+import { PERIODS, type LeaderboardPeriod } from "@/lib/leaderboards";
 
-/** Scope tabs on the left, period selector on the right — the view's controls. */
+/**
+ * The board's controls: what it covers on the left, which period on the right.
+ *
+ * There used to be four scope tabs — Global, Friends, Country, Company. Three
+ * of them had nothing to filter on: there is no friends graph, and a player has
+ * no country or company. They ranked a fixed roster of invented people whose
+ * countries were authored to make the tabs look populated. With the roster gone
+ * they would have been tabs that did nothing, so only Global remains, stated
+ * once as a label rather than offered as a choice between one thing.
+ */
 export function LeaderboardTabs({
-  scope,
-  onScope,
   period,
   onPeriod,
+  total,
 }: {
-  scope: LeaderboardScope;
-  onScope: (s: LeaderboardScope) => void;
   period: LeaderboardPeriod;
   onPeriod: (p: LeaderboardPeriod) => void;
+  /** Ranked players, shown plainly however small the number is. */
+  total: number;
 }) {
   return (
     <div className="surface flex flex-col gap-3 p-2 lg:flex-row lg:items-center lg:justify-between">
-      <div
-        role="tablist"
-        aria-label="Leaderboard scope"
-        className="thin-scroll flex gap-1 overflow-x-auto"
-      >
-        {SCOPES.map((s) => {
-          const Icon = s.icon;
-          const active = s.id === scope;
-          return (
-            <button
-              key={s.id}
-              role="tab"
-              type="button"
-              aria-selected={active}
-              onClick={() => onScope(s.id)}
-              className={`flex shrink-0 items-center gap-2 rounded-lg border-b-2 px-4 py-2.5 text-sm font-medium transition-colors ${
-                active
-                  ? "border-violet-400 bg-violet-500/[0.08] text-white"
-                  : "border-transparent text-slate-400 hover:text-white"
-              }`}
-            >
-              <Icon className="h-4 w-4" strokeWidth={1.9} />
-              {s.label}
-            </button>
-          );
-        })}
+      <div className="flex shrink-0 items-center gap-2 rounded-lg border-b-2 border-violet-400 bg-violet-500/[0.08] px-4 py-2.5 text-sm font-medium text-white lg:ml-1">
+        <Globe className="h-4 w-4" strokeWidth={1.9} />
+        Global
+        <span className="text-xs font-normal text-slate-400">
+          · {total} ranked {total === 1 ? "player" : "players"}
+        </span>
       </div>
 
       <div className="relative shrink-0 lg:mr-1">

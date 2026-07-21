@@ -21,6 +21,8 @@ export type RunSubmission = {
   fixId: string | null;
   fixApplied: boolean;
   telemetry: RunTelemetry;
+  /** The player's own calendar date — the unit the streak counts in. */
+  completedOn: string;
 };
 
 /** Generous ceilings — they exist to bound abuse, not to constrain play. */
@@ -59,6 +61,31 @@ function int(value: unknown, min: number, max: number, fallback: number): number
   return typeof value === "number" && Number.isFinite(value)
     ? Math.min(max, Math.max(min, Math.trunc(value)))
     : fallback;
+}
+
+/** UTC calendar date, shifted by whole days. */
+function utcDay(offset: number, now: Date): string {
+  const d = new Date(now.getTime() + offset * 24 * 60 * 60 * 1000);
+  return d.toISOString().slice(0, 10);
+}
+
+/**
+ * The player's local calendar date, bounded to what a real timezone can
+ * justify.
+ *
+ * Streaks are counted in *local* days, so the server cannot compute this: at
+ * 01:00 in UTC+4 the player's "today" is the server's "yesterday", and using
+ * UTC would break a streak the UI had already told them was intact. So the
+ * client sends it — but only a timezone is trusted, never a date. Anything
+ * outside ±1 day of the server's own UTC date is discarded rather than
+ * rejected, which caps the abuse at a single day and makes a stale tab
+ * harmless instead of a 400.
+ */
+export function parseLocalDate(value: unknown, now: Date = new Date()): string {
+  const raw = typeof value === "string" ? value : "";
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(raw)) return utcDay(0, now);
+  const allowed = [utcDay(-1, now), utcDay(0, now), utcDay(1, now)];
+  return allowed.includes(raw) ? raw : utcDay(0, now);
 }
 
 /**
@@ -105,5 +132,6 @@ export function parseSubmission(body: unknown): RunSubmission | null {
       stagesCompleted,
       hintsUsed: strList(telemetryRaw.hintsUsed, MAX_HINTS),
     },
+    completedOn: parseLocalDate(raw.completedOn),
   };
 }

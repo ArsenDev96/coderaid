@@ -1,22 +1,33 @@
-import { Building2, Flag, Globe, Users, type LucideIcon } from "lucide-react";
 import { AVATARS, type Avatar } from "./onboarding";
 import type { Difficulty } from "./missions";
-import {
-  levelFromXp,
-  missionsSince,
-  successRate,
-  xpSince,
-  type Ledger,
-} from "./progress";
-import { SKILL_CATEGORIES, categoryAverage, type SkillCategoryId } from "./skills";
+import { SKILL_CATEGORIES, type SkillCategoryId } from "./skills";
+
+/**
+ * The leaderboard — real standings, ranked from real runs.
+ *
+ * Until phase 5 this module carried a hand-written roster of thirty fictional
+ * players and a `TOTAL_PLAYERS = 12480` constant, because there was no backend
+ * to ask. Both are gone. The board now shows the people who actually play, in
+ * the order their runs put them, and says how many that is even when the answer
+ * is small — an honest "2 ranked players" is worth more than a comfortable
+ * number nobody earned.
+ *
+ * Everything here is **pure**: it takes standings the server derived and turns
+ * them into ranked rows. The fetching lives in `components/leaderboards`, and
+ * the derivation in `lib/server/standings.ts`, so these rules stay directly
+ * testable — the same split the rest of the app uses.
+ *
+ * Scopes that no data model could answer went with the roster. There is no
+ * friends graph and no country or company on a player, so Friends, Country and
+ * Company were removed rather than left as tabs that filter nothing. A control
+ * that cannot honour its label is worse than no control.
+ */
 
 /* -------------------------------- Types --------------------------------- */
 
-export type LeaderboardScope = "global" | "friends" | "country" | "company";
 export type LeaderboardPeriod = "week" | "month" | "all";
-export type PlayerScope = "all" | "friends" | "similar";
 
-/** A ranked row, as the page renders it. Rank is assigned per scope + period. */
+/** A ranked row, as the page renders it. Rank is assigned per period. */
 export type LeaderboardPlayer = {
   id: string;
   username: string;
@@ -27,41 +38,33 @@ export type LeaderboardPlayer = {
   missionsCompleted: number;
   successRate: number;
   rank: number;
-  country?: string;
-  company?: string;
   isCurrentUser?: boolean;
 };
 
 /**
- * The stored shape. XP and missions are held per period so the period selector
- * re-ranks real numbers instead of relabelling one frozen table.
+ * One player's standing, as the server derives it.
+ *
+ * XP and missions are held per period so the period selector re-ranks real
+ * numbers instead of relabelling one frozen table. `focus` and `difficulty`
+ * are derived from what the player actually played — where their skill XP went
+ * and which difficulty band they mostly clear — so the filters describe them
+ * rather than a self-declared preference.
  */
-type RosterEntry = {
+export type StandingsRow = {
   id: string;
   username: string;
   avatar?: string;
   level: number;
   successRate: number;
-  country: string;
-  company: string;
-  /** Where this player earns most of their XP — drives the category filter. */
   focus: SkillCategoryId;
-  /** The difficulty they mostly play — drives the difficulty filter. */
   difficulty: Difficulty;
-  isFriend?: boolean;
-  isCurrentUser?: boolean;
   xp: Record<LeaderboardPeriod, number>;
   missions: Record<LeaderboardPeriod, number>;
+  /** Set by the client once it knows which row is the signed-in player. */
+  isCurrentUser?: boolean;
 };
 
 /* ------------------------------- Options -------------------------------- */
-
-export const SCOPES: { id: LeaderboardScope; label: string; icon: LucideIcon }[] = [
-  { id: "global", label: "Global", icon: Globe },
-  { id: "friends", label: "Friends", icon: Users },
-  { id: "country", label: "Country", icon: Flag },
-  { id: "company", label: "Company", icon: Building2 },
-];
 
 export const PERIODS: { id: LeaderboardPeriod; label: string }[] = [
   { id: "week", label: "This Week" },
@@ -71,9 +74,11 @@ export const PERIODS: { id: LeaderboardPeriod; label: string }[] = [
 
 export const DEFAULT_PERIOD: LeaderboardPeriod = "month";
 
+/** Player scopes that survive: no friends graph exists, so neither does that tab. */
+export type PlayerScope = "all" | "similar";
+
 export const PLAYER_SCOPES: { id: PlayerScope; label: string }[] = [
   { id: "all", label: "All Players" },
-  { id: "friends", label: "Friends Only" },
   { id: "similar", label: "Similar Level" },
 ];
 
@@ -84,414 +89,6 @@ export const PLAYER_SCOPES: { id: PlayerScope; label: string }[] = [
 const SIMILAR_LEVEL_RANGE = 5;
 
 export const ROWS_PER_PAGE = 10;
-
-/** The current user's home scope — what the Country and Company tabs filter to. */
-export const HOME_COUNTRY = "Armenia";
-export const HOME_COMPANY = "Koreez";
-
-/**
- * Mocked size of the wider player base. Used only for the percentile readout —
- * the roster below is the visible slice of it, not the whole population.
- */
-export const TOTAL_PLAYERS = 12480;
-
-/* -------------------------------- Roster -------------------------------- */
-
-// Static demo standings for everyone *except* the player.
-//
-// There is no backend, so the other 12,479 players are necessarily fictional —
-// but the player's own row is not. It is built from their progression ledger by
-// `currentPlayerEntry()` and ranked against this roster with its real numbers,
-// so their position, percentile and period XP are all genuinely theirs. On a
-// fresh account that means starting at the bottom, which is the truth.
-const ROSTER: RosterEntry[] = [
-  {
-    id: "code-master",
-    username: "code_master",
-    avatar: "unit",
-    level: 28,
-    successRate: 91,
-    country: "Germany",
-    company: "Datadog",
-    focus: "node-core",
-    difficulty: "Expert",
-    xp: { week: 3100, month: 12750, all: 61200 },
-    missions: { week: 14, month: 52, all: 248 },
-  },
-  {
-    id: "dev-alyssa",
-    username: "dev_alyssa",
-    avatar: "ada",
-    level: 22,
-    successRate: 88,
-    country: "United States",
-    company: "Stripe",
-    focus: "apis",
-    difficulty: "Hard",
-    isFriend: true,
-    xp: { week: 2450, month: 9450, all: 38400 },
-    missions: { week: 11, month: 43, all: 176 },
-  },
-  {
-    id: "backend-ninja",
-    username: "backend_ninja",
-    avatar: "lin",
-    level: 21,
-    successRate: 85,
-    country: "Japan",
-    company: "Shopify",
-    focus: "apis",
-    difficulty: "Hard",
-    xp: { week: 1980, month: 8100, all: 35900 },
-    missions: { week: 9, month: 38, all: 164 },
-  },
-  {
-    id: "tech-wizard",
-    username: "tech_wizard",
-    avatar: "rae",
-    level: 20,
-    successRate: 76,
-    country: "Poland",
-    company: "Vercel",
-    focus: "debugging",
-    difficulty: "Hard",
-    isFriend: true,
-    xp: { week: 1620, month: 6230, all: 29800 },
-    missions: { week: 7, month: 29, all: 141 },
-  },
-  {
-    id: "async-king",
-    username: "async_king",
-    avatar: "unit",
-    level: 20,
-    successRate: 74,
-    country: HOME_COUNTRY,
-    company: HOME_COMPANY,
-    focus: "runtime",
-    difficulty: "Hard",
-    isFriend: true,
-    xp: { week: 1740, month: 6100, all: 27450 },
-    missions: { week: 8, month: 27, all: 133 },
-  },
-  {
-    id: "bug-hunter",
-    username: "bug_hunter",
-    avatar: "nova",
-    level: 19,
-    successRate: 70,
-    country: "Brazil",
-    company: "Freelance",
-    focus: "debugging",
-    difficulty: "Medium",
-    xp: { week: 1380, month: 5450, all: 24100 },
-    missions: { week: 6, month: 24, all: 118 },
-  },
-  {
-    id: "node-slayer",
-    username: "node_slayer",
-    avatar: "lin",
-    level: 19,
-    successRate: 68,
-    country: "India",
-    company: "Datadog",
-    focus: "node-core",
-    difficulty: "Medium",
-    isFriend: true,
-    xp: { week: 1290, month: 5200, all: 23350 },
-    missions: { week: 6, month: 22, all: 112 },
-  },
-  {
-    id: "db-explorer",
-    username: "db_explorer",
-    avatar: "ada",
-    level: 18,
-    successRate: 66,
-    country: HOME_COUNTRY,
-    company: HOME_COMPANY,
-    focus: "apis",
-    difficulty: "Medium",
-    xp: { week: 1150, month: 4900, all: 21600 },
-    missions: { week: 5, month: 21, all: 104 },
-  },
-  {
-    id: "system-logic",
-    username: "system_logic",
-    avatar: "rae",
-    level: 18,
-    successRate: 64,
-    country: "Canada",
-    company: "Stripe",
-    focus: "node-core",
-    difficulty: "Expert",
-    xp: { week: 1080, month: 4650, all: 22900 },
-    missions: { week: 5, month: 20, all: 109 },
-  },
-  {
-    id: "cache-queen",
-    username: "cache_queen",
-    avatar: "ada",
-    level: 17,
-    successRate: 79,
-    country: "Spain",
-    company: "Vercel",
-    focus: "apis",
-    difficulty: "Hard",
-    isFriend: true,
-    xp: { week: 980, month: 4380, all: 19750 },
-    missions: { week: 5, month: 19, all: 96 },
-  },
-  {
-    id: "trace-reader",
-    username: "trace_reader",
-    avatar: "unit",
-    level: 17,
-    successRate: 61,
-    country: HOME_COUNTRY,
-    company: HOME_COMPANY,
-    focus: "debugging",
-    difficulty: "Medium",
-    xp: { week: 1020, month: 4120, all: 18300 },
-    missions: { week: 5, month: 18, all: 89 },
-  },
-  {
-    id: "query-planner",
-    username: "query_planner",
-    avatar: "lin",
-    level: 16,
-    successRate: 72,
-    country: "Germany",
-    company: "Shopify",
-    focus: "apis",
-    difficulty: "Hard",
-    xp: { week: 870, month: 3940, all: 17800 },
-    missions: { week: 4, month: 17, all: 86 },
-  },
-  {
-    id: "null-pointer",
-    username: "null_pointer",
-    avatar: "nova",
-    level: 16,
-    successRate: 58,
-    country: "United Kingdom",
-    company: "Freelance",
-    focus: "runtime",
-    difficulty: "Easy",
-    xp: { week: 760, month: 3710, all: 15400 },
-    missions: { week: 4, month: 17, all: 82 },
-  },
-  {
-    id: "stack-tracer",
-    username: "stack_tracer",
-    avatar: "rae",
-    level: 15,
-    successRate: 67,
-    country: "Poland",
-    company: "Datadog",
-    focus: "debugging",
-    difficulty: "Medium",
-    isFriend: true,
-    xp: { week: 820, month: 3520, all: 16100 },
-    missions: { week: 4, month: 16, all: 79 },
-  },
-  {
-    id: "latency-hawk",
-    username: "latency_hawk",
-    avatar: "unit",
-    level: 15,
-    successRate: 63,
-    country: HOME_COUNTRY,
-    company: HOME_COMPANY,
-    focus: "debugging",
-    difficulty: "Hard",
-    xp: { week: 690, month: 3340, all: 14750 },
-    missions: { week: 3, month: 15, all: 74 },
-  },
-  {
-    id: "shard-runner",
-    username: "shard_runner",
-    avatar: "lin",
-    level: 14,
-    successRate: 60,
-    country: "India",
-    company: "Stripe",
-    focus: "node-core",
-    difficulty: "Expert",
-    xp: { week: 640, month: 3180, all: 13900 },
-    missions: { week: 3, month: 14, all: 71 },
-  },
-  {
-    id: "api-artisan",
-    username: "api_artisan",
-    avatar: "ada",
-    level: 14,
-    successRate: 71,
-    country: "Brazil",
-    company: "Vercel",
-    focus: "apis",
-    difficulty: "Medium",
-    xp: { week: 710, month: 3020, all: 12600 },
-    missions: { week: 3, month: 14, all: 67 },
-  },
-  {
-    id: "heap-diver",
-    username: "heap_diver",
-    avatar: "nova",
-    level: 13,
-    successRate: 57,
-    country: "Japan",
-    company: "Shopify",
-    focus: "runtime",
-    difficulty: "Hard",
-    xp: { week: 580, month: 2870, all: 11950 },
-    missions: { week: 3, month: 13, all: 63 },
-  },
-  {
-    id: "retry-logic",
-    username: "retry_logic",
-    avatar: "rae",
-    level: 13,
-    successRate: 54,
-    country: HOME_COUNTRY,
-    company: HOME_COMPANY,
-    focus: "runtime",
-    difficulty: "Medium",
-    isFriend: true,
-    xp: { week: 620, month: 2740, all: 11200 },
-    missions: { week: 3, month: 12, all: 59 },
-  },
-  {
-    id: "index-scout",
-    username: "index_scout",
-    avatar: "unit",
-    level: 12,
-    successRate: 65,
-    country: "Canada",
-    company: "Datadog",
-    focus: "apis",
-    difficulty: "Medium",
-    xp: { week: 540, month: 2610, all: 10400 },
-    missions: { week: 2, month: 12, all: 56 },
-  },
-  {
-    id: "mutex-mage",
-    username: "mutex_mage",
-    avatar: "lin",
-    level: 12,
-    successRate: 52,
-    country: "Spain",
-    company: "Freelance",
-    focus: "node-core",
-    difficulty: "Expert",
-    xp: { week: 490, month: 2480, all: 9850 },
-    missions: { week: 2, month: 11, all: 52 },
-  },
-  {
-    id: "log-whisperer",
-    username: "log_whisperer",
-    avatar: "ada",
-    level: 11,
-    successRate: 59,
-    country: "United States",
-    company: "Stripe",
-    focus: "debugging",
-    difficulty: "Easy",
-    xp: { week: 520, month: 2350, all: 9100 },
-    missions: { week: 2, month: 11, all: 49 },
-  },
-  {
-    id: "pool-guard",
-    username: "pool_guard",
-    avatar: "nova",
-    level: 11,
-    successRate: 55,
-    country: HOME_COUNTRY,
-    company: HOME_COMPANY,
-    focus: "node-core",
-    difficulty: "Medium",
-    xp: { week: 460, month: 2190, all: 8600 },
-    missions: { week: 2, month: 10, all: 46 },
-  },
-  {
-    id: "schema-smith",
-    username: "schema_smith",
-    avatar: "rae",
-    level: 10,
-    successRate: 62,
-    country: "Germany",
-    company: "Vercel",
-    focus: "apis",
-    difficulty: "Easy",
-    isFriend: true,
-    xp: { week: 430, month: 2060, all: 7900 },
-    missions: { week: 2, month: 10, all: 43 },
-  },
-  {
-    id: "route-ranger",
-    username: "route_ranger",
-    avatar: "unit",
-    level: 10,
-    successRate: 51,
-    country: "Poland",
-    company: "Shopify",
-    focus: "apis",
-    difficulty: "Easy",
-    xp: { week: 390, month: 1920, all: 7300 },
-    missions: { week: 2, month: 9, all: 41 },
-  },
-  {
-    id: "byte-forge",
-    username: "byte_forge",
-    avatar: "lin",
-    level: 9,
-    successRate: 48,
-    country: "India",
-    company: "Freelance",
-    focus: "runtime",
-    difficulty: "Easy",
-    xp: { week: 350, month: 1780, all: 6500 },
-    missions: { week: 1, month: 9, all: 38 },
-  },
-  {
-    id: "spec-hunter",
-    username: "spec_hunter",
-    avatar: "ada",
-    level: 9,
-    successRate: 56,
-    country: HOME_COUNTRY,
-    company: HOME_COMPANY,
-    focus: "debugging",
-    difficulty: "Easy",
-    xp: { week: 320, month: 1640, all: 6100 },
-    missions: { week: 1, month: 8, all: 35 },
-  },
-  {
-    id: "edge-caster",
-    username: "edge_caster",
-    avatar: "nova",
-    level: 8,
-    successRate: 45,
-    country: "Brazil",
-    company: "Datadog",
-    focus: "runtime",
-    difficulty: "Easy",
-    xp: { week: 280, month: 1490, all: 5400 },
-    missions: { week: 1, month: 8, all: 31 },
-  },
-  {
-    id: "proxy-pilot",
-    username: "proxy_pilot",
-    avatar: "rae",
-    level: 8,
-    successRate: 43,
-    country: "Canada",
-    company: "Vercel",
-    focus: "node-core",
-    difficulty: "Medium",
-    isFriend: true,
-    xp: { week: 240, month: 1350, all: 4900 },
-    missions: { week: 1, month: 7, all: 28 },
-  },
-];
 
 /* ------------------------------- Helpers -------------------------------- */
 
@@ -507,35 +104,6 @@ export const CATEGORY_OPTIONS = SKILL_CATEGORIES.map((c) => ({
   label: c.name,
 }));
 
-function inScope(entry: RosterEntry, scope: LeaderboardScope): boolean {
-  switch (scope) {
-    case "friends":
-      return Boolean(entry.isFriend || entry.isCurrentUser);
-    case "country":
-      return entry.country === HOME_COUNTRY;
-    case "company":
-      return entry.company === HOME_COMPANY;
-    case "global":
-      return true;
-  }
-}
-
-function toPlayer(entry: RosterEntry, period: LeaderboardPeriod, rank: number): LeaderboardPlayer {
-  return {
-    id: entry.id,
-    username: entry.username,
-    avatar: entry.avatar,
-    level: entry.level,
-    xp: entry.xp[period],
-    missionsCompleted: entry.missions[period],
-    successRate: entry.successRate,
-    rank,
-    country: entry.country,
-    company: entry.company,
-    isCurrentUser: entry.isCurrentUser,
-  };
-}
-
 export type LeaderboardFilters = {
   category: SkillCategoryId | "all";
   difficulty: Difficulty | "all";
@@ -548,66 +116,54 @@ export const DEFAULT_FILTERS: LeaderboardFilters = {
   playerScope: "all",
 };
 
-/* ------------------------- The player's own entry ----------------------- */
-
-/**
- * The current user's roster entry, built entirely from their progression
- * ledger: XP per period from when they actually completed each mission, level
- * from the XP curve, success rate from how many of their runs resolved.
- *
- * `focus` is their strongest skill category, so the category filter tells the
- * truth about them too. On an empty ledger this is a level-1 row with 0 XP —
- * which is exactly where a new player stands.
- */
-export function currentPlayerEntry(
-  ledger: Ledger,
-  username: string,
-  avatarId?: string,
-): RosterEntry {
-  const categories = SKILL_CATEGORIES.map((c) => ({
-    id: c.id,
-    average: categoryAverage(c.id, ledger),
-  })).sort((a, b) => b.average - a.average);
-
+function toPlayer(
+  entry: StandingsRow,
+  period: LeaderboardPeriod,
+  rank: number,
+): LeaderboardPlayer {
   return {
-    id: CURRENT_USER_ID,
-    username,
-    avatar: avatarId,
-    level: levelFromXp(ledger.totalXp),
-    successRate: successRate(ledger),
-    country: HOME_COUNTRY,
-    company: HOME_COMPANY,
-    focus: categories[0]?.id ?? "runtime",
-    difficulty: "Medium",
-    isCurrentUser: true,
-    xp: {
-      week: xpSince(ledger, 7),
-      month: xpSince(ledger, 30),
-      all: ledger.totalXp,
-    },
-    missions: {
-      week: missionsSince(ledger, 7),
-      month: missionsSince(ledger, 30),
-      all: Object.keys(ledger.missions).length,
-    },
+    id: entry.id,
+    username: entry.username,
+    avatar: entry.avatar,
+    level: entry.level,
+    xp: entry.xp[period],
+    missionsCompleted: entry.missions[period],
+    successRate: entry.successRate,
+    rank,
+    isCurrentUser: entry.isCurrentUser,
   };
 }
 
-export const CURRENT_USER_ID = "current-user";
+/* ------------------------------- Ranking -------------------------------- */
 
-/** The full field: the fictional roster plus the player's real row. */
-function rosterWith(me: RosterEntry | null): RosterEntry[] {
-  return me ? [...ROSTER, me] : ROSTER;
+/**
+ * Standings for a period: everyone ranked by the XP they earned in it.
+ *
+ * Ties break toward the player who cleared more incidents, then by name, so the
+ * order is stable across refetches rather than depending on row order — two
+ * players on equal XP shouldn't swap places when someone else finishes a run.
+ */
+export function getStandings(
+  rows: StandingsRow[],
+  period: LeaderboardPeriod,
+): LeaderboardPlayer[] {
+  return [...rows]
+    .sort(
+      (a, b) =>
+        b.xp[period] - a.xp[period] ||
+        b.missions[period] - a.missions[period] ||
+        a.username.localeCompare(b.username),
+    )
+    .map((entry, i) => toPlayer(entry, period, i + 1));
 }
 
 function matchesFilters(
-  entry: RosterEntry,
+  entry: StandingsRow,
   f: LeaderboardFilters,
   currentLevel: number,
 ): boolean {
   if (f.category !== "all" && entry.focus !== f.category) return false;
   if (f.difficulty !== "all" && entry.difficulty !== f.difficulty) return false;
-  if (f.playerScope === "friends" && !entry.isFriend && !entry.isCurrentUser) return false;
   if (
     f.playerScope === "similar" &&
     Math.abs(entry.level - currentLevel) > SIMILAR_LEVEL_RANGE
@@ -618,79 +174,69 @@ function matchesFilters(
 }
 
 /**
- * The standings for a scope + period: everyone in scope, ranked by XP.
- *
- * Filters are applied *after* ranking (see `getLeaderboard`) so a rank always
- * means the player's real position in the scope, not their position within
- * whatever subset happens to be on screen.
- */
-export function getStandings(
-  scope: LeaderboardScope,
-  period: LeaderboardPeriod,
-  me: RosterEntry | null = null,
-): LeaderboardPlayer[] {
-  return rosterWith(me)
-    .filter((e) => inScope(e, scope))
-    .sort((a, b) => b.xp[period] - a.xp[period])
-    .map((e, i) => toPlayer(e, period, i + 1));
-}
-
-/**
  * Podium + table rows for the current view.
  *
- * The podium always shows the scope's real top three; the table holds everyone
- * below them, narrowed by the filters — mirroring where the filter panel sits.
+ * The podium always shows the real top three; the table holds everyone below
+ * them, narrowed by the filters — mirroring where the filter panel sits.
+ * Filters are applied *after* ranking, so a rank always means the player's real
+ * position on the board rather than their position within whatever subset
+ * happens to be on screen.
  */
 export function getLeaderboard(
-  scope: LeaderboardScope,
+  rows: StandingsRow[],
   period: LeaderboardPeriod,
   filters: LeaderboardFilters = DEFAULT_FILTERS,
-  me: RosterEntry | null = null,
 ) {
-  const standings = getStandings(scope, period, me);
-  const byId = new Map(rosterWith(me).map((e) => [e.id, e]));
-  const currentLevel = me?.level ?? 0;
+  const standings = getStandings(rows, period);
+  const byId = new Map(rows.map((e) => [e.id, e]));
+  const currentLevel = rows.find((r) => r.isCurrentUser)?.level ?? 0;
 
   const podium = standings.slice(0, 3);
-  const rows = standings
+  const tableRows = standings
     .slice(3)
-    .filter((p) => matchesFilters(byId.get(p.id)!, filters, currentLevel));
+    .filter((p) => {
+      const entry = byId.get(p.id);
+      return entry ? matchesFilters(entry, filters, currentLevel) : false;
+    });
 
-  return { podium, rows, total: standings.length };
+  return { podium, rows: tableRows, total: standings.length };
 }
 
-/** The current user's row within a scope + period, if they rank there at all. */
+/** The signed-in player's row for a period, if they rank at all. */
 export function getCurrentUser(
-  scope: LeaderboardScope,
+  rows: StandingsRow[],
   period: LeaderboardPeriod,
-  me: RosterEntry | null = null,
 ): LeaderboardPlayer | undefined {
-  return getStandings(scope, period, me).find((p) => p.isCurrentUser);
+  return getStandings(rows, period).find((p) => p.isCurrentUser);
 }
 
 /**
  * The compact summary panel: rank, percentile, period XP and incidents cleared.
- * Percentile is scaled against `TOTAL_PLAYERS`, floored at 1 — "Top 0%" reads
- * as a bug, and nobody is better than the top 1%.
  *
- * There is no "rank movement" here: nothing records what the player's rank was
- * last week, so any arrow would be decoration rather than information.
+ * The percentile is measured against the **real** number of ranked players, not
+ * a seeded population. On a small board that produces honest, unflattering
+ * numbers — being 2nd of 3 is the 67th percentile — which is the point: the old
+ * `TOTAL_PLAYERS = 12480` made every percentile a compliment nobody had earned.
+ *
+ * There is still no "rank movement" here: nothing records what the player's
+ * rank was last week, so any arrow would be decoration rather than information.
  */
 export function getRankSummary(
-  scope: LeaderboardScope,
+  rows: StandingsRow[],
   period: LeaderboardPeriod,
-  me: RosterEntry | null = null,
 ) {
-  const row = getCurrentUser(scope, period, me);
+  const standings = getStandings(rows, period);
+  const row = standings.find((p) => p.isCurrentUser);
   if (!row) return null;
 
-  const population =
-    scope === "global" ? TOTAL_PLAYERS : getStandings(scope, period, me).length;
-  const percentile = Math.max(1, Math.round((row.rank / population) * 100));
+  const population = standings.length;
+  const percentile =
+    population === 0 ? 100 : Math.max(1, Math.round((row.rank / population) * 100));
 
   return {
     rank: row.rank,
     percentile,
+    population,
     xp: row.xp,
     missions: row.missionsCompleted,
     periodLabel: PERIODS.find((p) => p.id === period)!.label.toLowerCase(),

@@ -1,4 +1,5 @@
 import type { MissionGrade } from "./grading";
+import { coerceLedger, NO_CREDIT, type Ledger, type RunCredit } from "./progress";
 import type { RunTelemetry } from "./run";
 
 /**
@@ -15,7 +16,17 @@ import type { RunTelemetry } from "./run";
  */
 
 export type SubmitResult =
-  | { status: "graded"; grade: MissionGrade }
+  | {
+      status: "graded";
+      grade: MissionGrade;
+      /**
+       * The player's ledger as the server now has it, and what this run added
+       * to it. Both are absent only if the ledger read failed *after* the run
+       * was safely recorded — the grade is still real, so the run is not lost.
+       */
+      ledger: Ledger | null;
+      credit: RunCredit;
+    }
   | { status: "unauthenticated" }
   | { status: "failed" };
 
@@ -26,6 +37,8 @@ export type RunSubmissionBody = {
   fixId: string | null;
   fixApplied: boolean;
   telemetry: RunTelemetry;
+  /** The player's local calendar date — the unit the streak counts in. */
+  completedOn: string;
 };
 
 export async function submitRun(body: RunSubmissionBody): Promise<SubmitResult> {
@@ -44,8 +57,18 @@ export async function submitRun(body: RunSubmissionBody): Promise<SubmitResult> 
   if (!response.ok) return { status: "failed" };
 
   try {
-    const { grade } = (await response.json()) as { grade: MissionGrade };
-    return grade ? { status: "graded", grade } : { status: "failed" };
+    const { grade, ledger, credit } = (await response.json()) as {
+      grade: MissionGrade;
+      ledger?: unknown;
+      credit?: RunCredit;
+    };
+    if (!grade) return { status: "failed" };
+    return {
+      status: "graded",
+      grade,
+      ledger: ledger ? coerceLedger(ledger) : null,
+      credit: credit ?? NO_CREDIT,
+    };
   } catch {
     return { status: "failed" };
   }
@@ -63,6 +86,49 @@ export function saveGrade(missionId: string, grade: MissionGrade): void {
     window.localStorage.setItem(gradeStorageKey(missionId), JSON.stringify(grade));
   } catch {
     /* ignore quota / privacy-mode errors */
+  }
+}
+
+/**
+ * What the run added, cached for the results screen.
+ *
+ * The server measured it by diffing the ledger around the insert, so a replay
+ * that didn't beat the previous attempt caches a genuine zero. Kept beside the
+ * grade because both describe the same run and both are read one navigation
+ * later.
+ */
+export function creditStorageKey(missionId: string): string {
+  return `coderaid:${missionId}:credit`;
+}
+
+export function saveCredit(missionId: string, credit: RunCredit): void {
+  if (typeof window === "undefined") return;
+  try {
+    window.localStorage.setItem(
+      creditStorageKey(missionId),
+      JSON.stringify(credit),
+    );
+  } catch {
+    /* ignore quota / privacy-mode errors */
+  }
+}
+
+export function loadCredit(missionId: string): RunCredit | null {
+  if (typeof window === "undefined") return null;
+  try {
+    const raw = window.localStorage.getItem(creditStorageKey(missionId));
+    if (!raw) return null;
+    const parsed = JSON.parse(raw) as RunCredit;
+    if (
+      typeof parsed?.xpAdded !== "number" ||
+      typeof parsed?.skillXpAdded !== "object" ||
+      parsed.skillXpAdded === null
+    ) {
+      return null;
+    }
+    return parsed;
+  } catch {
+    return null;
   }
 }
 

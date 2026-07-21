@@ -7,13 +7,21 @@ import { RotateCcw, TriangleAlert, X } from "lucide-react";
  * Confirmation for the one destructive action on this page. Spells out what is
  * cleared *and* what is kept, so the choice is made with full information
  * rather than a generic "are you sure".
+ *
+ * What that is depends on where progress lives. Signed in, the ledger derives
+ * from an append-only run history in Postgres, so a local sweep clears the
+ * saved stage state and nothing else — the earned numbers stay. Saying
+ * otherwise would be the one thing this dialog exists to prevent.
  */
 export function ResetProgressDialog({
   onConfirm,
   onClose,
+  authenticated,
 }: {
   onConfirm: () => void;
   onClose: () => void;
+  /** True when progress is server-backed, which changes what a reset can do. */
+  authenticated: boolean;
 }) {
   const cancelRef = useRef<HTMLButtonElement>(null);
 
@@ -50,7 +58,9 @@ export function ResetProgressDialog({
               <TriangleAlert className="h-5 w-5" strokeWidth={2} />
             </span>
             <h2 id="reset-title" className="text-base font-bold text-white">
-              Reset mission progress?
+              {authenticated
+                ? "Clear saved mission state?"
+                : "Reset mission progress?"}
             </h2>
           </div>
           <button
@@ -64,25 +74,49 @@ export function ResetProgressDialog({
         </div>
 
         <div id="reset-body" className="mt-4 text-sm leading-relaxed text-slate-400">
-          This clears your progress through every Node.js incident —
-          investigations, diagnoses, fixes and the rewards they earned. It
-          cannot be undone.
+          {authenticated
+            ? "This clears what you saved while working through each incident, so every mission starts again from its briefing. It cannot be undone."
+            : "This clears your progress through every Node.js incident — investigations, diagnoses, fixes and the rewards they earned. It cannot be undone."}
         </div>
 
         <ul className="mt-4 space-y-1.5 rounded-xl border border-white/[0.06] bg-white/[0.02] p-3.5 text-xs">
-          <li className="text-slate-300">
-            <span className="font-semibold text-white">Cleared:</span> your XP,
-            level, rank, streak, every skill&apos;s XP, and every completed
-            incident. You start again from zero.
-          </li>
-          <li className="text-slate-300">
-            <span className="font-semibold text-white">Kept:</span> your profile
-            name, avatar, and these settings.
-          </li>
-          <li className="text-slate-300">
-            <span className="font-semibold text-white">Recalculated:</span>{" "}
-            achievements and leaderboard position, which follow your progress.
-          </li>
+          {authenticated ? (
+            <>
+              <li className="text-slate-300">
+                <span className="font-semibold text-white">Cleared:</span> your
+                saved investigation, diagnosis and fix for every mission, so
+                each one replays from the start.
+              </li>
+              <li className="text-slate-300">
+                <span className="font-semibold text-white">Kept:</span> every
+                run you completed, and the XP, level, rank, streak, skills and
+                achievements earned from them. Your run history is a record, not
+                a scoreboard that can be wiped.
+              </li>
+              <li className="text-slate-300">
+                <span className="font-semibold text-white">Replaying</span> a
+                mission can only improve a score — a worse attempt is recorded
+                but changes nothing.
+              </li>
+            </>
+          ) : (
+            <>
+              <li className="text-slate-300">
+                <span className="font-semibold text-white">Cleared:</span> your
+                XP, level, rank, streak, every skill&apos;s XP, and every
+                completed incident. You start again from zero.
+              </li>
+              <li className="text-slate-300">
+                <span className="font-semibold text-white">Kept:</span> your
+                profile name, avatar, and these settings.
+              </li>
+              <li className="text-slate-300">
+                <span className="font-semibold text-white">Recalculated:</span>{" "}
+                achievements and leaderboard position, which follow your
+                progress.
+              </li>
+            </>
+          )}
         </ul>
 
         <div className="mt-5 flex flex-col-reverse gap-3 sm:flex-row sm:justify-end">
@@ -100,7 +134,7 @@ export function ResetProgressDialog({
             className="inline-flex w-full items-center justify-center gap-2 rounded-xl border border-rose-400/40 bg-rose-500/15 px-5 py-2.5 text-sm font-semibold text-rose-200 transition-colors hover:bg-rose-500/25 sm:w-auto"
           >
             <RotateCcw className="h-4 w-4" strokeWidth={2.2} />
-            Reset Progress
+            {authenticated ? "Clear Saved State" : "Reset Progress"}
           </button>
         </div>
       </div>

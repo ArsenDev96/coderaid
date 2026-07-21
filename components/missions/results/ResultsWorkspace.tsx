@@ -5,10 +5,10 @@ import Link from "next/link";
 import { ArrowLeft, ArrowRight, Sparkles, Zap } from "lucide-react";
 import { useProgress } from "@/components/progress/ProgressProvider";
 import { canStart, nextMissionId } from "@/lib/availability";
-import { loadGrade } from "@/lib/grade-submission";
-import { rewardFor, skillRewardFor, type MissionGrade } from "@/lib/grading";
+import { loadCredit, loadGrade } from "@/lib/grade-submission";
+import { type MissionGrade } from "@/lib/grading";
 import { MISSION_FLOW, getMission, type Mission } from "@/lib/missions";
-import { creditRun, skillLevelFromXp, skillXpFor } from "@/lib/progress";
+import { skillLevelFromXp } from "@/lib/progress";
 import { loadResultsState, narrativeFor, saveResultsState, type MissionResultConfig } from "@/lib/results";
 import { completeStage } from "@/lib/run";
 import { getSkill } from "@/lib/skills";
@@ -24,8 +24,16 @@ import { WhatYouLearned } from "./WhatYouLearned";
  * Everything shown here comes from the grade the **server** produced when the
  * player ran verification: it read their diagnosis, evidence and fix against
  * answers the browser never sees, recorded the run, and returned the breakdown.
- * This screen renders that verdict and credits it to the ledger exactly once —
- * it cannot compute a score, which is precisely the property we want.
+ * This screen only renders that verdict — it cannot compute a score, and it no
+ * longer credits anything either.
+ *
+ * Crediting used to happen here, against the `localStorage` ledger. It doesn't
+ * any more: the run was recorded in Postgres at the moment of verification, and
+ * the XP and skill gains shown below were **measured** by the server by
+ * diffing the ledger around that insert. So a replay that didn't beat the
+ * previous attempt honestly shows +0 without this screen knowing the rule that
+ * made it so, and a refresh cannot farm XP because there is nothing here to
+ * repeat.
  *
  * It reads after mount because the grade is cached client-side. Until then the
  * screen renders nothing rather than a placeholder score — a fake 0 flashing
@@ -38,17 +46,17 @@ export function ResultsWorkspace({
   mission: Mission;
   config: MissionResultConfig;
 }) {
-  const { view, hydrated, update } = useProgress();
+  const { ledger, view, hydrated } = useProgress();
   const [grade, setGrade] = useState<MissionGrade | null>(null);
   const [gains, setGains] = useState<SkillGain[]>([]);
   const [xpAdded, setXpAdded] = useState(0);
   /** No graded run to show — the player never completed verification. */
   const [ungraded, setUngraded] = useState(false);
-  const credited = useRef(false);
+  const read = useRef(false);
 
   useEffect(() => {
-    if (!hydrated || credited.current) return;
-    credited.current = true;
+    if (!hydrated || read.current) return;
+    read.current = true;
 
     // Reaching this screen is itself the last stage of the flow.
     completeStage(mission.id, "Complete");
@@ -62,47 +70,38 @@ export function ResultsWorkspace({
       return;
     }
     setGrade(result);
-
-    // Skill levels are read before crediting so the before/after is honest.
-    const reward = skillRewardFor(mission, result);
-    const before = Object.fromEntries(
-      Object.keys(reward).map((id) => [id, 0]),
-    ) as Record<string, number>;
-
-    update((ledger) => {
-      for (const id of Object.keys(reward)) {
-        before[id] = skillXpFor(ledger, id);
-      }
-      const credit = creditRun(ledger, rewardFor(mission, result));
-      setXpAdded(credit.xpAdded);
-      setGains(
-        Object.entries(credit.skillXpAdded)
-          .map(([id, xp]) => {
-            const skill = getSkill(id, credit.ledger);
-            if (!skill) return null;
-            return {
-              skill,
-              xp,
-              levelBefore: skillLevelFromXp(before[id] ?? 0),
-              levelAfter: skill.level,
-            };
-          })
-          .filter((g): g is SkillGain => g !== null)
-          .sort((a, b) => b.xp - a.xp),
-      );
-      return credit.ledger;
-    });
-
+    setXpAdded(loadCredit(mission.id)?.xpAdded ?? 0);
     saveResultsState(mission.id, { claimed: true, score: result.score });
-  }, [hydrated, mission, update]);
+  }, [hydrated, mission.id]);
 
-  // A revisit after the reward was already credited still shows the run's grade.
+  /**
+   * Skill gains, from the server's measurement plus the live ledger.
+   *
+   * `levelAfter` is where the skill stands now; `levelBefore` is that total
+   * minus what this run added. Both come from figures the server derived, so
+   * the "Level 3 → Level 4" line is a fact rather than a client prediction.
+   */
   useEffect(() => {
-    if (grade || !hydrated) return;
-    const saved = loadResultsState(mission.id);
-    if (!saved) return;
-    setXpAdded(0);
-  }, [grade, hydrated, mission.id]);
+    if (!grade) return;
+    const credit = loadCredit(mission.id);
+    if (!credit) return;
+
+    setGains(
+      Object.entries(credit.skillXpAdded)
+        .map(([id, xp]) => {
+          const skill = getSkill(id, ledger);
+          if (!skill) return null;
+          return {
+            skill,
+            xp,
+            levelBefore: skillLevelFromXp((ledger.skillXp[id] ?? 0) - xp),
+            levelAfter: skill.level,
+          };
+        })
+        .filter((g): g is SkillGain => g !== null)
+        .sort((a, b) => b.xp - a.xp),
+    );
+  }, [grade, ledger, mission.id]);
 
   // Next mission: an authored override wins, but only if it's actually
   // playable — otherwise the derived next one, then the catalogue.

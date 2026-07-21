@@ -1,24 +1,33 @@
 "use client";
 
-import { formatXp, type LeaderboardPeriod, type LeaderboardScope, getRankSummary } from "@/lib/leaderboards";
-import { useCurrentPlayerEntry } from "./useLeaderboardIdentity";
+import {
+  formatXp,
+  getRankSummary,
+  type LeaderboardPeriod,
+  type StandingsRow,
+} from "@/lib/leaderboards";
+
+/** Below this, a percentile describes too few people to be worth showing. */
+const PERCENTILE_MIN_PLAYERS = 20;
 
 /**
  * Compact "where do I stand" panel: rank, percentile, period XP and incidents.
  *
- * Every figure is the player's own, computed from their ledger and their real
- * position in the standings. There is deliberately no rank-movement arrow —
- * nothing records last week's rank, so it could only ever be decoration.
+ * Every figure is the player's own real position among real players. The
+ * percentile is measured against the actual number of ranked players rather
+ * than the old seeded 12,480, so it is sometimes unflattering and always true.
+ *
+ * There is deliberately no rank-movement arrow — nothing records last week's
+ * rank, so it could only ever be decoration.
  */
 export function RankSummary({
-  scope,
+  rows,
   period,
 }: {
-  scope: LeaderboardScope;
+  rows: StandingsRow[];
   period: LeaderboardPeriod;
 }) {
-  const me = useCurrentPlayerEntry();
-  const summary = getRankSummary(scope, period, me);
+  const summary = getRankSummary(rows, period);
 
   if (!summary) {
     return (
@@ -32,7 +41,7 @@ export function RankSummary({
     );
   }
 
-  const { rank, percentile, xp, missions, periodLabel } = summary;
+  const { rank, percentile, population, xp, missions, periodLabel } = summary;
 
   return (
     <section className="surface p-5">
@@ -60,10 +69,24 @@ export function RankSummary({
             {rank}
           </span>
         </div>
+        {/*
+          A percentile only means something once there are enough people for it
+          to describe. Below that it says less than the plain count does — "Top
+          50%" of two players is a decorative way of writing "2nd of 2" — so the
+          count is what shows, and the percentile appears when it earns its
+          place.
+        */}
         <p className="mt-3 text-xs text-slate-400">
-          Top <span className="font-semibold text-violet-300">{percentile}%</span>{" "}
-          of Node.js developers
+          <span className="font-semibold text-violet-300">
+            {rank} of {population}
+          </span>{" "}
+          {population === 1 ? "ranked player" : "ranked players"}
         </p>
+        {population >= PERCENTILE_MIN_PLAYERS && (
+          <p className="mt-1 text-xs text-slate-500">
+            Top <span className="font-semibold text-violet-300">{percentile}%</span>
+          </p>
+        )}
       </div>
 
       <div className="mt-5 grid grid-cols-2 gap-4 border-t border-white/[0.06] pt-4">

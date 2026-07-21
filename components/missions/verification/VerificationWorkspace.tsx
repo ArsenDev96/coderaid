@@ -5,8 +5,10 @@ import Link from "next/link";
 import { ArrowRight, Info, Loader2, PlayCircle } from "lucide-react";
 import { getDiagnosis, loadDiagnosisState } from "@/lib/diagnosis";
 import { getFix, loadFixState } from "@/lib/fix";
-import { loadGrade, saveGrade, submitRun } from "@/lib/grade-submission";
+import { loadGrade, saveCredit, saveGrade, submitRun } from "@/lib/grade-submission";
+import { today } from "@/lib/progress";
 import { completeStage, emptyRun, loadRun, touchRun } from "@/lib/run";
+import { useProgress } from "@/components/progress/ProgressProvider";
 import {
   allChecksPassed,
   loadVerificationState,
@@ -34,6 +36,7 @@ export function VerificationWorkspace({
   step: number;
   totalSteps: number;
 }) {
+  const { adopt } = useProgress();
   const [phase, setPhase] = useState<Phase>("idle");
   const [hydrated, setHydrated] = useState(false);
   /**
@@ -107,6 +110,9 @@ export function VerificationWorkspace({
         fixId: fixState?.fixId ?? null,
         fixApplied: fixState?.applied === true,
         telemetry: loadRun(config.missionId) ?? emptyRun(),
+        // Streaks are counted in local days, which the server cannot compute;
+        // it bounds this to ±1 day of its own date rather than trusting it.
+        completedOn: today(),
       }),
       new Promise((resolve) => {
         timer.current = setTimeout(resolve, 1400);
@@ -125,6 +131,14 @@ export function VerificationWorkspace({
     }
 
     saveGrade(config.missionId, result.grade);
+    // What the run earned, as measured by the server around the insert. The
+    // results screen renders it; it cannot work it out for itself, which is
+    // the same reason it cannot compute the score.
+    saveCredit(config.missionId, result.credit);
+    // The recorded run has already changed the player's XP, level and skills —
+    // adopting the returned ledger updates the whole app immediately, without
+    // a second round trip and without the browser deriving any of it.
+    if (result.ledger) adopt(result.ledger);
     setFixResolves(result.grade.resolved);
     setPhase("done");
   };

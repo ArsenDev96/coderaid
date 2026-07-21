@@ -5,11 +5,17 @@
 Master Node.js through realistic production incidents: investigate logs, metrics, traces and
 backend code, diagnose the failure, apply a fix, and verify the result.
 
-This repository is the **front-end MVP**. It has no backend, no authentication and no database —
-all mission content is authored TypeScript, and all progression lives in the browser's
-`localStorage`. What it *does* have is a real grading engine and a real progression ledger: answer
-correctness is evaluated against each mission's authored answers, and score, XP, level, rank, skill
-XP, streaks and achievements are all derived from runs the player genuinely finished.
+Mission content is authored TypeScript; everything about a *player* is earned. Score, XP, level,
+rank, skill XP, streaks, achievements and leaderboard position all derive from runs the player
+genuinely finished — nothing is authored, and a new account starts at zero.
+
+**Progress is server-authoritative.** The correct answers live behind `import "server-only"` and
+never reach the browser bundle; grading runs in a route handler holding the Supabase service-role
+key; and the progression ledger is derived in Postgres from an append-only run history. The browser
+can say what the player *chose*. It cannot decide what that was worth.
+
+Missions are free to play without an account. The sign-in wall is at **Run Verification** — the
+point where a score starts being recorded.
 
 ## Scope
 
@@ -25,9 +31,11 @@ progress.
 - **Next.js 14** (App Router)
 - **TypeScript** (`strict`)
 - **Tailwind CSS**
+- **Supabase** — Postgres + GitHub OAuth (`@supabase/ssr`, `@supabase/supabase-js`)
 - **Lucide** icons
 - **Framer Motion** for entrance/hover animations (reduced-motion aware)
-- **Vitest** for domain-logic tests, **ESLint** (`next/core-web-vitals`) for linting
+- **Vitest** for domain-logic tests, **Playwright** for browser smoke, **ESLint**
+  (`next/core-web-vitals`) for linting
 
 ## Getting started
 
@@ -37,6 +45,23 @@ npm run dev
 ```
 
 Then open [http://localhost:3000](http://localhost:3000).
+
+### Environment
+
+Create `.env.local` with your Supabase project's credentials (Settings → API):
+
+```bash
+NEXT_PUBLIC_SUPABASE_URL=https://<project>.supabase.co
+NEXT_PUBLIC_SUPABASE_ANON_KEY=<anon key>
+SUPABASE_SERVICE_ROLE_KEY=<service role key>
+```
+
+> **The service-role key bypasses row-level security.** It is read only by `lib/supabase/admin.ts`,
+> which starts with `import "server-only"` so no import path can pull it toward the browser bundle.
+> Never give it a `NEXT_PUBLIC_` prefix.
+
+Apply the migrations in [`supabase/migrations/`](supabase/migrations/) in order, and enable the
+GitHub provider in Authentication → Providers.
 
 ## Development checks
 
@@ -51,9 +76,15 @@ npm run test:e2e          # Playwright — one mission through the real browser
 
 All of them run non-interactively. `npm run test:watch` runs Vitest in watch mode.
 
-The Vitest suite is **432 tests across 13 files**, including a parameterised suite that puts every
+The Vitest suite is **460 tests across 16 files**, including a parameterised suite that puts every
 one of the 14 playable missions through the same perfect / wrong / hint / replay / stage-guard
 contract.
+
+> **Run `build` before `test`.** `tests/bundle-secrecy.test.ts` greps the real `.next` output for the
+> answer fields that were removed from the client bundle, and skips itself when `.next` is absent so
+> a clean checkout still passes. A *stale* `.next` therefore produces phantom failures — a build
+> predating the Supabase migration still contains them. If that test fails, delete `.next` and
+> rebuild before believing it.
 
 `npm run test:e2e` needs a browser once: `npx playwright install chromium`. It builds the app and
 serves it through Playwright's `webServer`, then plays `event-loop-overload` from briefing to
@@ -64,11 +95,13 @@ targeting it — see [`.github/workflows/ci.yml`](.github/workflows/ci.yml). It 
 npm dependency caching and has no deployment step. The browser smoke test runs as a **separate job**,
 so a browser download can never mask a failure in the pure checks.
 
-`validate:missions` reads the live catalogue and the five stage registries and reports every content
-mistake the type system can't see — a `correctRootCauseId` that names no option, a mission requiring
-more key clues than it authors, a fix whose `correctFixId` doesn't resolve the root cause, a results
-config that has re-introduced a hardcoded score. Errors exit non-zero; warnings (a partially
-authored mission, for instance) are printed but don't fail the run.
+`validate:missions` reads the live catalogue, the five stage registries **and the server-side
+answers**, and reports every content mistake the type system can't see — an `answers.rootCauseId`
+that names no offered option, a mission requiring more key clues than it authors, an
+`answers.fixId` that isn't one of the fixes, a results config that has re-introduced a hardcoded
+score. It is the one place the secret answers are cross-checked against the public options, which
+is why it runs through `scripts/tsconfig.json` — that stubs `server-only` **for the CLI only**, so
+the app's own build is untouched. Errors exit non-zero; warnings are printed but don't fail the run.
 
 ## Mission content status
 
@@ -126,19 +159,29 @@ Investigation offers five tools (logs, metrics, code, database, trace); the play
 until the key-clue threshold is met, then diagnoses a root cause, chooses a fix, runs verification
 and lands on results.
 
-**Answers are graded.** `lib/grading.ts` scores the run out of 100 — root cause 45, supporting
-evidence 25 (a balanced F-score, so padding the case with irrelevant findings costs marks), fix 30,
-minus 5 per hint opened. A fix only resolves the incident if its authored `resolvesRootCause` is
-true, and `resolveVerification()` reports the incident *unchanged* when it isn't: metrics hold at
-their before values, the chart's after-line matches its before-line, the pre-fix logs replay, and
-every check marked `dependsOnFix` fails. Checks about the rest of the system stay true either way.
+**Answers are graded on the server.** Clicking **Run Verification** submits the run to
+`POST /api/runs`, which pairs it with answers the browser has never seen, scores it, records it, and
+returns the breakdown. `lib/grading.ts` scores out of 100 — root cause 45, supporting evidence 25 (a
+balanced F-score, so padding the case with irrelevant findings costs marks), fix 30, minus 5 per
+hint opened. The *formula* is public on purpose: knowing the root cause is worth 45 points tells you
+nothing about which root cause is right, and it lets the results screen render the working.
+
+Verification is graded there — not on the results screen — because that is the commit point.
+Grading later would let a refresh re-grade, and the obvious alternative (a "does this fix work?"
+endpoint that recorded nothing) would be an answer oracle anyone could enumerate.
+
+When the applied fix doesn't resolve the root cause, `resolveVerification()` reports the incident
+*unchanged*: metrics hold at their before values, the chart's after-line matches its before-line, the
+pre-fix logs replay, and every check marked `dependsOnFix` fails. Checks about the rest of the system
+stay true either way.
 
 Stage routes are statically generated, so they can be opened directly. `components/missions/StageGate.tsx`
 checks the prerequisite each stage builds on — investigation progress before diagnosis, a confirmed
 diagnosis before the fix, an applied fix before verification, a completed verification before
 results — and links back to the stage that produces it. A mission already in the ledger passes
 through at every stage, so review and replay are untouched. This is consistency protection for the
-front end, not security.
+front end rather than security — and it no longer needs to be security: skipping straight to
+verification submits an empty diagnosis, which the server grades as zero.
 
 ## Authoring a new mission
 
@@ -185,22 +228,31 @@ app/
   missions/map/        Chapter map
   missions/[missionId]/briefing|investigation|diagnosis|fix|verification|results/
   skills/ achievements/ leaderboards/ settings/
-  sign-in/ demo/       Placeholders — there is no auth
+  sign-in/             Real GitHub OAuth · demo/ is still a placeholder
+  auth/callback|sign-out/  OAuth code exchange, sign-out (POST only)
+  api/runs/            THE TRUST BOUNDARY — grade a run and record it
+  api/ledger/          GET the derived ledger · POST an active day
+  api/claim/           One-time import of a pre-account local ledger
+  api/leaderboard/     Real standings, signed-in players only
 
 components/
   <landing sections>   Header, HeroSection, GamePreview, ComparisonSection, HowItWorks,
                        MissionPreview, SkillsGrid, CareerPath, FinalCTA, Footer
   ui/                  Logo, Reveal, AvailabilityBadge, CodeText
-  progress/            ProgressProvider — one hydrated ledger for the whole app
+  auth/SignInCard      GitHub sign-in
+  progress/            ProgressProvider — one ledger for the whole app, fetched from the server
+                       ClaimProgressBanner — the one-time import offer
   missions/StageGate   Client-side stage prerequisite guard
   dashboard/ onboarding/ missions/ skills/ achievements/ leaderboards/ settings/
 
 lib/
   missions.ts          Mission catalogue, chapters, tracks, flow, briefing resolution
   availability.ts      Canonical "can the player do this yet?" model
-  progress.ts          The progression ledger: XP, levels, ranks, skill XP, streaks, crediting
+  progress.ts          The ledger's shape and pure maths: XP curve, levels, ranks, streaks
   run.ts               Per-mission run telemetry: start time, stages completed, hints opened
-  grading.ts           The grading engine
+  grading.ts           The grading engine. Takes the answers as an INPUT
+  grade-submission.ts  Client: submit a run, cache the grade the server returned
+  ledger-client.ts     Client: fetch the ledger, record an active day, claim a local one
   skills.ts            Canonical Node.js skill taxonomy
   stage-access.ts      Stage prerequisites (pure)
   mission-validation.ts Content validation rules (pure)
@@ -208,8 +260,20 @@ lib/
   investigation.ts diagnosis.ts fix.ts verification.ts results.ts
   dashboard.ts achievements.ts leaderboards.ts onboarding.ts settings.ts data.ts types.ts
 
+lib/server/            ALL of these begin with `import "server-only"`
+  answers.ts           THE SECRET — every mission's correct root cause, evidence and fix
+  submission.ts        Parses untrusted submissions; bounds every field
+  ledger.ts            Derives the Ledger from Postgres; stamps achievements
+  claim.ts             Validates a pre-account ledger; re-derives every XP figure
+  standings.ts         Derives the leaderboard from best_runs + players
+
+lib/supabase/          env · client (browser) · server (session) · admin (service-role)
+
+supabase/migrations/   0001_init.sql · 0002_claim_local_progress.sql
+
 scripts/
   validate-missions.ts CLI wrapper around lib/mission-validation.ts
+  tsconfig.json        Stubs `server-only` for the CLI only
 
 tests/                 Vitest — pure domain logic and storage helpers
   helpers/mission-run  Shared harness: play a mission end to end in Node
@@ -234,9 +298,12 @@ These modules are canonical and should not be duplicated:
   `in-development` or `coming-soon` **for this player**. `hasFullContent()` derives playability from
   which stage configs exist. Every surface renders these states through
   `components/ui/AvailabilityBadge.tsx`.
-- **`lib/progress.ts`** — the progression ledger. Every XP, level, rank, skill and streak figure in
-  the app comes from here, and a new player's is genuinely empty.
+- **`lib/progress.ts`** — the ledger's shape and the formulas over it (XP curve, levels, ranks,
+  streaks). The *values* are derived in Postgres by `lib/server/ledger.ts`; a new player's ledger is
+  genuinely empty, and `EMPTY_LEDGER` is a valid one rather than a placeholder.
 - **`lib/grading.ts`** — the only place a score, an XP award or a `resolved` verdict is produced.
+  It takes the answers as an argument, so only a route handler can actually grade anything.
+- **`lib/server/answers.ts`** — the only place the correct answers exist.
 - **`lib/skills.ts`** — the 20 Node.js skills across 4 categories. Referenced by stable `id`, never
   by display name. `lib/data.ts` holds landing-page marketing content only.
 
@@ -251,30 +318,59 @@ These modules are canonical and should not be duplicated:
   after mount behind a `hydrated` flag, and only write once hydrated. `EMPTY_LEDGER` is the
   server-rendered state and a genuinely valid new-player one.
 - **Nothing about a player is authored.** No fixture scores, XP totals, streaks, ranks, skill levels
-  or completion history. `validate:missions` fails a results config that reintroduces one.
+  or completion history — and, since the leaderboard became real, no fictional players either.
+  `validate:missions` fails a results config that reintroduces a score.
+- **A control nothing can honour is worse than no control.** The light theme, `defaultLanguage`,
+  `soundEffects` and the Friends/Country/Company leaderboard scopes were deleted rather than left
+  as switches that did nothing.
+- **The evidence is stored; the conclusion is derived.** There is no `total_xp` column, no stored
+  rank and no stored streak — a stored total is a second source of truth that starts disagreeing
+  with the runs behind it the moment anybody plays.
 
-### Storage
+### Where data lives
 
-All keys are namespaced `coderaid:` so progress reset can sweep them.
+Split by one question: **is it scored?**
+
+**Postgres** — everything scored, written only by route handlers holding the service-role key:
+
+| Table | Holds |
+| --- | --- |
+| `players` | Identity and preferences. No email column — `auth.users` is a join away |
+| `mission_runs` | **Append-only.** Every graded run, plus `source` (`played` \| `claimed`) |
+| `player_active_days` | Opening the app is activity — what a streak measures |
+| `player_achievements` | Stamped on the crossing, so "unlocked 3 days ago" is true |
+| `best_runs` (view) | The best run per player per mission — what the ledger sums |
+
+RLS grants `SELECT` on your own rows and `UPDATE` on your own *profile columns only*. There is
+deliberately **no insert policy on any scored table**, because RLS decides which *row* you may
+touch, never which *values* you may write into it — which is exactly why grading can't live there.
+
+**`localStorage`** — working state only, all namespaced `coderaid:`. None of it decides a number,
+which is why a mission can be played without an account:
 
 | Key | Shape |
 | --- | --- |
 | `coderaid:profile` | `{ name, avatarId, slogan, pathId, experienceId, step, completed }` |
 | `coderaid:user-settings` | `{ codeEditorTheme, showLineNumbers }` |
-| `coderaid:player:progress` | `{ version, totalXp, skillXp, missions, activeDays, achievements }` |
 | `coderaid:{missionId}:run` | `{ startedAt, lastActiveAt, stagesCompleted[], hintsUsed[] }` |
 | `coderaid:{missionId}:investigation` | `{ activeTool, collectedEvidenceIds[] }` |
 | `coderaid:{missionId}:diagnosis` | `{ rootCauseId, evidenceIds[], confirmed }` |
 | `coderaid:{missionId}:fix` | `{ fixId, applied }` |
 | `coderaid:{missionId}:verification` | `{ run, completed }` |
 | `coderaid:{missionId}:results` | `{ claimed, score }` |
+| `coderaid:{missionId}:grade` / `:credit` | The grade **the server returned**, and what the run added |
+
+`coderaid:player:progress` still exists but **nothing writes it**. It is the pre-migration ledger,
+shown read-only to a signed-out player who earned it before accounts existed, and cleared once
+`POST /api/claim` imports it.
+
+Best-run-wins is now a **query**, not a mutation: a better replay improves your standing, a worse one
+changes nothing, and refreshing the results screen can't farm XP — properties that fall out of the
+schema rather than being enforced by client code.
 
 Progress reset protects `coderaid:profile` and `coderaid:user-settings` and clears everything else in
-the namespace — written as a namespace sweep rather than a delete-list, so a new stage key can't
-survive it.
-
-Crediting is idempotent: only the player's best run per mission is kept, a better replay adds the
-difference, a worse one adds nothing, and refreshing the results screen can't farm XP.
+the namespace. **Signed in, that clears saved stage state only** — runs are append-only, so earned XP
+survives, and the dialog says exactly that instead of promising a reset it can't perform.
 
 ### Design system
 
@@ -317,5 +413,11 @@ Unreachable from content alone, and why:
 
 1. Grow the catalogue so the XP-gated rank and the Event Loop skill achievement become reachable.
 2. Mission unlocking, now that there is a full 14-mission order for it to mean something.
-3. Add a backend and authentication so progress survives a browser.
-4. Open the Databases, Caching, System Design and Cloud Reliability tracks.
+3. ~~Add a backend and authentication so progress survives a browser.~~ **Done** — Supabase, GitHub
+   OAuth, server-side grading and a ledger derived from an append-only run history.
+4. Cover the authenticated round trip in the gates. The Playwright suite still stops at the sign-in
+   wall because it has no session; minting one in CI would let the graded path be tested rather
+   than verified by hand.
+5. Make the verification replay real. It is still a 1,400 ms timer — what it *reports* is derived,
+   but nothing executes or measures anything.
+6. Open the Databases, Caching, System Design and Cloud Reliability tracks.

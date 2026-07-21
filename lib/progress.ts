@@ -80,7 +80,18 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 
 /** Coerces stored JSON into a valid ledger. Unknown shapes reset to empty. */
 function parseLedger(raw: string): Ledger {
-  const parsed: unknown = JSON.parse(raw);
+  return coerceLedger(JSON.parse(raw));
+}
+
+/**
+ * Coerces an unknown value into a valid ledger.
+ *
+ * Shared by the `localStorage` reader and the server-ledger fetch: both are
+ * parsing something they did not construct in this tick, and the same rules
+ * apply to either. Unknown shapes become the empty ledger rather than throwing,
+ * because a valid zero state renders and a half-built one does not.
+ */
+export function coerceLedger(parsed: unknown): Ledger {
   if (!isRecord(parsed) || parsed.version !== 2) return EMPTY_LEDGER;
 
   const missions: Record<string, MissionRecord> = {};
@@ -416,6 +427,51 @@ export type CreditResult = {
   /** True when this was the first time the mission was completed. */
   firstCompletion: boolean;
 };
+
+/** What a single run actually added, once the ledger had settled. */
+export type RunCredit = {
+  /** XP actually added — 0 on a replay that didn't beat the previous run. */
+  xpAdded: number;
+  /** Skill XP actually added, keyed by skill id. */
+  skillXpAdded: Record<string, number>;
+  /** True when this was the first time the mission was completed. */
+  firstCompletion: boolean;
+};
+
+export const NO_CREDIT: RunCredit = {
+  xpAdded: 0,
+  skillXpAdded: {},
+  firstCompletion: false,
+};
+
+/**
+ * What changed between two ledgers — the honest answer to "what did that run
+ * earn me?".
+ *
+ * Measured rather than predicted. Because runs are append-only and the ledger
+ * is derived from the *best* run per mission, a replay that didn't beat the
+ * previous attempt legitimately adds nothing, and this reports zero without
+ * needing to know the rule that made it so. That is why the results screen can
+ * show a truthful "+0 XP" on a worse replay: nobody had to reimplement
+ * best-run-wins on the client to work it out.
+ */
+export function creditBetween(
+  before: Ledger,
+  after: Ledger,
+  missionId: string,
+): RunCredit {
+  const skillXpAdded: Record<string, number> = {};
+  for (const [skillId, amount] of Object.entries(after.skillXp)) {
+    const added = amount - (before.skillXp[skillId] ?? 0);
+    if (added > 0) skillXpAdded[skillId] = added;
+  }
+
+  return {
+    xpAdded: Math.max(0, after.totalXp - before.totalXp),
+    skillXpAdded,
+    firstCompletion: !(missionId in before.missions) && missionId in after.missions,
+  };
+}
 
 /**
  * Credits a completed run, keeping only the player's best result per mission.
