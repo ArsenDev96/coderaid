@@ -1,4 +1,34 @@
+import { readFileSync } from "node:fs";
 import { defineConfig, devices } from "@playwright/test";
+
+/**
+ * Load `.env.local` for local runs.
+ *
+ * Next reads it during `build`, but the Playwright process is separate and does
+ * not, and the authenticated specs need the Supabase keys in *this* process to
+ * mint a session. Existing variables always win, so CI secrets are never
+ * overwritten by a stray local file. Written by hand rather than pulling in
+ * `dotenv` for eleven lines.
+ */
+function loadEnvLocal() {
+  let contents: string;
+  try {
+    contents = readFileSync(".env.local", "utf8");
+  } catch {
+    return; // Absent in CI, where the values come from secrets.
+  }
+  // Split on CRLF as well as LF: this file is edited on Windows, and `.` does
+  // not match `\r`, so a trailing carriage return silently defeats the match.
+  for (const line of contents.split(/\r?\n/)) {
+    const match = /^\s*([A-Z0-9_]+)\s*=\s*(.*)$/.exec(line);
+    if (!match) continue;
+    const [, key, raw] = match;
+    if (process.env[key]) continue;
+    process.env[key] = raw.trim().replace(/^["']|["']$/g, "");
+  }
+}
+
+loadEnvLocal();
 
 /**
  * Browser smoke coverage.

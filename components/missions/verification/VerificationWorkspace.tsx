@@ -16,6 +16,13 @@ import {
   saveVerificationState,
   type MissionVerificationConfig,
 } from "@/lib/verification";
+import { browserOffloader } from "@/lib/verification-offload";
+import {
+  hasScenario,
+  runScenario,
+  type Measurement,
+} from "@/lib/verification-runtime";
+import { ReplayMeasurement } from "./ReplayMeasurement";
 import { MetricCards } from "./MetricCards";
 import { PerformanceChart } from "./PerformanceChart";
 import { RequestBreakdown } from "./RequestBreakdown";
@@ -48,6 +55,13 @@ export function VerificationWorkspace({
   const [fixResolves, setFixResolves] = useState(false);
   const [needsSignIn, setNeedsSignIn] = useState(false);
   const [failed, setFailed] = useState(false);
+  /**
+   * What the replay actually measured, for missions that run one. Deliberately
+   * not persisted: a measurement describes one execution on one machine, and
+   * restoring yesterday's number next to today's would be exactly the kind of
+   * stale figure this whole change exists to remove.
+   */
+  const [measurement, setMeasurement] = useState<Measurement | null>(null);
   const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   // Restore after mount — a run that was already graded comes back as "done".
@@ -100,24 +114,17 @@ export function VerificationWorkspace({
     const fixConfig = getFix(config.missionId);
     const fixState = fixConfig ? loadFixState(fixConfig) : null;
 
-    // The replay is simulated, but the pause is not cosmetic here — it keeps
-    // the fastest possible response from flashing past unread.
-    const [result] = await Promise.all([
-      submitRun({
-        missionId: config.missionId,
-        rootCauseId: diagnosisState?.rootCauseId ?? null,
-        evidenceIds: diagnosisState?.evidenceIds ?? [],
-        fixId: fixState?.fixId ?? null,
-        fixApplied: fixState?.applied === true,
-        telemetry: loadRun(config.missionId) ?? emptyRun(),
-        // Streaks are counted in local days, which the server cannot compute;
-        // it bounds this to ±1 day of its own date rather than trusting it.
-        completedOn: today(),
-      }),
-      new Promise((resolve) => {
-        timer.current = setTimeout(resolve, 1400);
-      }),
-    ]);
+    const result = await submitRun({
+      missionId: config.missionId,
+      rootCauseId: diagnosisState?.rootCauseId ?? null,
+      evidenceIds: diagnosisState?.evidenceIds ?? [],
+      fixId: fixState?.fixId ?? null,
+      fixApplied: fixState?.applied === true,
+      telemetry: loadRun(config.missionId) ?? emptyRun(),
+      // Streaks are counted in local days, which the server cannot compute;
+      // it bounds this to ±1 day of its own date rather than trusting it.
+      completedOn: today(),
+    });
 
     if (result.status === "unauthenticated") {
       setNeedsSignIn(true);
@@ -130,6 +137,21 @@ export function VerificationWorkspace({
       return;
     }
 
+    // The replay, for missions that have one: real quadratic work, actually
+    // executed, with the main thread's responsiveness actually measured.
+    //
+    // It runs *after* the submission rather than alongside it, and the ordering
+    // is load-bearing: whether the work moves off the thread is the server's
+    // grading verdict, and this bundle is deliberately not allowed to know
+    // which fix would have earned it. For missions with no scenario the old
+    // pause stands in — not cosmetic there, it keeps the fastest possible
+    // response from flashing past unread.
+    const measurement = hasScenario(config.missionId)
+      ? await runScenario(config.missionId, result.grade.resolved, browserOffloader)
+      : await new Promise<null>((resolve) => {
+          timer.current = setTimeout(() => resolve(null), 1400);
+        });
+
     saveGrade(config.missionId, result.grade);
     // What the run earned, as measured by the server around the insert. The
     // results screen renders it; it cannot work it out for itself, which is
@@ -140,6 +162,7 @@ export function VerificationWorkspace({
     // a second round trip and without the browser deriving any of it.
     if (result.ledger) adopt(result.ledger);
     setFixResolves(result.grade.resolved);
+    setMeasurement(measurement);
     setPhase("done");
   };
 
@@ -190,8 +213,10 @@ export function VerificationWorkspace({
             </span>
             <p className="max-w-sm text-sm leading-relaxed text-slate-400">
               {phase === "running"
-                ? "Running verification — replaying signup traffic and measuring the response…"
-                : "Run verification to compare signup performance before and after your fix."}
+                ? hasScenario(config.missionId)
+                  ? "Replaying the workload with your fix in place and measuring the main thread — this may stutter, which is the point."
+                  : "Running verification — replaying traffic and measuring the response…"
+                : "Run verification to compare performance before and after your fix."}
             </p>
 
             {needsSignIn && (
@@ -248,6 +273,8 @@ export function VerificationWorkspace({
           </div>
         ) : (
           <div className="mt-6 flex flex-col gap-6">
+            {measurement && <ReplayMeasurement measurement={measurement} />}
+
             <MetricCards metrics={report.metrics} />
 
             <div className="grid grid-cols-1 items-stretch gap-5 xl:grid-cols-[1.4fr_1fr]">

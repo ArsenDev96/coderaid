@@ -73,8 +73,18 @@ jobs:
         run: npx playwright install --with-deps chromium
 
       # Builds and serves the app through the Playwright webServer config.
+      #
+      # The Supabase keys are what let `e2e/authenticated.spec.ts` mint a
+      # session and cross the sign-in wall. They are deliberately not required:
+      # `hasCredentials()` skips that file when they are absent, so a fork's
+      # pull request — which cannot read secrets — skips those specs rather than
+      # failing red on credentials it was never going to be given.
       - name: Play a mission through the real UI
         run: npm run test:e2e
+        env:
+          NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
+          NEXT_PUBLIC_SUPABASE_ANON_KEY: ${{ secrets.NEXT_PUBLIC_SUPABASE_ANON_KEY }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
 
       - name: Upload the report on failure
         if: failure()
