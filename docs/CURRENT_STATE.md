@@ -158,7 +158,7 @@ The README (`README.md`) has been rewritten to match this positioning and is no 
 | Backend | **Supabase** — Postgres + GitHub OAuth. Four route handlers under `app/api/`; no server actions |
 | Auth | `@supabase/ssr` 0.12 + `@supabase/supabase-js` 2 — GitHub OAuth only, cookie sessions |
 | Tests | **Vitest 2** — `tests/`, 16 files, 460 tests, Node environment, `@/*` alias |
-| Browser smoke | **Playwright 1.61** — `e2e/`, 2 Chromium tests against the production build |
+| Browser smoke | **Playwright 1.61** — `e2e/`, 10 Chromium tests against the production build: 2 signed-out, 8 authenticated (§15.5) |
 | Lint | **ESLint 8 + `eslint-config-next`**, committed `.eslintrc.json` extending `next/core-web-vitals` |
 | Content validation | `tsx scripts/validate-missions.ts` over `lib/mission-validation.ts` |
 
@@ -287,7 +287,10 @@ tests/                       Vitest — pure domain logic + end-to-end mission f
   bundle-secrecy  ledger-derivation  claim
   stubs/server-only.ts       Aliased by vitest.config.ts so server modules import in Node
 
-e2e/                         Playwright — mission-flow.spec.ts
+e2e/                         Playwright — mission-flow.spec.ts (signed out),
+                             authenticated.spec.ts (session-backed, §15.5)
+  support/                   session.ts (mint a session), fixtures.ts (player
+                             lifecycle), mission.ts (play a mission well or badly)
 .eslintrc.json               next/core-web-vitals
 vitest.config.ts             Node environment, @/* alias, `server-only` → tests/stubs
 ```
@@ -1301,10 +1304,16 @@ Genuinely outstanding:
 
 1. **The verification run is still a 1400ms timer.** What it *reports* is real; the replay is not.
    Nothing executes or measures anything — this is the largest remaining piece of theatre.
-2. **No component tests; browser coverage is one mission deep**, and the authenticated round-trip is
-   covered by throwaway probes rather than a committed test. The Playwright suite still stops at the
-   sign-in wall, because it has no session. Minting one in CI (a service-role-created user, as the
-   probes do) would let the graded path be covered by the gates rather than by hand.
+2. **No component tests; browser coverage is one mission deep.** ~~The authenticated round-trip is
+   covered by throwaway probes rather than a committed test.~~ **The authenticated half is resolved**
+   — `e2e/authenticated.spec.ts` mints a session and covers grading, the ledger, the replay rule, the
+   claim, the leaderboard and RLS as eight committed specs (§15.5). What remains under this item:
+   there are still no *component* tests, and the browser coverage is still one mission deep — the
+   other thirteen are covered by Vitest rules only.
+   **And the authenticated specs run against the live Supabase project**, because no local stack is
+   configured. Users are namespaced `coderaid-e2e+…@example.com` and deleted in teardown, but a
+   dedicated CI project would be the right fix — a failed teardown currently leaves a row in
+   production, and CI traffic and real players share a database.
 3. **Content scale is still the bottleneck — but the bottleneck has moved.** All 14 Node.js
    missions are playable, so the problem is no longer *finishing* the MVP but *growing past it*:
    at 1,830 total XP the catalogue cannot reach the Backend Engineer rank (10,000 XP), and Chapters
@@ -1657,8 +1666,16 @@ Runs on pushes to `main` and pull requests targeting `main`, on `ubuntu-latest` 
 `npm run lint`, `npm run validate:missions`, **`npm run build`, then `npm run test`**. A second job
 runs the Playwright smoke test, kept separate so a browser download can't mask a failure in the pure
 checks. In-progress runs for the same ref are cancelled. **There is no deployment step** — the
-workflow only verifies. **No environment variables are required**; the build never reads the
-Supabase keys.
+workflow only verifies.
+
+**Environment variables — the earlier blanket "none are required" was wrong.** It is true of the
+`verify` job: the build never reads the Supabase keys, and all five pure gates run without them.
+It is **not** true of the `smoke` job. The e2e run serves the built app, and at runtime
+`/api/ledger` throws a named error without `NEXT_PUBLIC_SUPABASE_URL`, so the provider's mount
+request 500s, `POST /api/runs` 500s instead of 401ing, and the sign-in wall
+`mission-flow.spec.ts` asserts on never renders. Reproduced locally by hiding `.env.local`: that
+spec fails at the "Sign in with GitHub" assertion. The smoke job now receives all three keys as
+secrets (§15.5).
 
 **Reordered 2026-07-21, and the reason is worth recording.** `build` used to run *last*, after
 `test`. `tests/bundle-secrecy.test.ts` — the check that greps the real build output for the answer
@@ -1673,9 +1690,53 @@ itself is only as good as the thing that guarantees its precondition.** The othe
 stale `.next` producing 40 phantom leaks from a pre-migration build (§2). Both failure modes are
 silent in opposite directions — one hides a real leak, the other invents one.
 
-What CI still does **not** cover: anything requiring a session. Grading, the ledger, the claim and
-the leaderboard were all verified by hand against the live database (§16.6), and the Playwright job
-stops at the sign-in wall. That is §12 item 2, and it is the most valuable gap left.
+### 15.5 The authenticated specs — `e2e/authenticated.spec.ts` (new 2026-07-22)
+
+**This closes the gap §12 item 2 described.** Grading, the ledger, the claim and the leaderboard
+used to be verified by hand and by nothing else (§16.6); the probes that did it were never
+committed. They are now eight committed Playwright specs that cross the sign-in wall.
+
+**How a session is minted, since GitHub OAuth cannot be driven by a test.** `e2e/support/session.ts`
+does what the OAuth callback would: creates a user via `POST /auth/v1/admin/users` with the
+service-role key and `email_confirm: true`, exchanges the password for a session via the password
+grant, then writes that session into the Playwright context in exactly the encoding
+`@supabase/ssr` reads it back with — `base64-` + `stringToBase64URL(JSON.stringify(session))`, run
+through `createChunks`, under `sb-<project-ref>-auth-token`. Both helpers are imported from
+`@supabase/ssr/dist/main/utils` rather than reimplemented, so a change to that encoding breaks the
+specs loudly instead of silently signing nobody in.
+
+The `player` fixture in `e2e/support/fixtures.ts` owns the lifecycle: **one fresh user per test**,
+deleted in teardown even when the test fails, with `on delete cascade` taking the runs, active days
+and achievements with it. Per-test rather than a shared seeded account is what keeps them parallel
+and stops one test's runs appearing in another's ledger.
+
+What the eight cover, mirroring §16.6 one for one:
+
+| Spec | Asserts |
+| --- | --- |
+| ledger from Postgres | 200, a real empty ledger, and a `players` row the trigger created |
+| perfect run | exactly one row, score 100, 80 XP, `resolved`, ≥5 skills credited, `first-mission` + `perfect-diagnosis` stamped server-side, ledger 80 — with `coderaid:player:progress` **absent** |
+| worse replay | ledger still 80, `attempts` 2, both rows kept, best-run-wins as a view |
+| local date | `completed_on` equals the *browser's* calendar date, not the server's UTC one |
+| claim | imports one real mission, drops the unknown one, recomputes 9,999 XP down to 72, keeps the genuine past date, derives the active day from it, 409s on the second attempt |
+| leaderboard | ranks the player, `isCurrentUser` only for the requester, no email and no answer fields in the payload |
+| direct write | `POST` to `mission_runs` with the player's **own** token → **403**, nothing inserted |
+| signed out | `/api/ledger`, `/api/leaderboard` and `POST /api/runs` all 401 |
+
+**They run against the real Supabase project**, because there is no local stack configured. Users
+are created as `coderaid-e2e+…@example.com` and deleted; still, see §12 item 2 for why a dedicated
+CI project would be better.
+
+The suite skips itself when the keys are absent (`hasCredentials()`), so a fork's pull request —
+which cannot read secrets — skips these rather than failing red. That is the same skip-on-missing-
+precondition pattern that hid the bundle-secrecy guard for weeks, so it is worth being explicit
+about the difference: **that** one skipped silently on the machine that was supposed to run it,
+where this one skips only where the credentials genuinely cannot exist, and the job that owns them
+does not skip.
+
+**Verified to fail when it should.** Mutating `parseClaim` to trust the submitted `xpEarned`
+instead of recomputing it made the claim spec fail with `Expected: 72, Received: 9999`; the
+mutation was then reverted. A green suite that cannot go red proves nothing.
 
 ### 15.3 Stage prerequisites — `lib/stage-access.ts` + `components/missions/StageGate.tsx`
 
@@ -1803,8 +1864,10 @@ mission id), and clears the local ledger afterwards so only one copy survives.
 ### 16.6 Verified, not assumed
 
 Every claim above was checked against the live Supabase project by driving the real UI with
-Playwright and a service-role-minted session, then reading Postgres back. The probes are not
-committed — see §12 item 2, which is the honest debt this leaves. What they confirmed:
+Playwright and a service-role-minted session, then reading Postgres back. ~~The probes are not
+committed — see §12 item 2, which is the honest debt this leaves.~~ **They are committed as of
+2026-07-22**, as `e2e/authenticated.spec.ts` (§15.5), so each item below is now re-checked by CI
+rather than resting on one manual pass. What they confirmed:
 
 - a perfect run records one row (score 100, 80 XP, six skills), returns a ledger and a credit, and
   stamps `first-mission` and `perfect-diagnosis` server-side;
