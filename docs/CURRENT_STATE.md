@@ -1255,7 +1255,18 @@ and next-mission links, derived from which stage configs exist) — plus, new in
   no longer advertises a reward the ledger could never credit.
 - There is no light palette, and no control offers one — CodeRaid is dark, declared once as
   `:root { color-scheme: dark }` in `app/globals.css`.
-- `/demo` is still a placeholder page. `/sign-in` is real.
+- `/demo` is still a placeholder page. `/sign-in` is real — **but the footer's Privacy Policy and
+  Terms of Service links both point at `/demo`**, as do GitHub, Twitter and Discord (§12 item 15).
+- **"Log out" is wired to `href="/"` and does not end the session** (§12 item 13). The working
+  `POST /auth/sign-out` route exists and nothing calls it. Listed here because a reader auditing
+  what is real would otherwise reasonably assume sign-out is.
+- **The sidebar's "Go Premium / Upgrade Now" button has no handler** and sells nothing that exists
+  (§12 item 14).
+- **The dashboard's Next Action sparkline is a hardcoded series** (`RESPONSE_SERIES`), rendered
+  beside a real headline metric and identical for every mission (§12 item 16).
+- **Profile edits never leave the browser.** Settings and onboarding write `coderaid:profile` in
+  `localStorage`; `players.display_name` is only ever written once, by the sign-up trigger, and it
+  is what the leaderboard shows (§12 item 17).
 
 ---
 
@@ -1381,6 +1392,58 @@ Genuinely outstanding:
     actions, and the bundled `postcss` is build-time only. The dev tree still carries the rest of
     the findings via `eslint-config-next` and vite. **Re-measure with `npm audit --omit=dev` rather
     than trusting the total** — the headline count mixes dev and production.
+
+### Found in the decoration audit, 2026-07-22
+
+A deliberate sweep for anything still ornamental now that grading, the ledger and the leaderboard
+are real. One of the five is a live defect rather than debt.
+
+13. **"Log out" does not log out — this is a bug, not decoration.**
+    `components/dashboard/DashboardSidebar.tsx` renders it as `<Link href="/">`, which navigates to
+    the landing page and **leaves the session intact**; returning to `/dashboard` is still signed
+    in. A correct route already exists at `app/auth/sign-out/route.ts` — deliberately a `POST`,
+    with a comment explaining that a `GET` would let any page on the internet log the player out
+    with an `<img>` tag — and **nothing calls it**. It was written and never wired up. This was
+    harmless while there was no auth; there is now, so on a shared machine the next person inherits
+    the account. Fixing it means a small form or button that POSTs to the existing route.
+
+14. **The Premium block advertises a product that does not exist.** The sidebar's "Go Premium /
+    Upgrade Now" (`PREMIUM` in `lib/dashboard.ts`) is a `<button type="button">` with **no
+    handler**. It promises "premium Node.js incidents, exclusive rewards and advanced analytics",
+    none of which exist and none of which can be bought. Same category as the deleted theme toggle,
+    `defaultLanguage`, `soundEffects` and the three fake leaderboard scopes — a control nothing can
+    honour — and it is the most prominent element in the sidebar.
+
+15. **The footer's legal links are not legal links.** `components/Footer.tsx` points **Privacy
+    Policy** and **Terms of Service** at `/demo`, a `PlaceholderPage` reading "Watch the demo".
+    GitHub, Twitter and Discord point there too. Unlike everything else on this list this one
+    acquires real weight now that accounts and a database exist: a Terms link that is not terms is
+    worse than no link.
+
+16. **The dashboard sparkline is a hardcoded squiggle.** `RESPONSE_SERIES` in `lib/dashboard.ts` is
+    21 authored points described in its own comment as a "noisy, elevated latency series". It
+    renders on the Next Action card next to a **real** headline metric, so a fabricated chart sits
+    beside a derived number, and it is identical for every mission regardless of which incident the
+    card is showing. It is `aria-hidden`, so the cost is honesty rather than accessibility.
+
+17. **The profile never reaches the server.** `players` carries `display_name`, `avatar_id`,
+    `slogan`, `path_id`, `experience_id` and `onboarding_completed`, and `0001_init.sql` grants
+    `UPDATE` on exactly those six columns to `authenticated` — the one thing a player is allowed to
+    write. **Nothing ever writes any of them.** Settings and onboarding persist to
+    `coderaid:profile` in `localStorage`, while the leaderboard renders the GitHub-derived
+    `display_name` written once by the `handle_new_user` trigger. So changing your name in Settings
+    leaves everyone else seeing the old one. This is a feature gap rather than clutter: the schema
+    and the RLS grant were built for it and the client was never connected.
+
+18. **80 dead `done` flags in the catalogue.** Every mission's objectives carry `done: true|false`.
+    `MissionObjectives` takes `steps: string[]` and never reads them, so nothing renders — but they
+    are 80 authored assertions about a player's progress, which is the exact class of thing the
+    "nothing about a player may be authored" principle (§4.10) exists to forbid. Harmless until
+    someone renders them.
+
+    **Deliberately not on this list:** `DAILY_RAID`. It carries no XP figure and no route and says
+    outright that daily challenges "aren't playable yet" — it advertises an idea and admits it,
+    which is the honest version of the same situation.
 
 ---
 
@@ -1992,7 +2055,14 @@ accidentally run anonymously.
 
 ---
 
-*Updated 2026-07-22 — the **verification replay**: `event-loop-overload` now executes its own
+*Updated 2026-07-22 — a **decoration audit** (§12 items 13–18), which found one live defect and four
+ornaments: **"Log out" does not end the session** — it is an `href="/"` beside a correct, unused
+`POST /auth/sign-out` route; the sidebar's **"Go Premium" button has no handler** and sells nothing
+that exists; the footer's **Privacy Policy and Terms of Service both point at `/demo`**; the
+dashboard's Next Action **sparkline is a hardcoded squiggle** rendered beside a real metric; and
+**profile edits never reach the server**, so the leaderboard shows a name Settings cannot change
+even though the schema grants exactly that write. Plus 80 dead `done` flags in the catalogue.
+Documented, not yet fixed. Preceded by the **verification replay**: `event-loop-overload` now executes its own
 incident instead of describing it, with 12,000 rows of real quadratic work and the main thread's
 responsiveness really measured; the mission→fix mapping moved behind `server-only` after the first
 draft compiled the fix answer into the client bundle, with a new `bundle-secrecy` assertion to keep
