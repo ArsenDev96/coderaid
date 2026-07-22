@@ -448,16 +448,18 @@ function MissionRail({ mission }: { mission: Mission }) {
           Objectives
         </div>
         <ul className="mt-3 space-y-2.5">
+          {/*
+            These are the objectives the mission sets, not a checklist of what
+            this player has done. The violet checkmark that used to appear here
+            was driven by an authored `done` flag — six of them were `true`, so
+            a player who had never opened the mission saw objectives already
+            ticked off. Nothing tracks objective-level completion, so the list
+            now reads uniformly as "what you will do".
+          */}
           {mission.objectives.map((o) => (
             <li key={o.text} className="flex items-start gap-2.5 text-sm">
-              {o.done ? (
-                <Check className="mt-0.5 h-4 w-4 shrink-0 text-violet-400" strokeWidth={3} />
-              ) : (
-                <Circle className="mt-0.5 h-4 w-4 shrink-0 text-slate-600" />
-              )}
-              <span className={o.done ? "text-slate-200" : "text-slate-500"}>
-                {o.text}
-              </span>
+              <Circle className="mt-0.5 h-4 w-4 shrink-0 text-slate-600" />
+              <span className="text-slate-500">{o.text}</span>
             </li>
           ))}
         </ul>

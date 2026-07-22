@@ -314,6 +314,52 @@ test.describe("the authenticated path", () => {
       await selectRows("mission_runs", `player_id=eq.${player.id}&select=id`),
     ).toHaveLength(0);
   });
+
+  /**
+   * Logging out actually ends the session.
+   *
+   * This is the regression test for a live defect: the sidebar rendered Log out
+   * as `<Link href="/">`, which navigated home and left the session completely
+   * intact. The page looked signed out — the dashboard is behind a client
+   * redirect — while the cookie, and every endpoint it opened, stayed live.
+   *
+   * So the assertion is deliberately *not* "the UI changed". It is that the
+   * server stops answering: `/api/ledger` is the endpoint the old bug left wide
+   * open, and it is the one checked here.
+   */
+  test("ends the session when the player logs out", async ({ page }) => {
+    // The session is live before we touch anything, or the rest proves nothing.
+    expect((await page.request.get("/api/ledger")).status()).toBe(200);
+
+    await page.goto("/dashboard");
+
+    const logOut = page.getByRole("button", { name: "Log out" });
+    await expect(logOut).toBeVisible();
+
+    // The route answers 303 to `/`; a form POST follows it as a navigation.
+    await Promise.all([page.waitForURL("**/"), logOut.click()]);
+
+    // The actual claim: the cookie no longer opens anything.
+    expect((await page.request.get("/api/ledger")).status()).toBe(401);
+    expect((await page.request.get("/api/leaderboard")).status()).toBe(401);
+  });
+
+  /**
+   * The other half of the same design: sign-out is POST-only *on purpose*,
+   * because a GET sign-out lets any page on the internet log the player out
+   * with an `<img src="…/auth/sign-out">` tag. `app/auth/sign-out/route.ts`
+   * says so in a comment; nothing checked it, and a later hand adding `GET` to
+   * "make the link work" would have reintroduced exactly that.
+   */
+  test("cannot be logged out by a GET", async ({ page }) => {
+    const response = await page.request.get("/auth/sign-out", {
+      maxRedirects: 0,
+    });
+    expect(response.status()).toBe(405);
+
+    // The point of the check: the session survived the attempt.
+    expect((await page.request.get("/api/ledger")).status()).toBe(200);
+  });
 });
 
 /**

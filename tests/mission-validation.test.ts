@@ -27,7 +27,7 @@ function fixture(): ValidationInput {
     category: "Async JavaScript",
     tags: ["Node.js"],
     description: "A fixture.",
-    objectives: [{ text: "Do the thing", done: false }],
+    objectives: [{ text: "Do the thing" }],
     rewardSkill: "Event Loop +1",
     rewardSkillId: "event-loop",
   };

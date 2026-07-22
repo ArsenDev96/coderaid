@@ -1,6 +1,15 @@
-import { Github, MessageCircle, Twitter } from "lucide-react";
 import { Logo } from "./ui/Logo";
 
+/*
+  Every link here goes somewhere real.
+
+  Removed: Privacy Policy and Terms of Service, which both pointed at `/demo`
+  — a placeholder page reading "Watch the demo" — plus GitHub, Twitter and
+  Discord, which pointed at the same placeholder. Now that there are real
+  accounts and a real database behind them, a Terms link that is not terms is
+  worse than no link: it implies an agreement that does not exist. They come
+  back when the pages do.
+*/
 const PRODUCT_LINKS = [
   { label: "How It Works", href: "#how-it-works" },
   { label: "Mission Preview", href: "#mission" },
@@ -8,17 +17,6 @@ const PRODUCT_LINKS = [
   { label: "Career Path", href: "#career" },
   { label: "Missions", href: "/missions" },
   { label: "Leaderboards", href: "/leaderboards" },
-];
-
-const LEGAL_LINKS = [
-  { label: "Privacy Policy", href: "/demo" },
-  { label: "Terms of Service", href: "/demo" },
-];
-
-const SOCIALS = [
-  { label: "GitHub", href: "/demo", icon: Github },
-  { label: "Twitter", href: "/demo", icon: Twitter },
-  { label: "Discord", href: "/demo", icon: MessageCircle },
 ];
 
 export function Footer() {
@@ -39,34 +37,7 @@ export function Footer() {
                 {link.label}
               </a>
             ))}
-            <span aria-hidden className="hidden h-4 w-px bg-white/10 lg:block" />
-            {LEGAL_LINKS.map((link) => (
-              <a
-                key={link.label}
-                href={link.href}
-                className="text-xs text-slate-500 transition-colors hover:text-white"
-              >
-                {link.label}
-              </a>
-            ))}
           </nav>
-
-          {/* Socials */}
-          <div className="flex gap-2">
-            {SOCIALS.map((social) => {
-              const Icon = social.icon;
-              return (
-                <a
-                  key={social.label}
-                  href={social.href}
-                  aria-label={social.label}
-                  className="grid h-8 w-8 place-items-center rounded-lg border border-white/[0.08] bg-white/[0.02] text-slate-400 transition-colors hover:border-white/20 hover:text-white"
-                >
-                  <Icon className="h-3.5 w-3.5" />
-                </a>
-              );
-            })}
-          </div>
         </div>
 
         <p className="mt-8 border-t border-white/[0.06] pt-5 text-center text-xs text-slate-600">

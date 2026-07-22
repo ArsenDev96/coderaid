@@ -1,8 +1,8 @@
 "use client";
 
 import Link from "next/link";
-import { Crown, LogOut, X } from "lucide-react";
-import { PREMIUM, SIDEBAR_ITEMS } from "@/lib/dashboard";
+import { LogOut, X } from "lucide-react";
+import { SIDEBAR_ITEMS } from "@/lib/dashboard";
 import { Logo } from "@/components/ui/Logo";
 
 export function DashboardSidebar({
@@ -77,33 +77,26 @@ export function DashboardSidebar({
           })}
         </nav>
 
-        {/* Go Premium */}
-        <div className="mt-auto rounded-2xl border border-violet-400/25 bg-gradient-to-br from-violet-600/[0.14] to-electric-500/[0.05] p-4">
-          <div className="flex items-center gap-2">
-            <Crown className="h-4 w-4 text-amber-300" fill="currentColor" />
-            <span className="text-sm font-semibold text-violet-200">
-              {PREMIUM.title}
-            </span>
-          </div>
-          <p className="mt-2 text-xs leading-relaxed text-slate-400">
-            {PREMIUM.blurb}
-          </p>
-          <button
-            type="button"
-            className="mt-3.5 w-full rounded-xl border border-violet-400/40 bg-gradient-to-r from-violet-600 to-violet-500 px-4 py-2.5 text-sm font-semibold text-white shadow-neon transition-transform hover:scale-[1.02]"
-          >
-            {PREMIUM.cta}
-          </button>
-        </div>
+        {/*
+          Log out is a form, not a link. The route is deliberately POST-only —
+          a GET sign-out would let any page on the internet log the player out
+          with an <img> tag — so a <Link> could never have reached it. It used
+          to be `<Link href="/">`, which navigated home and left the session
+          entirely intact.
 
-        {/* Log out */}
-        <Link
-          href="/"
-          className="mt-4 flex items-center gap-3 rounded-xl px-3.5 py-3 text-sm font-medium text-slate-400 transition-colors hover:bg-white/5 hover:text-white"
-        >
-          <LogOut className="h-[1.15rem] w-[1.15rem]" strokeWidth={1.9} />
-          Log out
-        </Link>
+          A plain HTML form rather than a fetch: the route answers 303 to `/`,
+          and a full navigation is exactly what should happen when the session
+          ends — every provider holding ledger state is torn down with it.
+        */}
+        <form action="/auth/sign-out" method="post" className="mt-auto pt-4">
+          <button
+            type="submit"
+            className="flex w-full items-center gap-3 rounded-xl px-3.5 py-3 text-sm font-medium text-slate-400 transition-colors hover:bg-white/5 hover:text-white"
+          >
+            <LogOut className="h-[1.15rem] w-[1.15rem]" strokeWidth={1.9} />
+            Log out
+          </button>
+        </form>
       </aside>
     </>
   );

@@ -116,8 +116,28 @@
 >   no control: the light theme, `defaultLanguage`, `soundEffects`, the three dead leaderboard
 >   scopes, and the promise that "Reset Progress" erases earned XP.
 >
-> The suite is **460 tests across 16 files**. All six gates green: `typecheck`, `lint`, `test`,
-> `validate:missions`, `build`, `playwright`.
+> **New in the decoration pass (2026-07-22).** Five of the six items the decoration audit found are
+> now closed (§12 items 13–16 and 18):
+>
+> - **Log out actually logs out.** It was `<Link href="/">` — it navigated home and left the session
+>   completely intact, which *looked* signed out because the dashboard redirects client-side. It is
+>   now a form POSTing to the existing POST-only `/auth/sign-out` route. Two specs assert the server
+>   stops answering afterwards rather than asserting the UI changed, and a second pins that a `GET`
+>   returns 405 **without** ending the session — the `<img>`-tag logout the route was written to
+>   prevent. This was the one live defect on the list.
+> - **The Premium block, `RESPONSE_SERIES` and the footer's `/demo` links are deleted.** The
+>   sparkline is now derived from each mission's own authored latency series, so the chart and the
+>   headline metric beside it describe the same incident instead of being one shared squiggle.
+> - **The 80 objective `done` flags are gone — and they were not dead, as the audit claimed.** The
+>   mission browser read them; six were authored `true`, so players saw objectives pre-ticked in
+>   missions they had never opened. The type no longer allows the field and `validate:missions`
+>   fails a catalogue that reintroduces it.
+>
+> §12 item 17 — the profile never reaching the server — is the one audit item left open, deliberately:
+> wiring it changes what other players see.
+>
+> The suite is **480 tests across 18 files**, plus 13 Playwright specs. All six gates green:
+> `typecheck`, `lint`, `test`, `validate:missions`, `build`, `playwright`.
 
 ---
 
@@ -157,8 +177,8 @@ The README (`README.md`) has been rewritten to match this positioning and is no 
 | Fonts | `next/font/google` — Inter (`--font-inter`), JetBrains Mono (`--font-jetbrains`) |
 | Backend | **Supabase** — Postgres + GitHub OAuth. Four route handlers under `app/api/`; no server actions |
 | Auth | `@supabase/ssr` 0.12 + `@supabase/supabase-js` 2 — GitHub OAuth only, cookie sessions |
-| Tests | **Vitest 2** — `tests/`, 17 files, 471 tests, Node environment, `@/*` alias |
-| Browser smoke | **Playwright 1.61** — `e2e/`, 11 Chromium tests against the production build: 2 signed-out, 9 authenticated (§15.5, §17.4) |
+| Tests | **Vitest 2** — `tests/`, 18 files, 480 tests, Node environment, `@/*` alias |
+| Browser smoke | **Playwright 1.61** — `e2e/`, 13 Chromium tests against the production build: 2 signed-out, 11 authenticated (§15.5, §17.4) |
 | Lint | **ESLint 8 + `eslint-config-next`**, committed `.eslintrc.json` extending `next/core-web-vitals` |
 | Content validation | `tsx scripts/validate-missions.ts` over `lib/mission-validation.ts` |
 
@@ -174,16 +194,21 @@ and `SUPABASE_SERVICE_ROLE_KEY`. The service-role key is read only inside `lib/s
 which begins with `import "server-only"`, so no import path can pull it toward the browser bundle.
 It must never be given a `NEXT_PUBLIC_` prefix.
 
-### Verified command results (re-run 2026-07-21, after the Supabase migration)
+### Verified command results (re-run 2026-07-22, after the decoration pass)
 
 | Command | Result |
 | --- | --- |
 | `npm run typecheck` | **passes clean**, no errors |
 | `npm run lint` | **runs non-interactively** — "No ESLint warnings or errors" |
-| `npm run test` | **460 passed** across 16 files |
+| `npm run test` | **480 passed** across 18 files |
 | `npm run validate:missions` | **0 errors, 0 warnings** — 20 missions checked, 14 fully playable |
 | `npm run build` | **succeeds**, "Compiled successfully" |
-| `npx playwright test` | **2 passed** (Chromium, against the production build) |
+| `npx playwright test` | **13 passed** (Chromium, against the production build) |
+
+All 13 Playwright specs **ran** rather than skipping, which is the thing to check: the eleven
+authenticated ones skip themselves without the Supabase keys, and a run where they skip reports the
+same green as a run where they pass. The GitHub Actions secrets were set on 2026-07-22, so CI can
+now run them too — but confirm they executed in the job log before trusting it (§12 item 2).
 
 > **A note on `npm run test` and the build.** `tests/bundle-secrecy.test.ts` greps `.next` for the
 > removed answer fields, and **skips itself when `.next` is absent**. That makes the suite work on a
@@ -213,7 +238,7 @@ app/
   sign-in/                   Real GitHub OAuth sign-in (SignInCard)
   demo/                      Placeholder route (PlaceholderPage)
   auth/callback/route.ts     OAuth code exchange → session cookie
-  auth/sign-out/route.ts     POST only
+  auth/sign-out/route.ts     POST only — reached by the sidebar's sign-out form
   api/runs/route.ts          THE TRUST BOUNDARY — grade a run and record it
   api/ledger/route.ts        GET the derived ledger · POST an active day
   api/claim/route.ts         One-time import of a pre-account local ledger
@@ -285,7 +310,7 @@ scripts/
   tsconfig.json              Stubs `server-only` so the CLI can import lib/server/answers.ts
 
 tests/                       Vitest — pure domain logic + end-to-end mission flows
-  grading  progress  availability  verification  skills  achievements
+  grading  progress  availability  verification  skills  achievements  dashboard
   leaderboards  mission-validation  settings  mission-flow
   bundle-secrecy  ledger-derivation  claim
   stubs/server-only.ts       Aliased by vitest.config.ts so server modules import in Node
@@ -1255,18 +1280,25 @@ and next-mission links, derived from which stage configs exist) — plus, new in
   no longer advertises a reward the ledger could never credit.
 - There is no light palette, and no control offers one — CodeRaid is dark, declared once as
   `:root { color-scheme: dark }` in `app/globals.css`.
-- `/demo` is still a placeholder page. `/sign-in` is real — **but the footer's Privacy Policy and
-  Terms of Service links both point at `/demo`**, as do GitHub, Twitter and Discord (§12 item 15).
-- **"Log out" is wired to `href="/"` and does not end the session** (§12 item 13). The working
-  `POST /auth/sign-out` route exists and nothing calls it. Listed here because a reader auditing
-  what is real would otherwise reasonably assume sign-out is.
-- **The sidebar's "Go Premium / Upgrade Now" button has no handler** and sells nothing that exists
-  (§12 item 14).
-- **The dashboard's Next Action sparkline is a hardcoded series** (`RESPONSE_SERIES`), rendered
-  beside a real headline metric and identical for every mission (§12 item 16).
+- `/demo` is still a placeholder page, and **nothing in the footer points at it any more**: the
+  Privacy Policy, Terms of Service, GitHub, Twitter and Discord links that did are removed rather
+  than rewritten (§12 item 15). Every remaining footer link goes somewhere real.
+- **Log out really logs out.** It is a form POSTing to `/auth/sign-out`; afterwards `/api/ledger`
+  and `/api/leaderboard` both 401, and two Playwright specs assert exactly that rather than
+  asserting the UI changed (§12 item 13, §15.5). It used to be `<Link href="/">`, which left the
+  session entirely intact.
+- **The Premium block is gone** — it was a handler-less button selling incidents, rewards and
+  analytics that do not exist (§12 item 14).
+- **The Next Action sparkline is the mission's own latency series**, projected by
+  `sparklinePoints()`, so the chart and the headline metric beside it describe one incident. The
+  shared hardcoded `RESPONSE_SERIES` squiggle is deleted (§12 item 16).
+- **Objectives no longer carry a `done` flag.** Six of the eighty said `true`, and the mission
+  browser rendered those as completed checkmarks for players who had never opened the mission
+  (§12 item 18).
 - **Profile edits never leave the browser.** Settings and onboarding write `coderaid:profile` in
   `localStorage`; `players.display_name` is only ever written once, by the sign-up trigger, and it
-  is what the leaderboard shows (§12 item 17).
+  is what the leaderboard shows (§12 item 17). **This is the one item from the decoration audit
+  still open**, and deliberately so — it is a feature gap whose fix changes what other players see.
 
 ---
 
@@ -1393,38 +1425,63 @@ Genuinely outstanding:
     the findings via `eslint-config-next` and vite. **Re-measure with `npm audit --omit=dev` rather
     than trusting the total** — the headline count mixes dev and production.
 
-### Found in the decoration audit, 2026-07-22
+### Found in the decoration audit, 2026-07-22 — items 13–16 and 18 fixed 2026-07-22
 
 A deliberate sweep for anything still ornamental now that grading, the ledger and the leaderboard
-are real. One of the five is a live defect rather than debt.
+are real. One of the five was a live defect rather than debt. **Five of the six are now closed;
+item 17 is a product decision and stays open.**
 
-13. **"Log out" does not log out — this is a bug, not decoration.**
-    `components/dashboard/DashboardSidebar.tsx` renders it as `<Link href="/">`, which navigates to
-    the landing page and **leaves the session intact**; returning to `/dashboard` is still signed
-    in. A correct route already exists at `app/auth/sign-out/route.ts` — deliberately a `POST`,
-    with a comment explaining that a `GET` would let any page on the internet log the player out
-    with an `<img>` tag — and **nothing calls it**. It was written and never wired up. This was
-    harmless while there was no auth; there is now, so on a shared machine the next person inherits
-    the account. Fixing it means a small form or button that POSTs to the existing route.
+13. ~~**"Log out" does not log out.**~~ **Fixed.** `DashboardSidebar` rendered it as
+    `<Link href="/">`, which navigated to the landing page and **left the session intact** —
+    returning to `/dashboard` was still signed in. The page *looked* signed out, because the
+    dashboard redirects client-side, while the cookie and every endpoint it opened stayed live. On
+    a shared machine the next person inherited the account.
 
-14. **The Premium block advertises a product that does not exist.** The sidebar's "Go Premium /
-    Upgrade Now" (`PREMIUM` in `lib/dashboard.ts`) is a `<button type="button">` with **no
-    handler**. It promises "premium Node.js incidents, exclusive rewards and advanced analytics",
-    none of which exist and none of which can be bought. Same category as the deleted theme toggle,
-    `defaultLanguage`, `soundEffects` and the three fake leaderboard scopes — a control nothing can
-    honour — and it is the most prominent element in the sidebar.
+    It is now a `<form action="/auth/sign-out" method="post">` wrapping a submit button, reaching
+    the POST-only route that had been written and never wired up. A plain HTML form rather than a
+    `fetch`: the route answers 303 to `/`, and a full navigation is what should happen when a
+    session ends — every provider holding ledger state is torn down with it.
 
-15. **The footer's legal links are not legal links.** `components/Footer.tsx` points **Privacy
-    Policy** and **Terms of Service** at `/demo`, a `PlaceholderPage` reading "Watch the demo".
-    GitHub, Twitter and Discord point there too. Unlike everything else on this list this one
-    acquires real weight now that accounts and a database exist: a Terms link that is not terms is
-    worse than no link.
+    Two Playwright specs cover it (§15.5), and the assertion is deliberately not "the UI changed"
+    but "the server stops answering": after logging out, `/api/ledger` and `/api/leaderboard` both
+    401. The second spec pins the other half of the design — a `GET` to `/auth/sign-out` returns
+    405 **and the session survives** — so a later hand adding `GET` to "make the link work" cannot
+    silently reintroduce the `<img>`-tag logout the route's comment warns about. Both were proven
+    to fail: with `signOut()` removed from the route, the ledger assertion goes red on 200.
 
-16. **The dashboard sparkline is a hardcoded squiggle.** `RESPONSE_SERIES` in `lib/dashboard.ts` is
-    21 authored points described in its own comment as a "noisy, elevated latency series". It
-    renders on the Next Action card next to a **real** headline metric, so a fabricated chart sits
-    beside a derived number, and it is identical for every mission regardless of which incident the
-    card is showing. It is `aria-hidden`, so the cost is honesty rather than accessibility.
+14. ~~**The Premium block advertises a product that does not exist.**~~ **Deleted.** `PREMIUM` is
+    gone from `lib/dashboard.ts` and the block from the sidebar. It was a `<button type="button">`
+    with no handler promising "premium Node.js incidents, exclusive rewards and advanced
+    analytics", none of which exist or can be bought — and it was the most prominent element in the
+    sidebar. Same reasoning as the theme toggle, `defaultLanguage`, `soundEffects` and the three
+    fake leaderboard scopes (§4.11).
+
+15. ~~**The footer's legal links are not legal links.**~~ **Removed.** Privacy Policy and Terms of
+    Service pointed at `/demo`, a `PlaceholderPage` reading "Watch the demo"; GitHub, Twitter and
+    Discord pointed there too. All five are deleted rather than written: this one acquired real
+    weight once accounts and a database existed, because a Terms link that is not terms implies an
+    agreement that does not exist. Writing the real copy is not an engineering decision, so the
+    links come back when the pages do. Every remaining footer link now goes somewhere real.
+
+16. ~~**The dashboard sparkline is a hardcoded squiggle.**~~ **Derived.** `RESPONSE_SERIES` — 21
+    points its own comment called a "noisy, elevated latency series" — is deleted. The Next Action
+    card now projects **that mission's own authored `metrics.latency.series`** through
+    `sparklinePoints()`, so the shape and the headline metric beside it describe one incident. It
+    was previously byte-identical across all fourteen missions while sitting next to fourteen
+    different derived numbers.
+
+    The series is normalised to its own min/max, because these are latency samples in whatever unit
+    the mission authored and only the shape is comparable. A flat series draws through the middle
+    instead of dividing by a zero range; a series too short to draw returns `null` and the chart is
+    omitted rather than rendering an empty frame beside a real number. Nine tests in
+    `tests/dashboard.test.ts` cover it, including one that fails if any two playable missions ever
+    share a sparkline again — the precise defect being removed.
+
+    **A trap worth recording:** `SPARK_WIDTH` / `SPARK_HEIGHT` must be declared *above*
+    `NEXT_ACTION`. That const is evaluated at module load and reaches them during initialisation,
+    so declaring them below it compiles fine and then throws `Cannot access 'b' before
+    initialization` at prerender time, on pages that never mention the dashboard. The first attempt
+    did exactly this and `npm run build` caught it.
 
 17. **The profile never reaches the server.** `players` carries `display_name`, `avatar_id`,
     `slogan`, `path_id`, `experience_id` and `onboarding_completed`, and `0001_init.sql` grants
@@ -1435,11 +1492,24 @@ are real. One of the five is a live defect rather than debt.
     leaves everyone else seeing the old one. This is a feature gap rather than clutter: the schema
     and the RLS grant were built for it and the client was never connected.
 
-18. **80 dead `done` flags in the catalogue.** Every mission's objectives carry `done: true|false`.
-    `MissionObjectives` takes `steps: string[]` and never reads them, so nothing renders — but they
-    are 80 authored assertions about a player's progress, which is the exact class of thing the
-    "nothing about a player may be authored" principle (§4.10) exists to forbid. Harmless until
-    someone renders them.
+18. ~~**80 dead `done` flags in the catalogue.**~~ **Deleted — and they were not dead.** The audit
+    recorded these as harmless on the grounds that `MissionObjectives` takes `steps: string[]` and
+    never reads them. That is true of the *briefing* path, and it is not the only consumer:
+    **`components/missions/MissionBrowser.tsx` read `o.done` directly**, rendering a violet
+    checkmark and brighter text for a completed objective. Six of the eighty were authored
+    `done: true`, across `user-signup-latency-spike` (2), `jwt-session-expiry`,
+    `health-check-flapping`, `graceful-shutdown-bug` and `rate-limiter-race` — so a player who had
+    never opened those missions saw objectives already ticked off in the mission browser. It was a
+    visible false claim about their progress, not latent debt.
+
+    `Objective` is now `{ text: string }`; all 80 literals are stripped and the browser renders the
+    list uniformly as "what you will do". Nothing tracks objective-level completion anywhere — the
+    ledger records finished *runs* — so if it is ever wanted it must be derived from a run.
+
+    Two guards, at different layers: the type no longer permits the field, and `validate:missions`
+    fails a catalogue that reintroduces it, which catches a literal slipping past an `as`-cast or a
+    hand-edited catalogue (§15.2). The validator rule was proven to fail by re-adding
+    `done: true` to one objective and watching it go red.
 
     **Deliberately not on this list:** `DAILY_RAID`. It carries no XP figure and no route and says
     outright that daily challenges "aren't playable yet" — it advertises an idea and admits it,
@@ -1630,7 +1700,7 @@ the claim and the leaderboard are all behind authentication, so none of them is 
 They were verified against the live database by hand (§16.6). Closing that gap — §12 item 2 — is
 what would make this section's claim true again rather than mostly true.
 
-### 15.1 The test suite — `tests/`, Vitest, 471 tests across 17 files
+### 15.1 The test suite — `tests/`, Vitest, 480 tests across 18 files
 
 Node environment, no DOM, no component testing library. `vitest.config.ts` re-declares the `@/*`
 alias so tests import modules exactly the way the app does, **and aliases `server-only` to
@@ -1770,7 +1840,7 @@ silent in opposite directions — one hides a real leak, the other invents one.
 
 **This closes the gap §12 item 2 described.** Grading, the ledger, the claim and the leaderboard
 used to be verified by hand and by nothing else (§16.6); the probes that did it were never
-committed. They are now eight committed Playwright specs that cross the sign-in wall.
+committed. They are now ten committed Playwright specs that cross the sign-in wall.
 
 **How a session is minted, since GitHub OAuth cannot be driven by a test.** `e2e/support/session.ts`
 does what the OAuth callback would: creates a user via `POST /auth/v1/admin/users` with the
@@ -1786,7 +1856,7 @@ deleted in teardown even when the test fails, with `on delete cascade` taking th
 and achievements with it. Per-test rather than a shared seeded account is what keeps them parallel
 and stops one test's runs appearing in another's ledger.
 
-What the eight cover, mirroring §16.6 one for one:
+What they cover — the first eight mirroring §16.6 one for one, the last two added with the logout fix (§12 item 13):
 
 | Spec | Asserts |
 | --- | --- |
@@ -1798,6 +1868,8 @@ What the eight cover, mirroring §16.6 one for one:
 | leaderboard | ranks the player, `isCurrentUser` only for the requester, no email and no answer fields in the payload |
 | direct write | `POST` to `mission_runs` with the player's **own** token → **403**, nothing inserted |
 | signed out | `/api/ledger`, `/api/leaderboard` and `POST /api/runs` all 401 |
+| logs out | after submitting the sidebar's sign-out form, `/api/ledger` and `/api/leaderboard` both 401 — the session is over on the **server**, not merely visually |
+| GET cannot log you out | `GET /auth/sign-out` → **405**, and the session still works afterwards |
 
 **They run against the real Supabase project**, because there is no local stack configured. Users
 are created as `coderaid-e2e+…@example.com` and deleted; still, see §12 item 2 for why a dedicated
@@ -2067,7 +2139,7 @@ incident instead of describing it, with 12,000 rows of real quadratic work and t
 responsiveness really measured; the mission→fix mapping moved behind `server-only` after the first
 draft compiled the fix answer into the client bundle, with a new `bundle-secrecy` assertion to keep
 it out; and the authored correct fix versus every distractor is now asserted by execution rather
-than by claim. 471 tests across 17 files, 11 Playwright tests; all six gates green. See §17.
+than by claim. 480 tests across 18 files, 13 Playwright tests; all six gates green. See §17.
 Preceded by the **authenticated CI specs** (§15.5): a service-role-minted session encoded the way
 `@supabase/ssr` reads it, a per-test player fixture with teardown, and eight specs covering grading,
 the ledger, the replay rule, the claim, the leaderboard and RLS — closing the half of §12 item 2
