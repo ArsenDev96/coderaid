@@ -140,6 +140,36 @@ test.describe("the authenticated path", () => {
     expect(runs[1].score).toBeLessThan(100);
   });
 
+  test("actually executes the replay and measures the real main thread", async ({
+    page,
+  }) => {
+    // `tests/verification-runtime.test.ts` proves the measurement in Node with
+    // an injected runner. This proves the thing that matters to a player: a
+    // real Worker, in a real browser, on the real page.
+    await playToVerification(page, "perfect");
+    await runVerification(page);
+
+    const panel = page.getByRole("region", { name: "Replay measurement" });
+    await expect(panel).toBeVisible({ timeout: 30_000 });
+    await expect(panel).toContainText("The main thread kept answering");
+    await expect(panel).toContainText("12,000 rows");
+
+    // A real number, not a placeholder — and low, because the Worker took it.
+    const stall = await panel.getByText(/^\d+ms$/).first().innerText();
+    expect(Number.parseInt(stall, 10)).toBeLessThan(120);
+
+    // The same workload with a fix that leaves it on the thread: the browser
+    // genuinely stalls, and the panel says so.
+    await resetMissionState(page, MISSION);
+    await playToVerification(page, "poor");
+    await runVerification(page);
+
+    await expect(panel).toBeVisible({ timeout: 30_000 });
+    await expect(panel).toContainText("The main thread stopped answering");
+    const blocked = await panel.getByText(/^\d+ms$/).first().innerText();
+    expect(Number.parseInt(blocked, 10)).toBeGreaterThan(120);
+  });
+
   test("records the browser's local date, not the server's UTC date", async ({
     page,
     player,

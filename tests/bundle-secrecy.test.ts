@@ -95,6 +95,47 @@ describe("the built bundle", () => {
     },
   );
 
+  /**
+   * A mission id sitting next to its correct fix id, in any order and with any
+   * punctuation between them, within a short span of each other.
+   *
+   * Added after the verification replay landed: its first draft kept a
+   * `{ "event-loop-overload": ["move-report-generation-to-worker-thread"] }`
+   * map in a client module, which is the fix stage's answer in machine-readable
+   * form. The two checks below would both have missed it — neither the removed
+   * field names nor the `fixId:"…"` serialisation shape appears in an object
+   * literal keyed by mission id. The mapping now lives behind `server-only`
+   * (`lib/server/replay.ts`); this is the check that keeps it there.
+   */
+  it.skipIf(!buildExists())(
+    "never places a mission id near its correct fix id",
+    () => {
+      const files = browserFiles();
+      const leaks: string[] = [];
+
+      for (const file of files) {
+        const contents = readFileSync(file, "utf8");
+        for (const [missionId, answers] of Object.entries(MISSION_ANSWERS)) {
+          const missionAt = contents.indexOf(missionId);
+          if (missionAt === -1) continue;
+
+          // Both ids necessarily appear somewhere in the bundle — they are a
+          // route param and a radio value. What must never happen is the two
+          // appearing *together*, which is what an answer map looks like.
+          const window = contents.slice(
+            Math.max(0, missionAt - 200),
+            missionAt + missionId.length + 200,
+          );
+          if (window.includes(answers.fixId)) {
+            leaks.push(`${missionId} ↔ ${answers.fixId} → ${file}`);
+          }
+        }
+      }
+
+      expect(leaks).toEqual([]);
+    },
+  );
+
   it.skipIf(!buildExists())(
     "never pairs a mission with its correct answer",
     () => {

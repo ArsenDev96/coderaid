@@ -1,6 +1,7 @@
 import { test as base } from "@playwright/test";
 import {
   applySession,
+  cookieName,
   createPlayer,
   deletePlayer,
   hasCredentials,
@@ -21,14 +22,41 @@ import {
  * credentials it was never going to have.
  */
 export const test = base.extend<{ player: TestPlayer }>({
-  player: async ({ context, baseURL }, use) => {
-    const player = await createPlayer("player");
-    await applySession(context, player.session, baseURL!);
+  /**
+   * `auto: true` is load-bearing, and was added after this bit.
+   *
+   * Playwright fixtures are lazy: a test that destructures only `{ page }`
+   * never instantiates `player`, so no session cookie is written and the test
+   * runs **signed out** — silently, against endpoints that answer 401, with no
+   * hint that the fixture was skipped. A spec written that way failed with an
+   * empty cookie jar and a missing element, which looks like a UI bug and is
+   * not one.
+   *
+   * Making it automatic means every test in this file is signed in whether or
+   * not it names the fixture, so the failure mode cannot recur.
+   */
+  player: [
+    async ({ context, baseURL }, use) => {
+      const player = await createPlayer("player");
+      await applySession(context, player.session, baseURL!);
 
-    await use(player);
+      // Fail loudly if the session did not actually land. A silently
+      // signed-out run is the one outcome that would make these specs pass
+      // for the wrong reason on the endpoints that tolerate anonymity.
+      const cookies = await context.cookies();
+      if (!cookies.some((c) => c.name.startsWith(cookieName()))) {
+        await deletePlayer(player.id);
+        throw new Error(
+          `The session cookie (${cookieName()}) was not applied to the context.`,
+        );
+      }
 
-    await deletePlayer(player.id);
-  },
+      await use(player);
+
+      await deletePlayer(player.id);
+    },
+    { auto: true },
+  ],
 });
 
 export { expect } from "@playwright/test";

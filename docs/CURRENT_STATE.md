@@ -157,8 +157,8 @@ The README (`README.md`) has been rewritten to match this positioning and is no 
 | Fonts | `next/font/google` — Inter (`--font-inter`), JetBrains Mono (`--font-jetbrains`) |
 | Backend | **Supabase** — Postgres + GitHub OAuth. Four route handlers under `app/api/`; no server actions |
 | Auth | `@supabase/ssr` 0.12 + `@supabase/supabase-js` 2 — GitHub OAuth only, cookie sessions |
-| Tests | **Vitest 2** — `tests/`, 16 files, 460 tests, Node environment, `@/*` alias |
-| Browser smoke | **Playwright 1.61** — `e2e/`, 10 Chromium tests against the production build: 2 signed-out, 8 authenticated (§15.5) |
+| Tests | **Vitest 2** — `tests/`, 17 files, 471 tests, Node environment, `@/*` alias |
+| Browser smoke | **Playwright 1.61** — `e2e/`, 11 Chromium tests against the production build: 2 signed-out, 9 authenticated (§15.5, §17.4) |
 | Lint | **ESLint 8 + `eslint-config-next`**, committed `.eslintrc.json` extending `next/core-web-vitals` |
 | Content validation | `tsx scripts/validate-missions.ts` over `lib/mission-validation.ts` |
 
@@ -259,6 +259,9 @@ lib/
   stage-access.ts            Pure stage-prerequisite rules (what StageGate enforces)
   mission-validation.ts      Pure content-validation rules (what validate:missions runs)
   code-theme.ts              Pure code tokenizer + editor-theme palettes (what CodeText renders)
+  verification-runtime.ts    The replay that actually executes: workload, probe, measurement (§17)
+  verification-offload.ts    The browser's Worker offloader for that replay
+  server/replay.ts           server-only: which fix moves the work off the thread
   investigation.ts diagnosis.ts fix.ts verification.ts results.ts   Per-stage content + state
   dashboard.ts achievements.ts leaderboards.ts onboarding.ts settings.ts
 
@@ -530,8 +533,11 @@ diagnosis and fix stay in `localStorage`, and the `?next=` parameter returns the
 stage. Nothing is graded and nothing is cached, so they lose no progress by not having an account
 until this moment.
 
-Phase machine `idle → running → done`. The replay itself is still a `setTimeout(1400ms)` — there is
-no service to replay traffic against — but **what it reports is derived**:
+Phase machine `idle → running → done`. For `event-loop-overload` the replay **actually executes** —
+12,000 rows of real quadratic work, with the main thread's responsiveness really measured (§17). For
+the other thirteen it remains a `setTimeout(1400ms)`, because there is no service to replay traffic
+against and their incidents are not reproducible in a browser. Either way **what it reports is
+derived**:
 `resolveVerification(config, fixResolves)` reads the server's verdict, and when the fix doesn't
 resolve the root cause the metrics hold at their "before" values, the chart's after-line matches its
 before-line, the request breakdown still shows the slow span on the critical path, the logs are the
@@ -1235,8 +1241,10 @@ and next-mission links, derived from which stage configs exist) — plus, new in
 **Mocked or static:**
 - All logs, metrics, traces, code, DB stats and chart series are hand-authored literals. They are
   the *scenario*; what is now dynamic is which of them the verification reports back.
-- **The verification "run" is still a `setTimeout(1400ms)`.** Nothing executes or replays anything
-  — but what it reports is derived from the player's fix rather than fixed in advance.
+- **The verification "run" executes for one mission and is a `setTimeout(1400ms)` for the other
+  thirteen.** `event-loop-overload` runs real quadratic work and measures the real main thread
+  (§17); elsewhere nothing executes, though what it reports is still derived from the player's fix
+  rather than fixed in advance.
 - Availability gating is client-side UI only; all 120 stage URLs are statically generated and
   directly navigable, so a typed URL still reaches the "still being written" placeholder. For
   missions that *do* have content, `StageGate` (§15.3) blocks a later stage whose prerequisite state
@@ -1302,8 +1310,13 @@ Fixed in the Supabase migration, 2026-07-21 (do not re-plan these):
 
 Genuinely outstanding:
 
-1. **The verification run is still a 1400ms timer.** What it *reports* is real; the replay is not.
-   Nothing executes or measures anything — this is the largest remaining piece of theatre.
+1. **The verification run is a 1400ms timer for 13 of the 14 missions.** ~~Nothing executes or
+   measures anything — this is the largest remaining piece of theatre.~~ **Partly resolved
+   2026-07-22.** `event-loop-overload` now *executes* its incident: real quadratic work over 12,000
+   rows, with the main thread's responsiveness really measured (§17). The other thirteen still show
+   the derived report behind the timer, because their incidents are not reproducible in a browser
+   the way an event-loop stall is. Extending it means writing a scenario per mission, and only some
+   missions can have one honestly — see §17 for which and why.
 2. **No component tests; browser coverage is one mission deep.** ~~The authenticated round-trip is
    covered by throwaway probes rather than a committed test.~~ **The authenticated half is resolved**
    — `e2e/authenticated.spec.ts` mints a session and covers grading, the ledger, the replay rule, the
@@ -1554,7 +1567,7 @@ the claim and the leaderboard are all behind authentication, so none of them is 
 They were verified against the live database by hand (§16.6). Closing that gap — §12 item 2 — is
 what would make this section's claim true again rather than mostly true.
 
-### 15.1 The test suite — `tests/`, Vitest, 460 tests across 16 files
+### 15.1 The test suite — `tests/`, Vitest, 471 tests across 17 files
 
 Node environment, no DOM, no component testing library. `vitest.config.ts` re-declares the `@/*`
 alias so tests import modules exactly the way the app does, **and aliases `server-only` to
@@ -1880,6 +1893,116 @@ rather than resting on one manual pass. What they confirmed:
   second attempt;
 - the leaderboard ranks two real players correctly by period, marks `isCurrentUser` per requester,
   exposes no email or answer data, and 401s when signed out.
+
+---
+
+## 17. The verification replay that actually runs (new 2026-07-22)
+
+§12 item 1 has been the same sentence for three passes: the verification stage is a 1,400ms
+`setTimeout`, and while what it *reports* is derived honestly, nothing executes. For
+`event-loop-overload`, that is now false.
+
+**Why this mission and not the others.** Its incident is synchronous CPU work starving an event
+loop, and a browser *has* an event loop. The bug is therefore reproducible rather than merely
+describable — the same phenomenon, in the same kind of runtime, measured the same way an APM agent
+measures it. Nothing about the reproduction is a metaphor. That is not true of most of the
+catalogue: a connection pool exhausting, a container being restarted by a liveness probe or a
+distributed counter losing increments across eight replicas cannot be honestly reproduced in one
+browser tab, and faking them would be the same theatre wearing a better costume. Chapter 1 holds
+the best remaining candidates — `promise-all-cascade`, `async-map-trap` and
+`overlapping-scheduler-runs` are all pure JavaScript-runtime behaviours that a browser genuinely
+exhibits.
+
+### 17.1 What executes
+
+`lib/verification-runtime.ts`, pure and Node-testable:
+
+- `buildRows(12_000)` — deterministic rows, hand-seeded rather than random, so two replays are
+  comparable and a test can assert on one.
+- `aggregateWeekly(rows)` — for every row, a full scan for its bucket's peak. Genuinely O(n²), and
+  the same shape as the mission's authored `report.controller.ts`. **Written as an explicit inner
+  loop on purpose:** the first draft used `rows.find(...)`, which short-circuits, and measured 4ms
+  for 1,400 rows — it would have "demonstrated" blocking that never happened.
+- `measure(rows, offload)` — starts a 16ms probe, runs the work, and reports `maxLagMs` (the longest
+  the loop went unanswered), `totalMs`, and `availability` (the share of expected probe firings that
+  happened).
+- `SCENARIO_ROWS = 12_000` — calibrated, not guessed: 5,000 ≈ 54ms, 9,000 ≈ 195ms, 12,000 ≈ 350ms.
+  Long enough to be unmistakable against the 120ms threshold, short enough not to hang a tab.
+
+The `Offloader` is injected, which is what makes the module testable outside a browser.
+`lib/verification-offload.ts` supplies the real one: a `Worker` built from a Blob, whose body is
+`aggregateWeekly.toString()` rather than a second copy of the workload — two copies would drift,
+and a drifted copy would make the "fixed" path do less work than the broken one, faking the very
+result this exists to measure.
+
+### 17.2 The trust boundary, and the leak that nearly shipped
+
+The first draft kept a `mission → offloading fix id` map in `verification-runtime.ts`. That module
+is imported by a client component, so the map compiled straight into the browser bundle — the fix
+stage's answer, in machine-readable form, which is **exactly** what deleting `resolvesRootCause`
+was for.
+
+The mapping now lives in `lib/server/replay.ts` behind `import "server-only"`. At runtime the
+browser is told *whether* the work moves off the thread by the grading verdict already coming back
+from `POST /api/runs`, and never *which* fix would have earned it. The replay therefore runs after
+the submission rather than alongside it; that ordering is load-bearing, not incidental.
+
+`tests/bundle-secrecy.test.ts` gained a fourth assertion for this shape — a mission id within 200
+characters of its correct fix id — because neither existing check would have caught it: an object
+literal keyed by mission id carries none of the removed field names and none of the `fixId:"…"`
+serialisation shapes. **Verified by reintroducing the leak**: the new check failed, and passed
+again once reverted.
+
+### 17.3 Mission content, made executable
+
+`tests/verification-runtime.test.ts` asserts the property worth having: executing the **authored
+correct fix** measurably keeps the thread responsive, and executing **every distractor** measurably
+does not. A mission whose "correct" fix does not actually work is now a failing test rather than a
+claim nobody checked. This is why `lib/server/replay.ts` exists at all — the runtime does not need
+it; the assertion does.
+
+**On timing tests, which are usually a smell.** These assert a direction separated by a structural
+gap, not a duration. One of them was flaky anyway and the fix is worth recording: comparing
+`maxLagMs` with a 5× margin passed alone and failed under a parallel full-suite run, where
+scheduling noise put the *responsive* case at 88ms against the blocked case's 249ms. `maxLagMs` is a
+single worst sample — precisely the statistic contention distorts. The assertion now compares
+`availability`: under a 300ms block the probe cannot fire at all, while a busy machine costs a
+chunked run a few firings rather than all of them. Stable across three consecutive full-suite runs.
+
+### 17.4 What the player sees
+
+`ReplayMeasurement.tsx` renders the measured figures in a block deliberately styled apart from the
+panels around it, labelled "Measured in your browser, just now". The separation is the point:
+everything else on that screen is an authored illustration revealed according to the verdict, and a
+real measurement presented as indistinguishable from a mock-up is worth less than either. The
+measurement is **not persisted** — it describes one execution on one machine, and restoring
+yesterday's number would reintroduce exactly the stale figure this change removes.
+
+`e2e/authenticated.spec.ts` covers it in a real browser with a real Worker: the correct fix stalls
+the thread for under 120ms, and a fix that leaves the work in place stalls it for more.
+
+### 17.5 A fixture trap worth remembering
+
+Writing the browser spec surfaced a flaw in the authenticated fixture (§15.5). Playwright fixtures
+are **lazy**: a test destructuring only `{ page }` never instantiates `player`, so no session cookie
+is written and the test runs **signed out** — silently, against endpoints that answer 401. It
+presents as a missing element, which looks like a UI bug and is not one. The fixture is now
+`{ auto: true }` and throws if the session cookie is not in the context afterwards, so a spec cannot
+accidentally run anonymously.
+
+---
+
+*Updated 2026-07-22 — the **verification replay**: `event-loop-overload` now executes its own
+incident instead of describing it, with 12,000 rows of real quadratic work and the main thread's
+responsiveness really measured; the mission→fix mapping moved behind `server-only` after the first
+draft compiled the fix answer into the client bundle, with a new `bundle-secrecy` assertion to keep
+it out; and the authored correct fix versus every distractor is now asserted by execution rather
+than by claim. 471 tests across 17 files, 11 Playwright tests; all six gates green. See §17.
+Preceded by the **authenticated CI specs** (§15.5): a service-role-minted session encoded the way
+`@supabase/ssr` reads it, a per-test player fixture with teardown, and eight specs covering grading,
+the ledger, the replay rule, the claim, the leaderboard and RLS — closing the half of §12 item 2
+that said the server-authoritative path was verified by hand and by nothing else. That pass also
+found the smoke job had never had the Supabase keys it needs at runtime.*
 
 ---
 
