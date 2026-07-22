@@ -7,6 +7,7 @@ import {
   saveDiagnosisState,
   type MissionDiagnosisConfig,
 } from "@/lib/diagnosis";
+import { clearVerdict } from "@/lib/mission-storage";
 import type { Severity } from "@/lib/missions";
 import { completeStage, touchRun } from "@/lib/run";
 import { DiagnosisConfirmBar } from "./DiagnosisConfirmBar";
@@ -54,10 +55,26 @@ export function DiagnosisWorkspace({
     saveDiagnosisState(config.missionId, { rootCauseId, evidenceIds, confirmed });
   }, [hydrated, config.missionId, rootCauseId, evidenceIds, confirmed]);
 
-  const toggleEvidence = (id: string) =>
+  /**
+   * The diagnosis is part of what gets graded, so changing it invalidates any
+   * verdict already on disk for the same reason a changed fix does — the grade
+   * describes the answers it graded, and these are no longer those answers.
+   *
+   * Only ever called from a real interaction, never from the restore effect, so
+   * merely revisiting the stage cannot discard a legitimate verdict.
+   */
+  const selectRootCause = (id: string) => {
+    if (id === rootCauseId) return;
+    setRootCauseId(id);
+    clearVerdict(config.missionId);
+  };
+
+  const toggleEvidence = (id: string) => {
     setEvidenceIds((prev) =>
       prev.includes(id) ? prev.filter((e) => e !== id) : [...prev, id],
     );
+    clearVerdict(config.missionId);
+  };
 
   const ready = canConfirm(config, { rootCauseId, evidenceIds });
   const evidenceNeeded = Math.max(
@@ -94,7 +111,7 @@ export function DiagnosisWorkspace({
           <RootCauseList
             options={config.rootCauses}
             selectedId={rootCauseId}
-            onSelect={setRootCauseId}
+            onSelect={selectRootCause}
           />
           <DiagnosisEvidenceList
             options={config.evidence}

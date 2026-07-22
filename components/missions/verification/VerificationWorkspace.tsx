@@ -72,6 +72,12 @@ export function VerificationWorkspace({
 
     // "Done" requires a grade, not just a local flag: without one there is
     // nothing truthful to render, so the player runs verification again.
+    //
+    // `loadGrade` now returns a grade only when the submission it was produced
+    // from still matches what the player has selected. A changed fix, root
+    // cause or evidence set therefore lands here as "no grade" — which is the
+    // truth — and the screen asks for a new run instead of restoring the
+    // verdict from an answer that has since been replaced.
     if (cached && saved?.completed) {
       setFixResolves(cached.resolved);
       setPhase("done");
@@ -114,11 +120,24 @@ export function VerificationWorkspace({
     const fixConfig = getFix(config.missionId);
     const fixState = fixConfig ? loadFixState(fixConfig) : null;
 
-    const result = await submitRun({
+    /*
+      Read from storage at submission time, never from state captured when the
+      component mounted. The Fix stage writes `…:fix` before navigating here, so
+      storage is the newest answer; a value closed over at mount would be the
+      previous one on any flow that changes a fix and comes back.
+
+      The same object is stored with the grade, so the verdict can later be
+      checked against what is selected rather than assumed to still apply.
+    */
+    const submission = {
       missionId: config.missionId,
       rootCauseId: diagnosisState?.rootCauseId ?? null,
       evidenceIds: diagnosisState?.evidenceIds ?? [],
       fixId: fixState?.fixId ?? null,
+    };
+
+    const result = await submitRun({
+      ...submission,
       fixApplied: fixState?.applied === true,
       telemetry: loadRun(config.missionId) ?? emptyRun(),
       // Streaks are counted in local days, which the server cannot compute;
@@ -152,7 +171,7 @@ export function VerificationWorkspace({
           timer.current = setTimeout(() => resolve(null), 1400);
         });
 
-    saveGrade(config.missionId, result.grade);
+    saveGrade(config.missionId, result.grade, submission);
     // What the run earned, as measured by the server around the insert. The
     // results screen renders it; it cannot work it out for itself, which is
     // the same reason it cannot compute the score.

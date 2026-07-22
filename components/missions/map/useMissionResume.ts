@@ -89,7 +89,16 @@ function timeLeft(missionId: string): string {
   return left === 0 ? "under a min" : `${left} min`;
 }
 
-function resumeFor(missionId: string): MissionResume {
+/**
+ * Reads a mission's saved state and says where it should resume.
+ *
+ * Exported as well as used by the hook below because `/start` needs the same
+ * answer *inside an effect* — to redirect a returning player to the stage they
+ * left off at — where a hook's render-then-settle shape would mean redirecting
+ * to the briefing first and correcting afterwards. Touches `localStorage`, so
+ * it must only ever be called after mount.
+ */
+export function resumeFor(missionId: string): MissionResume {
   const { found, total } = clues(missionId);
   const stage = resolveStage(missionId, found, total);
   const { step, totalSteps } = missionStep(stage);

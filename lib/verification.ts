@@ -6,6 +6,7 @@ import {
   TrendingUp,
   type LucideIcon,
 } from "lucide-react";
+import { verificationStorageKey } from "./mission-storage";
 
 /* -------------------------------- Types --------------------------------- */
 
@@ -2375,9 +2376,7 @@ export function allChecksPassed(config: MissionVerificationConfig): boolean {
 
 /* ------------------------- Persistence (localStorage) ------------------- */
 
-export function verificationStorageKey(missionId: string): string {
-  return `coderaid:${missionId}:verification`;
-}
+export { verificationStorageKey };
 
 export function loadVerificationState(
   missionId: string,

@@ -1,8 +1,9 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { getDiagnosis, loadDiagnosisState } from "@/lib/diagnosis";
 import { loadFixState, saveFixState, type MissionFixConfig } from "@/lib/fix";
+import { clearVerdict } from "@/lib/mission-storage";
 import { completeStage, touchRun } from "@/lib/run";
 import { ConfirmedRootCause } from "./ConfirmedRootCause";
 import { FixActions } from "./FixActions";
@@ -56,6 +57,33 @@ export function FixWorkspace({
     saveFixState(config.missionId, { fixId, applied });
   }, [hydrated, config.missionId, fixId, applied]);
 
+  /**
+   * Changing the fix invalidates everything downstream of it.
+   *
+   * This is where the stale-verdict bug lived. Selecting a different option
+   * used to be a bare `setFixId`, which wrote `…:fix` and nothing else — so
+   * `applied` stayed true from the previous option, and the cached grade,
+   * credit, verification and results state all still described the fix the
+   * player had just abandoned. Verification restores "done" from that pair, so
+   * someone who failed with the wrong fix, came back, and picked the right one
+   * was shown the **old unresolved verdict** with Continue to Results already
+   * unlocked, and was never asked to run verification again.
+   *
+   * Re-selecting the option that is already selected is not a change, and must
+   * not throw away a legitimately earned verdict.
+   */
+  const selectFix = useCallback(
+    (id: string) => {
+      // Guarded outside the state updater on purpose: updaters must stay pure,
+      // and React invokes them twice under StrictMode.
+      if (id === fixId) return;
+      setFixId(id);
+      setApplied(false);
+      clearVerdict(config.missionId);
+    },
+    [fixId, config.missionId],
+  );
+
   const selectedOption = useMemo(
     () => config.options.find((o) => o.id === fixId) ?? null,
     [config.options, fixId],
@@ -86,7 +114,7 @@ export function FixWorkspace({
           <FixOptionList
             options={config.options}
             selectedId={fixId}
-            onSelect={setFixId}
+            onSelect={selectFix}
           />
           {/* Describes the option without judging it — the verdict is the
               server's, and arrives at verification. */}
@@ -99,6 +127,12 @@ export function FixWorkspace({
         hint={config.hint}
         ready={Boolean(fixId)}
         onApply={() => {
+          // Applying persists the current selection and marks it applied. Any
+          // verdict still on disk was produced by a *previous* fix — the
+          // selection change already cleared it, and clearing again here means
+          // a state edited directly in devtools cannot survive either.
+          clearVerdict(config.missionId);
+          saveFixState(config.missionId, { fixId, applied: true });
           setApplied(true);
           completeStage(config.missionId, "Fix");
         }}

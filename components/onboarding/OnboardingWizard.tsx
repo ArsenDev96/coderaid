@@ -1,55 +1,49 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
-import Link from "next/link";
+import { useMemo } from "react";
 import {
   ArrowLeft,
   ArrowRight,
   Check,
   CheckCircle2,
   ChevronDown,
-  PartyPopper,
   Quote,
   User as UserIcon,
   type LucideIcon,
 } from "lucide-react";
-import { canStart, recommendedMission } from "@/lib/availability";
-import { getMission } from "@/lib/missions";
 import {
   AVATARS,
-  DEFAULT_DRAFT,
   EXPERIENCE_LEVELS,
   NAME_MAX,
   PATHS,
   SLOGANS,
   STEPS,
-  loadDraft,
   recommendedStartingMission,
-  saveDraft,
   type ProfileDraft,
 } from "@/lib/onboarding";
 
-export function OnboardingWizard() {
-  const [draft, setDraft] = useState<ProfileDraft>(DEFAULT_DRAFT);
-  const [hydrated, setHydrated] = useState(false);
-
-  // Load any saved progress once on mount (avoids hydration mismatch).
-  useEffect(() => {
-    const saved = loadDraft();
-    if (saved) setDraft(saved);
-    setHydrated(true);
-  }, []);
-
-  // Persist to localStorage whenever the draft changes (after hydration).
-  useEffect(() => {
-    if (hydrated) saveDraft(draft);
-  }, [draft, hydrated]);
-
-  const update = <K extends keyof ProfileDraft>(
-    key: K,
-    value: ProfileDraft[K],
-  ) => setDraft((d) => ({ ...d, [key]: value }));
-
+/**
+ * The four-step wizard: identity → learning goal → experience → confirm.
+ *
+ * Controlled rather than self-contained. `StartExperience` owns the draft and
+ * its persistence, because whether onboarding is complete decides the whole
+ * page's layout — the marketing column and the header's "Continue" action
+ * disappear with it — and two components reading the same `localStorage` key
+ * independently could not stay in step.
+ *
+ * `onComplete` rather than setting `completed` here for the same reason: the
+ * parent needs to know this happened *in this interaction*, which is what
+ * separates the one-time success card from a returning player's redirect.
+ */
+export function OnboardingWizard({
+  draft,
+  update,
+  onComplete,
+}: {
+  draft: ProfileDraft;
+  update: <K extends keyof ProfileDraft>(key: K, value: ProfileDraft[K]) => void;
+  onComplete: () => void;
+}) {
   const nameOk = draft.name.trim().length > 0;
   const canProceed = draft.step === 0 ? nameOk : true;
   const isLast = draft.step === STEPS.length - 1;
@@ -57,7 +51,7 @@ export function OnboardingWizard() {
   const goNext = () => {
     if (!canProceed) return;
     if (isLast) {
-      update("completed", true);
+      onComplete();
       return;
     }
     update("step", Math.min(draft.step + 1, STEPS.length - 1));
@@ -76,16 +70,6 @@ export function OnboardingWizard() {
   );
 
   const recommended = recommendedStartingMission(selectedExp.id);
-
-  if (draft.completed) {
-    return (
-      <CompletedCard
-        name={draft.name.trim()}
-        missionTitle={recommended.title}
-        missionId={recommended.id}
-      />
-    );
-  }
 
   return (
     <div className="surface-strong flex flex-col p-6 sm:p-8">
@@ -502,63 +486,6 @@ function ConfirmStep({
             </div>
           ))}
         </dl>
-      </div>
-    </div>
-  );
-}
-
-/* ------------------------------ Completed ------------------------------- */
-
-function CompletedCard({
-  name,
-  missionTitle,
-  missionId,
-}: {
-  name: string;
-  missionTitle: string;
-  missionId: string;
-}) {
-  // Only ever link into a mission that can actually be played end to end.
-  const suggested = getMission(missionId);
-  const playable =
-    suggested && canStart(suggested) ? suggested : recommendedMission();
-  const missionHref = playable
-    ? `/missions/${playable.id}/briefing`
-    : "/missions";
-  const missionLabel = playable
-    ? `Start ${playable.title}`
-    : "Browse missions";
-  const playableIsRecommended = playable?.id === missionId;
-
-  return (
-    <div className="surface-strong flex flex-col items-center p-8 text-center sm:p-10">
-      <span className="grid h-14 w-14 place-items-center rounded-2xl border border-emerald-400/30 bg-emerald-500/10 text-emerald-300 shadow-neon">
-        <PartyPopper className="h-7 w-7" />
-      </span>
-      <h2 className="mt-5 text-2xl font-bold text-white">
-        You&apos;re all set{name ? `, ${name}` : ""}!
-      </h2>
-      <p className="mt-2 max-w-sm text-sm leading-relaxed text-slate-400">
-        Your profile is saved in this browser. We recommend starting with{" "}
-        <span className="text-violet-300">{missionTitle}</span>
-        {playableIsRecommended
-          ? "."
-          : " — more Node.js incidents are being written, so pick a playable one to begin."}
-      </p>
-      <div className="mt-6 flex flex-col gap-2.5 sm:flex-row">
-        <Link
-          href="/dashboard"
-          className="inline-flex items-center justify-center gap-2 rounded-xl border border-violet-400/40 bg-gradient-to-r from-violet-600 to-electric-500 px-6 py-2.5 text-sm font-semibold text-white shadow-neon transition-transform hover:scale-[1.03]"
-        >
-          Enter Dashboard
-          <ArrowRight className="h-4 w-4" />
-        </Link>
-        <Link
-          href={missionHref}
-          className="inline-flex items-center justify-center gap-2 rounded-xl border border-white/12 bg-white/[0.03] px-6 py-2.5 text-sm font-semibold text-slate-200 transition-colors hover:border-white/25 hover:text-white"
-        >
-          {missionLabel}
-        </Link>
       </div>
     </div>
   );

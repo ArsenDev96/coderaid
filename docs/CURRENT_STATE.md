@@ -136,7 +136,17 @@
 > §12 item 17 — the profile never reaching the server — is the one audit item left open, deliberately:
 > wiring it changes what other players see.
 >
-> The suite is **480 tests across 18 files**, plus 13 Playwright specs. All six gates green:
+> **New in the onboarding-completion pass (2026-07-22).** `/start` is now one route with three
+> states rather than a wizard that turns into a permanent "You''re all set" card. The completion
+> state is a compact, centred, **one-time** success card whose single goal is starting the
+> recommended first incident; the marketing column, the header''s duplicate "Already have progress?
+> Continue" action and the dashboard-as-primary-button are gone from it. A player who completed
+> onboarding on an earlier visit is now **redirected** into the mission they should be playing
+> instead of being congratulated again. The storage copy follows the real auth state, so a signed-in
+> player is no longer told their progress lives in this browser. Rules live in `lib/start.ts`; local
+> mission work is untouched. See §8 → Onboarding.
+>
+> The suite is **501 tests across 19 files**, plus 18 Playwright specs. All six gates green:
 > `typecheck`, `lint`, `test`, `validate:missions`, `build`, `playwright`.
 
 ---
@@ -177,8 +187,8 @@ The README (`README.md`) has been rewritten to match this positioning and is no 
 | Fonts | `next/font/google` — Inter (`--font-inter`), JetBrains Mono (`--font-jetbrains`) |
 | Backend | **Supabase** — Postgres + GitHub OAuth. Four route handlers under `app/api/`; no server actions |
 | Auth | `@supabase/ssr` 0.12 + `@supabase/supabase-js` 2 — GitHub OAuth only, cookie sessions |
-| Tests | **Vitest 2** — `tests/`, 18 files, 480 tests, Node environment, `@/*` alias |
-| Browser smoke | **Playwright 1.61** — `e2e/`, 13 Chromium tests against the production build: 2 signed-out, 11 authenticated (§15.5, §17.4) |
+| Tests | **Vitest 2** — `tests/`, 20 files, 523 tests, Node environment, `@/*` alias |
+| Browser smoke | **Playwright 1.61** — `e2e/`, 19 Chromium tests against the production build: 7 signed-out, 12 authenticated (§15.5, §17.4) |
 | Lint | **ESLint 8 + `eslint-config-next`**, committed `.eslintrc.json` extending `next/core-web-vitals` |
 | Content validation | `tsx scripts/validate-missions.ts` over `lib/mission-validation.ts` |
 
@@ -200,10 +210,10 @@ It must never be given a `NEXT_PUBLIC_` prefix.
 | --- | --- |
 | `npm run typecheck` | **passes clean**, no errors |
 | `npm run lint` | **runs non-interactively** — "No ESLint warnings or errors" |
-| `npm run test` | **480 passed** across 18 files |
+| `npm run test` | **523 passed** across 20 files |
 | `npm run validate:missions` | **0 errors, 0 warnings** — 20 missions checked, 14 fully playable |
 | `npm run build` | **succeeds**, "Compiled successfully" |
-| `npx playwright test` | **13 passed** (Chromium, against the production build) |
+| `npx playwright test` | **19 passed** (Chromium, against the production build) |
 
 All 13 Playwright specs **ran** rather than skipping, which is the thing to check: the eleven
 authenticated ones skip themselves without the Supabase keys, and a run where they skip reports the
@@ -234,7 +244,7 @@ app/
   layout.tsx                 Root layout: fonts, metadata, <ProgressProvider/>
   globals.css                Tailwind layers + .surface / .chip / .text-gradient utilities
   page.tsx                   Marketing landing page
-  start/                     Onboarding wizard (4 steps)
+  start/                     Onboarding: wizard (4 steps) · one-time success card · resume redirect
   sign-in/                   Real GitHub OAuth sign-in (SignInCard)
   demo/                      Placeholder route (PlaceholderPage)
   auth/callback/route.ts     OAuth code exchange → session cookie
@@ -261,7 +271,7 @@ components/
   dashboard/                 DashboardShell, DashboardSidebar, DashboardTopBar, DashboardGreeting,
                              NextAction, DailyRaid, CareerProgress, RecommendedMissions,
                              SkillsSummary, usePlayer
-  onboarding/                OnboardingWizard, OnboardingAside
+  onboarding/                StartExperience (owns the draft + the three states),
   missions/                  MissionBrowser, MissionsHeader, MissionsNextAction, StageGate
   missions/map/              MissionMapView, MissionDetailsPanel, useMissionResume
   missions/briefing|investigation|diagnosis|fix|verification|results/
@@ -284,6 +294,8 @@ lib/
   stage-access.ts            Pure stage-prerequisite rules (what StageGate enforces)
   mission-validation.ts      Pure content-validation rules (what validate:missions runs)
   code-theme.ts              Pure code tokenizer + editor-theme palettes (what CodeText renders)
+  start.ts                   Pure /start rules: which state, which mission, which storage copy
+  mission-storage.ts         CANONICAL per-mission localStorage keys + clearVerdict()
   verification-runtime.ts    The replay that actually executes: workload, probe, measurement (§17)
   verification-offload.ts    The browser's Worker offloader for that replay
   server/replay.ts           server-only: which fix moves the work off the thread
@@ -310,12 +322,12 @@ scripts/
   tsconfig.json              Stubs `server-only` so the CLI can import lib/server/answers.ts
 
 tests/                       Vitest — pure domain logic + end-to-end mission flows
-  grading  progress  availability  verification  skills  achievements  dashboard
+  grading  progress  availability  verification  skills  achievements  dashboard  start
   leaderboards  mission-validation  settings  mission-flow
   bundle-secrecy  ledger-derivation  claim
   stubs/server-only.ts       Aliased by vitest.config.ts so server modules import in Node
 
-e2e/                         Playwright — mission-flow.spec.ts (signed out),
+e2e/                         Playwright — mission-flow.spec.ts + onboarding.spec.ts (signed out),
                              authenticated.spec.ts (session-backed, §15.5)
   support/                   session.ts (mint a session), fixtures.ts (player
                              lifecycle), mission.ts (play a mission well or badly)
@@ -477,8 +489,8 @@ and a recommendation can't disagree about what the player has done:
   `recommendedMission(view)`, never a hardcoded id.
 - `components/skills/SkillDetailDrawer.tsx` / `SkillsAside.tsx` — practice CTAs only link when
   `canStart(m, view)`, otherwise render a badge / "being prepared" tooltip.
-- `components/onboarding/OnboardingWizard.tsx` — the completion card only links into a mission that
-  `canStart`, falling back to `recommendedMission()` then `/missions`.
+- `components/onboarding/OnboardingSuccess.tsx` — the completion card only links into a mission that
+  `canStart`, via `firstIncident()`, falling back to `recommendedMission()` then `/missions`.
 - `components/missions/results/ResultsWorkspace.tsx` — the Next Mission link uses the authored
   `config.nextMissionId` only if `canStart`, else `nextMissionId(mission.id, view)`.
 
@@ -1097,8 +1109,66 @@ the same mission, so the wizard, the dashboard and the mission map all point a n
 place. A test asserts the two agree. **All three suggestions are now fully authored** — `beginner` →
 `event-loop-overload`, `junior` → `promise-all-cascade`, `mid` → `user-signup-latency-spike` — so
 none of them falls back, and `tests/chapter-two.test.ts` pins each one against its catalogue entry.
-Persists to `coderaid:profile`; `completed: true` swaps the wizard for a "You're all set"
-card permanently (the only way back is the Settings profile section).
+Persists to `coderaid:profile`.
+
+#### The completion state (rebuilt 2026-07-22)
+
+`/start` is **one route with three states**, decided by `startDestination()` in `lib/start.ts` and
+rendered by `components/onboarding/StartExperience.tsx`. There is deliberately no second route.
+
+| State | When | What renders |
+| --- | --- | --- |
+| `onboarding` | `completed` is false | the four-step wizard beside `OnboardingAside` |
+| `success` | completed **in this interaction** | a compact, centred, one-time card |
+| `resume` / `dashboard` | completed on an earlier visit | a `router.replace()` into training |
+
+**`justCompleted` is React state and is never persisted.** That is the load-bearing part: it is the
+whole difference between "you just set up your profile" and "you set it up last week". Persisting it
+would recreate the problem it exists to solve — `/start` greeting a returning player with a success
+screen for something they did days ago, every single visit.
+
+**What the success card replaced.** The old completion state offered four competing actions at once:
+a full marketing column, an "Already have progress? Continue" link still in the header, **"Enter
+Dashboard" as the primary button** and "Start <mission>" as the secondary one. The mission was the
+entire point of the screen and was the least prominent thing on it. The card now has one goal — start
+the recommended first incident — with `Start Mission` as a full-width gradient button and `View
+Dashboard` as a plain text link beneath it. The marketing column and the header action are gone in
+this state only; the header action still appears during onboarding, where jumping to the wizard is
+useful.
+
+**The recommendation is derived, never hardcoded.** `firstIncident(experienceId, view)` runs
+`recommendedStartingMission()` through `canStart()` and falls through to `recommendedMission(view)`
+when the suggestion is not playable, so the CTA can only ever open a mission that plays end to end.
+
+**Where a returning player is sent** — `returningMission(view, experienceId)`, in priority order:
+a mission they have started and not finished, then the incident their onboarding answers
+recommended if unfinished, then any other unfinished playable mission, then nothing, which the
+component renders as `/dashboard`. Rule two is why this does not simply call `recommendedMission()`:
+that helper ranks by catalogue order once nothing is in progress, so a Junior player told to start
+Promise.all Failure Cascade would have been redirected into Event Loop Overload on their next visit,
+contradicting the only instruction the app had given them. The redirect waits for **both** the local
+draft and the ledger to hydrate, because a player who has completed everything belongs on the
+dashboard and an unhydrated ledger looks identical to an empty one. The stage comes from `resumeFor`,
+exported from `useMissionResume.ts` so the destination is known before navigating rather than after a
+render.
+
+**The storage copy is authentication-aware** (`storageNote(authenticated)`). It used to read "Your
+profile is saved in this browser" to everyone, which is misleading by omission for a signed-in
+player: their scores, XP, skills, achievements and rank are derived in Postgres from graded runs
+(§16), and only their profile *preferences* are local. Signed out, it now explains what an account
+is actually for — "Sign in when you run verification to save your score and progress" — which is the
+one thing a player needs to know before reaching the wall. The footer suppresses the same sentence in
+the success state rather than printing it twice on one screen.
+
+**Local mission work is untouched by any of this.** The wizard writes only `coderaid:profile`;
+investigation evidence, the diagnosis and fix picks, run telemetry and cached grades all keep their
+own keys, and a Playwright spec re-runs onboarding with evidence already collected and asserts the
+investigation state is byte-identical afterwards.
+
+`OnboardingWizard` is now **controlled** — `StartExperience` owns the draft and its persistence,
+because whether onboarding is complete decides the whole page's layout, and two components reading
+the same `localStorage` key independently could not stay in step. The individual wizard steps are
+unchanged.
 
 ### Settings — `/settings`
 
@@ -1425,6 +1495,54 @@ Genuinely outstanding:
     the findings via `eslint-config-next` and vite. **Re-measure with `npm audit --omit=dev` rather
     than trusting the total** — the headline count mixes dev and production.
 
+### Fixed 2026-07-22 — the stale verification verdict
+
+**A real gameplay bug, reported from play.** A player submitted a wrong fix, got an unresolved
+verification, went back to the Fix stage and applied the correct one — and Verification kept showing
+the **old unresolved result**, with Continue to Results already unlocked. They were never asked to
+run verification again, so the correct fix was never graded.
+
+**Root cause, precisely.** Two independent gaps that combined:
+
+1. **Changing a fix invalidated nothing downstream.** `FixWorkspace` passed `setFixId` straight to
+   `FixOptionList.onSelect`, so selecting a different option wrote `…:fix` and nothing else. The
+   `applied` flag stayed `true` from the previous option, and `…:grade`, `…:credit`,
+   `…:verification` and `…:results` all still described the fix the player had just abandoned.
+2. **A cached grade did not know what it graded.** It was stored as a bare `MissionGrade` — what the
+   server decided, but not what it decided *about*. `VerificationWorkspace` restores "done" from a
+   cached grade **plus** `…:verification.completed`, and with both still present from the previous
+   attempt it restored the failed verdict as though it were current. Nothing could have detected the
+   mismatch, because the grade carried no submission to compare against.
+
+**The fix, in two layers**, because either alone would leave a hole:
+
+- **Eager invalidation.** `clearVerdict(missionId)` in the new `lib/mission-storage.ts` removes
+  `…:grade`, `…:credit`, `…:verification` and `…:results`. `FixWorkspace` calls it when the
+  selection actually changes (and resets `applied`), and again on Apply; `DiagnosisWorkspace` calls
+  it when the root cause or evidence changes, since those are graded too. Re-selecting the option
+  already selected is not a change and does not discard a legitimately earned verdict.
+- **A submission envelope.** The cache is now `{ missionId, rootCauseId, evidenceIds, fixId, grade }`,
+  and `loadGrade()` returns the grade **only** when that submission still matches what the player
+  has selected. Evidence is compared as a set, since re-ordering the same findings is not a
+  different answer. This catches a cache that survived the clear — a second tab, a devtools edit, a
+  future code path that forgets to call it — and it makes the Results screen safe by the same read:
+  a mismatched verdict reads as ungraded rather than rendering a score from an abandoned fix.
+  Caches written before the envelope existed have no submission to check and are discarded.
+
+**What is deliberately *not* touched.** The server's `mission_runs` rows. A wrong attempt is a real
+attempt: both runs stay in Postgres, `best_runs` keeps the better one, and `attempts` counts two.
+This was only ever about what the browser may re-display. Run telemetry (`…:run`) is preserved too —
+the clock spans the whole mission, and changing a fix is part of the mission, not a restart.
+
+`lib/mission-storage.ts` is now the canonical home for every per-mission key; `lib/fix.ts`,
+`lib/verification.ts`, `lib/results.ts` and `lib/diagnosis.ts` re-export theirs from it. It is
+deliberately import-free, so the Fix route can invalidate the verification and results caches
+without pulling every mission's authored content into its bundle.
+
+Covered by `tests/stale-verdict.test.ts` (22 tests) and a Playwright regression that plays
+`event-loop-overload`, submits `Promise.resolve()`, switches to the worker-thread fix and asserts
+the lag metric moves 6.8s → 35ms with both runs recorded. All three were verified to fail against
+the original code.
 ### Found in the decoration audit, 2026-07-22 — items 13–16 and 18 fixed 2026-07-22
 
 A deliberate sweep for anything still ornamental now that grading, the ledger and the leaderboard
@@ -1700,7 +1818,7 @@ the claim and the leaderboard are all behind authentication, so none of them is 
 They were verified against the live database by hand (§16.6). Closing that gap — §12 item 2 — is
 what would make this section's claim true again rather than mostly true.
 
-### 15.1 The test suite — `tests/`, Vitest, 480 tests across 18 files
+### 15.1 The test suite — `tests/`, Vitest, 523 tests across 20 files
 
 Node environment, no DOM, no component testing library. `vitest.config.ts` re-declares the `@/*`
 alias so tests import modules exactly the way the app does, **and aliases `server-only` to
@@ -2139,7 +2257,7 @@ incident instead of describing it, with 12,000 rows of real quadratic work and t
 responsiveness really measured; the mission→fix mapping moved behind `server-only` after the first
 draft compiled the fix answer into the client bundle, with a new `bundle-secrecy` assertion to keep
 it out; and the authored correct fix versus every distractor is now asserted by execution rather
-than by claim. 480 tests across 18 files, 13 Playwright tests; all six gates green. See §17.
+than by claim. 523 tests across 20 files, 19 Playwright tests; all six gates green. See §17.
 Preceded by the **authenticated CI specs** (§15.5): a service-role-minted session encoded the way
 `@supabase/ssr` reads it, a per-test player fixture with teardown, and eight specs covering grading,
 the ledger, the replay rule, the claim, the leaderboard and RLS — closing the half of §12 item 2

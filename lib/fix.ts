@@ -8,6 +8,7 @@ import {
   Zap,
   type LucideIcon,
 } from "lucide-react";
+import { fixStorageKey } from "./mission-storage";
 
 /* -------------------------------- Types --------------------------------- */
 
@@ -1632,9 +1633,9 @@ export const FIXABLE_MISSION_IDS = Object.keys(fixConfigs);
 
 /* ------------------------- Persistence (localStorage) ------------------- */
 
-export function fixStorageKey(missionId: string): string {
-  return `coderaid:${missionId}:fix`;
-}
+// Defined in `lib/mission-storage.ts`, with every other per-mission key, so
+// the Fix stage can invalidate downstream caches without importing them.
+export { fixStorageKey };
 
 /**
  * Restores a mission's fix selection. The id is validated against the mission's
