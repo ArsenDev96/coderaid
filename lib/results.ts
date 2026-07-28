@@ -1,3 +1,5 @@
+import { resultsStorageKey } from "./mission-storage";
+
 /* -------------------------------- Types --------------------------------- */
 
 export type MissionResultMetric = {
@@ -1076,9 +1078,7 @@ export type ResultsState = {
   score: number;
 };
 
-export function resultsStorageKey(missionId: string): string {
-  return `coderaid:${missionId}:results`;
-}
+export { resultsStorageKey };
 
 export function loadResultsState(missionId: string): ResultsState | null {
   if (typeof window === "undefined") return null;

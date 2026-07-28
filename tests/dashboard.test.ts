@@ -1,94 +1,96 @@
-/**
- * The dashboard's derived figures.
- *
- * The card next to them shows a real headline metric taken from the mission's
- * investigation content, and for a long time it also showed a sparkline that
- * was 21 hardcoded points — the same squiggle for every mission, described in
- * its own comment as a "noisy, elevated latency series". A fabricated chart
- * beside a derived number is the exact failure §4.10 exists to prevent, so the
- * samples now come from the mission's own authored chart and these tests hold
- * them to it.
- */
-
 import { describe, expect, it } from "vitest";
-import { nextActionFor, sparklinePoints } from "@/lib/dashboard";
+import {
+  nextActionFor,
+  SPARK_HEIGHT,
+  SPARK_WIDTH,
+  sparklinePoints,
+} from "@/lib/dashboard";
 import { PLAYABLE_MISSION_IDS } from "@/lib/availability";
 import { getInvestigation } from "@/lib/investigation";
-import { getMission } from "@/lib/missions";
+import { getMission, MISSIONS } from "@/lib/missions";
 
-/** `"12,30 24,18"` → `[[12, 30], [24, 18]]`. */
-function parse(points: string): Array<[number, number]> {
-  return points
-    .split(" ")
-    .map((pair) => pair.split(",").map(Number) as [number, number]);
+/**
+ * The dashboard's Next Action card.
+ *
+ * These cover what replaced `RESPONSE_SERIES` — a hardcoded 21-point squiggle
+ * rendered beside a *real* headline metric and byte-identical for all fourteen
+ * missions. The sparkline is now derived from the same investigation config the
+ * headline comes from, so the two describe one incident.
+ */
+
+function pairs(points: string): { x: number; y: number }[] {
+  return points.split(" ").map((p) => {
+    const [x, y] = p.split(",").map(Number);
+    return { x, y };
+  });
 }
 
 describe("sparklinePoints", () => {
-  it("draws nothing when there is nothing to draw", () => {
+  it("spans the full width, oldest sample to newest", () => {
+    const points = pairs(sparklinePoints([1, 2, 3, 4])!);
+    expect(points).toHaveLength(4);
+    expect(points[0].x).toBe(0);
+    expect(points[3].x).toBe(SPARK_WIDTH);
+    // Monotonic in x, or the polyline doubles back on itself.
+    for (let i = 1; i < points.length; i++) {
+      expect(points[i].x).toBeGreaterThan(points[i - 1].x);
+    }
+  });
+
+  it("puts the largest sample at the top and the smallest at the bottom", () => {
+    const points = pairs(sparklinePoints([10, 50, 30])!);
+    // SVG y grows downward, so the biggest value has the smallest y.
+    expect(points[1].y).toBeLessThan(points[2].y);
+    expect(points[2].y).toBeLessThan(points[0].y);
+  });
+
+  it("stays inside the viewBox", () => {
+    for (const { y } of pairs(sparklinePoints([0, 9999, 5, 120, 3])!)) {
+      expect(y).toBeGreaterThanOrEqual(0);
+      expect(y).toBeLessThanOrEqual(SPARK_HEIGHT);
+    }
+  });
+
+  it("normalises to the series' own range, not an absolute scale", () => {
+    // Same shape, wildly different magnitudes — a sparkline compares shape.
+    expect(sparklinePoints([1, 2, 3])).toBe(sparklinePoints([1000, 2000, 3000]));
+  });
+
+  it("draws a flat series through the middle rather than dividing by zero", () => {
+    for (const { y } of pairs(sparklinePoints([7, 7, 7])!)) {
+      expect(y).toBe(SPARK_HEIGHT / 2);
+    }
+  });
+
+  it("returns null for a series too short or too broken to draw", () => {
     expect(sparklinePoints([])).toBeNull();
     expect(sparklinePoints([42])).toBeNull();
-  });
-
-  it("spans the full width, oldest to newest", () => {
-    const parsed = parse(sparklinePoints([1, 2, 3, 4, 5])!);
-    expect(parsed).toHaveLength(5);
-    expect(parsed[0][0]).toBe(0);
-    expect(parsed[4][0]).toBe(240);
-    // Strictly left to right — a series drawn out of order would misreport
-    // which way the incident went.
-    for (let i = 1; i < parsed.length; i += 1) {
-      expect(parsed[i][0]).toBeGreaterThan(parsed[i - 1][0]);
-    }
-  });
-
-  it("puts the peak at the top and the trough at the bottom", () => {
-    // SVG y grows downward, so the largest sample must have the smallest y.
-    const parsed = parse(sparklinePoints([10, 500, 10])!);
-    expect(parsed[1][1]).toBeLessThan(parsed[0][1]);
-    expect(parsed[0][1]).toBe(parsed[2][1]);
-  });
-
-  it("keeps every point inside the box", () => {
-    const parsed = parse(sparklinePoints([0, 9999, 3, 74, 1])!);
-    for (const [x, y] of parsed) {
-      expect(x).toBeGreaterThanOrEqual(0);
-      expect(x).toBeLessThanOrEqual(240);
-      expect(y).toBeGreaterThanOrEqual(0);
-      expect(y).toBeLessThanOrEqual(40);
-    }
-  });
-
-  it("draws a flat series down the middle rather than pinned to an edge", () => {
-    const parsed = parse(sparklinePoints([48, 48, 48])!);
-    for (const [, y] of parsed) expect(y).toBeCloseTo(20, 0);
-  });
-
-  it("reflects the shape of the samples it was given", () => {
-    // A steady climb must render as a steady climb, not as noise.
-    const climbing = parse(sparklinePoints([1, 2, 3, 4, 5, 6])!);
-    for (let i = 1; i < climbing.length; i += 1) {
-      expect(climbing[i][1]).toBeLessThan(climbing[i - 1][1]);
-    }
+    expect(sparklinePoints([1, NaN, 3])).toBeNull();
+    expect(sparklinePoints([1, Infinity])).toBeNull();
   });
 });
 
-describe("the next-action card", () => {
-  it("carries the mission's own latency samples", () => {
+describe("the Next Action card", () => {
+  it("draws each mission's own latency samples", () => {
     for (const id of PLAYABLE_MISSION_IDS) {
-      const card = nextActionFor(getMission(id)!);
-      const series = getInvestigation(id)!.metrics.latency.series;
-
-      expect(card.sparkline).toBe(sparklinePoints(series));
-      expect(card.sparkline).not.toBeNull();
+      const mission = getMission(id)!;
+      const investigation = getInvestigation(id)!;
+      expect(nextActionFor(mission).spark).toBe(
+        sparklinePoints(investigation.metrics.latency.series),
+      );
     }
   });
 
-  it("gives different missions different shapes", () => {
-    // The old constant was identical everywhere. If this ever collapses to one
-    // value again, something has gone back to drawing a decoration.
-    const shapes = new Set(
-      PLAYABLE_MISSION_IDS.map((id) => nextActionFor(getMission(id)!).sparkline),
-    );
-    expect(shapes.size).toBeGreaterThan(1);
+  it("gives no two playable missions the same sparkline", () => {
+    // The precise failure `RESPONSE_SERIES` had: one shape for every mission,
+    // beside fourteen different headline numbers.
+    const shapes = PLAYABLE_MISSION_IDS.map((id) => nextActionFor(getMission(id)!).spark);
+    expect(new Set(shapes).size).toBe(shapes.length);
+  });
+
+  it("omits the chart for a mission with no investigation content", () => {
+    const unwritten = MISSIONS.find((m) => !getInvestigation(m.id));
+    expect(unwritten).toBeDefined();
+    expect(nextActionFor(unwritten!).spark).toBeNull();
   });
 });

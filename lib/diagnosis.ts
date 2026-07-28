@@ -9,6 +9,7 @@ import {
   Network,
   type LucideIcon,
 } from "lucide-react";
+import { diagnosisStorageKey } from "./mission-storage";
 import type { InvestigationToolId } from "./investigation";
 
 /* -------------------------------- Types --------------------------------- */
@@ -1583,9 +1584,7 @@ export function canConfirm(
 
 /* ------------------------- Persistence (localStorage) ------------------- */
 
-export function diagnosisStorageKey(missionId: string): string {
-  return `coderaid:${missionId}:diagnosis`;
-}
+export { diagnosisStorageKey };
 
 /**
  * Restores a mission's diagnosis. Selections are validated against the mission's

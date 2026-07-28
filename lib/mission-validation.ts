@@ -207,15 +207,22 @@ function validateCatalogue(missions: Mission[]): ValidationIssue[] {
       mission.objectives.length > 0,
       "Mission has no objectives.",
     );
-    // §4.10: nothing about a player may be authored. Objectives used to carry a
-    // `done` flag and six of them were authored `true`, which rendered as
-    // completed ticks to players who had never opened the mission. This keeps
-    // the shape that made that possible from coming back.
-    c.check(
-      "catalogue",
-      mission.objectives.every((o) => typeof o === "string" && !blank(o)),
-      "Objectives must be non-empty strings — an objective carrying player state (e.g. `done`) is authored progress.",
-    );
+
+    // Objectives describe the mission; whether one is *done* describes a
+    // player, and nothing about a player may be authored (§4.10). Eighty of
+    // these carried a `done` flag and six said `true`, which the mission
+    // browser rendered as completed checkmarks for someone who had never
+    // played. The type no longer allows it — this catches a literal that slips
+    // past `as`-casts or a hand-edited catalogue.
+    for (const [i, objective] of mission.objectives.entries()) {
+      const record = objective as unknown as Record<string, unknown>;
+      c.check(
+        "catalogue",
+        !("done" in record),
+        `Objective ${i + 1} carries a "done" flag — objective completion is a fact about a player, not authored content.`,
+      );
+      c.check("catalogue", !blank(objective.text), `Objective ${i + 1} has empty text.`);
+    }
     c.check(
       "catalogue",
       !blank(mission.rewardSkill),

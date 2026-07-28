@@ -1,5 +1,15 @@
 import { Logo } from "./ui/Logo";
 
+/*
+  Every link here goes somewhere real.
+
+  Removed: Privacy Policy and Terms of Service, which both pointed at `/demo`
+  — a placeholder page reading "Watch the demo" — plus GitHub, Twitter and
+  Discord, which pointed at the same placeholder. Now that there are real
+  accounts and a real database behind them, a Terms link that is not terms is
+  worse than no link: it implies an agreement that does not exist. They come
+  back when the pages do.
+*/
 const PRODUCT_LINKS = [
   { label: "How It Works", href: "#how-it-works" },
   { label: "Mission Preview", href: "#mission" },
@@ -8,17 +18,6 @@ const PRODUCT_LINKS = [
   { label: "Missions", href: "/missions" },
   { label: "Leaderboards", href: "/leaderboards" },
 ];
-
-/*
- * The legal and social links are gone rather than repointed.
- *
- * All five — Privacy Policy, Terms of Service, GitHub, Twitter, Discord —
- * pointed at `/demo`, a placeholder page reading "Watch the demo". The legal
- * pair is the one that acquired real weight once accounts and a database
- * existed: a Terms link that is not terms is worse than no link, because it
- * implies terms were agreed to. Writing that copy is not a call this codebase
- * can make, so the links wait for the pages rather than the other way round.
- */
 
 export function Footer() {
   return (

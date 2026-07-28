@@ -5,14 +5,7 @@ import Link from "next/link";
 import { ArrowRight, Info, Loader2, PlayCircle } from "lucide-react";
 import { getDiagnosis, loadDiagnosisState } from "@/lib/diagnosis";
 import { getFix, loadFixState } from "@/lib/fix";
-import {
-  clearGradedRun,
-  loadGrade,
-  saveCredit,
-  saveGrade,
-  storedAnswers,
-  submitRun,
-} from "@/lib/grade-submission";
+import { loadGrade, saveCredit, saveGrade, submitRun } from "@/lib/grade-submission";
 import { today } from "@/lib/progress";
 import { completeStage, emptyRun, loadRun, touchRun } from "@/lib/run";
 import { useProgress } from "@/components/progress/ProgressProvider";
@@ -80,18 +73,14 @@ export function VerificationWorkspace({
     // "Done" requires a grade, not just a local flag: without one there is
     // nothing truthful to render, so the player runs verification again.
     //
-    // `loadGrade` returns one only while it still describes the answers
-    // currently saved, so a player who went back and changed their fix lands
-    // here on the run screen rather than on the previous run's verdict. That
-    // is the whole repair: the report below is resolved from a grade, and a
-    // grade about different answers is not a report about this attempt.
+    // `loadGrade` now returns a grade only when the submission it was produced
+    // from still matches what the player has selected. A changed fix, root
+    // cause or evidence set therefore lands here as "no grade" — which is the
+    // truth — and the screen asks for a new run instead of restoring the
+    // verdict from an answer that has since been replaced.
     if (cached && saved?.completed) {
       setFixResolves(cached.resolved);
       setPhase("done");
-    } else {
-      // Nothing renderable is left — drop the superseded verdict rather than
-      // leave bytes behind that another screen might read.
-      clearGradedRun(config.missionId);
     }
 
     setHydrated(true);
@@ -131,16 +120,24 @@ export function VerificationWorkspace({
     const fixConfig = getFix(config.missionId);
     const fixState = fixConfig ? loadFixState(fixConfig) : null;
 
-    // Captured before the round trip: this is what the grade coming back will
-    // be a statement about, and it is stamped onto the cache so a later change
-    // to either answer invalidates the verdict instead of outliving it.
-    const answers = storedAnswers(config.missionId);
+    /*
+      Read from storage at submission time, never from state captured when the
+      component mounted. The Fix stage writes `…:fix` before navigating here, so
+      storage is the newest answer; a value closed over at mount would be the
+      previous one on any flow that changes a fix and comes back.
 
-    const result = await submitRun({
+      The same object is stored with the grade, so the verdict can later be
+      checked against what is selected rather than assumed to still apply.
+    */
+    const submission = {
       missionId: config.missionId,
       rootCauseId: diagnosisState?.rootCauseId ?? null,
       evidenceIds: diagnosisState?.evidenceIds ?? [],
       fixId: fixState?.fixId ?? null,
+    };
+
+    const result = await submitRun({
+      ...submission,
       fixApplied: fixState?.applied === true,
       telemetry: loadRun(config.missionId) ?? emptyRun(),
       // Streaks are counted in local days, which the server cannot compute;
@@ -174,7 +171,7 @@ export function VerificationWorkspace({
           timer.current = setTimeout(() => resolve(null), 1400);
         });
 
-    saveGrade(config.missionId, result.grade, answers);
+    saveGrade(config.missionId, result.grade, submission);
     // What the run earned, as measured by the server around the insert. The
     // results screen renders it; it cannot work it out for itself, which is
     // the same reason it cannot compute the score.

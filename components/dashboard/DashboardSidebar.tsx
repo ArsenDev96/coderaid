@@ -78,22 +78,16 @@ export function DashboardSidebar({
         </nav>
 
         {/*
-          Log out — a form, not a link.
+          Log out is a form, not a link. The route is deliberately POST-only —
+          a GET sign-out would let any page on the internet log the player out
+          with an <img> tag — so a <Link> could never have reached it. It used
+          to be `<Link href="/">`, which navigated home and left the session
+          entirely intact.
 
-          This used to be <Link href="/">, which navigated to the landing page
-          and left the session entirely intact: coming back to /dashboard was
-          still signed in, and on a shared machine the next person inherited
-          the account. The route that actually ends the session already
-          existed; nothing called it.
-
-          It is a POST because a GET sign-out would let any page on the
-          internet log the player out with an <img> tag, and a plain form
-          rather than a fetch because the redirect it returns reloads the
-          document — which is what clears the signed-in ledger the provider is
-          holding in memory. It also works with JavaScript disabled.
+          A plain HTML form rather than a fetch: the route answers 303 to `/`,
+          and a full navigation is exactly what should happen when the session
+          ends — every provider holding ledger state is torn down with it.
         */}
-        {/* `mt-auto` moved here from the deleted Premium block — it is what
-            holds the sidebar's last item against the bottom. */}
         <form action="/auth/sign-out" method="post" className="mt-auto pt-4">
           <button
             type="submit"

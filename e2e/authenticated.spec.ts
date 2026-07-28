@@ -371,6 +371,149 @@ test.describe("the authenticated path", () => {
       await selectRows("mission_runs", `player_id=eq.${player.id}&select=id`),
     ).toHaveLength(0);
   });
+
+  /**
+   * Logging out actually ends the session.
+   *
+   * This is the regression test for a live defect: the sidebar rendered Log out
+   * as `<Link href="/">`, which navigated home and left the session completely
+   * intact. The page looked signed out — the dashboard is behind a client
+   * redirect — while the cookie, and every endpoint it opened, stayed live.
+   *
+   * So the assertion is deliberately *not* "the UI changed". It is that the
+   * server stops answering: `/api/ledger` is the endpoint the old bug left wide
+   * open, and it is the one checked here.
+   */
+  test("ends the session when the player logs out", async ({ page }) => {
+    // The session is live before we touch anything, or the rest proves nothing.
+    expect((await page.request.get("/api/ledger")).status()).toBe(200);
+
+    await page.goto("/dashboard");
+
+    const logOut = page.getByRole("button", { name: "Log out" });
+    await expect(logOut).toBeVisible();
+
+    // The route answers 303 to `/`; a form POST follows it as a navigation.
+    await Promise.all([page.waitForURL("**/"), logOut.click()]);
+
+    // The actual claim: the cookie no longer opens anything.
+    expect((await page.request.get("/api/ledger")).status()).toBe(401);
+    expect((await page.request.get("/api/leaderboard")).status()).toBe(401);
+  });
+
+  /**
+   * The stale-verdict regression.
+   *
+   * A player submitted the `Promise.resolve()` fix — which does not move the
+   * work off the thread — got an unresolved verification, went back to Fix and
+   * applied the worker-thread fix. Verification kept showing the **old
+   * unresolved result**: the cached grade, credit, verification and results
+   * state all still described the abandoned fix, and nothing tied a cached
+   * grade to the submission that produced it.
+   *
+   * `tests/stale-verdict.test.ts` covers the storage rules. This covers the
+   * thing only a browser can: that the screen a player actually looks at shows
+   * the new verdict, and that both attempts survive as real server runs.
+   */
+  test("does not show the old verdict after changing to the correct fix", async ({
+    page,
+    player,
+  }) => {
+    // The headline value on the Event Loop Lag card. Targeted precisely rather
+    // than by card text, because the card also carries "was 6.8s" in *both*
+    // states — an assertion that matched it would pass either way.
+    const lagValue = page
+      .getByRole("listitem")
+      .filter({ hasText: "Event Loop Lag (p95)" })
+      .locator("p")
+      .first();
+
+    /* 1–2 — play the mission and submit the Promise.resolve fix. */
+    await playToVerification(page, "perfect");
+    await page.goto(`/missions/${MISSION}/fix`);
+    await page.getByRole("radio", { name: /Wrap buildWeeklyReport\(\) in Promise\.resolve\(\)/ }).click();
+    await page.getByRole("link", { name: /Apply Fix/ }).click();
+    await runVerification(page);
+
+    /* 3 — unresolved: the metrics hold at their "before" values, and the
+       checks that depend on the fix are red. */
+    await expect(page.getByText("Continue to Results")).toBeVisible();
+    // The unresolved report holds every metric at its "before" value.
+    await expect(lagValue).toHaveText("6.8s");
+
+    const firstRuns = await selectRows<RunRow>(
+      "mission_runs",
+      `player_id=eq.${player.id}&select=resolved,score`,
+    );
+    expect(firstRuns).toHaveLength(1);
+    expect(firstRuns[0].resolved).toBe(false);
+
+    /* 4–6 — back to Fix, select the worker-thread option, apply it. */
+    await page.goto(`/missions/${MISSION}/fix`);
+    await page.getByRole("radio", { name: /Generate the report in a worker thread/ }).click();
+
+    // The moment the bug produced: the old verdict must already be gone.
+    const cached = await page.evaluate(
+      (id) => window.localStorage.getItem(`coderaid:${id}:grade`),
+      MISSION,
+    );
+    expect(cached).toBeNull();
+
+    await page.getByRole("link", { name: /Apply Fix/ }).click();
+    await expect(page).toHaveURL(new RegExp(`/missions/${MISSION}/verification$`));
+
+    // Verification asks for a new run instead of restoring the failed one.
+    await expect(page.getByRole("button", { name: "Run Verification" })).toBeVisible();
+    await expect(
+      page.getByRole("link", { name: /Continue to Results/ }),
+    ).toHaveCount(0);
+
+    /* 7–9 — run it again: the lag improves and the checks go green. */
+    await runVerification(page);
+    await expect(page.getByRole("link", { name: /Continue to Results/ })).toBeVisible({
+      timeout: 20_000,
+    });
+    await expect(lagValue).toHaveText("35ms");
+    await expect(page.getByText("Event-loop lag is back to normal")).toBeVisible();
+    await expect(page.getByText("Unrelated endpoints stay responsive")).toBeVisible();
+
+    // A refresh shows the latest verdict, not the first one.
+    await page.reload();
+    await expect(lagValue).toHaveText("35ms");
+
+    /* Both attempts remain real server runs — the client fix never touches
+       history — and the best one is what counts. */
+    const runs = await selectRows<RunRow>(
+      "mission_runs",
+      `player_id=eq.${player.id}&select=resolved,score&order=score.asc`,
+    );
+    expect(runs).toHaveLength(2);
+    expect(runs.map((r) => r.resolved)).toEqual([false, true]);
+
+    const ledger = await page.request.get("/api/ledger");
+    const body = (await ledger.json()) as {
+      ledger: { missions: Record<string, { attempts: number; resolved: boolean }> };
+    };
+    expect(body.ledger.missions[MISSION].attempts).toBe(2);
+    expect(body.ledger.missions[MISSION].resolved).toBe(true);
+  });
+
+  /**
+   * The other half of the same design: sign-out is POST-only *on purpose*,
+   * because a GET sign-out lets any page on the internet log the player out
+   * with an `<img src="…/auth/sign-out">` tag. `app/auth/sign-out/route.ts`
+   * says so in a comment; nothing checked it, and a later hand adding `GET` to
+   * "make the link work" would have reintroduced exactly that.
+   */
+  test("cannot be logged out by a GET", async ({ page }) => {
+    const response = await page.request.get("/auth/sign-out", {
+      maxRedirects: 0,
+    });
+    expect(response.status()).toBe(405);
+
+    // The point of the check: the session survived the attempt.
+    expect((await page.request.get("/api/ledger")).status()).toBe(200);
+  });
 });
 
 /**

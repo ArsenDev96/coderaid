@@ -1,4 +1,11 @@
 import type { MissionGrade } from "./grading";
+import {
+  creditStorageKey,
+  currentSubmission,
+  gradeStorageKey,
+  submissionMatches,
+  type SubmissionRef,
+} from "./mission-storage";
 import { coerceLedger, NO_CREDIT, type Ledger, type RunCredit } from "./progress";
 import type { RunTelemetry } from "./run";
 
@@ -74,119 +81,33 @@ export async function submitRun(body: RunSubmissionBody): Promise<SubmitResult> 
   }
 }
 
-/* --------------------------- Answers fingerprint ------------------------- */
-
-/**
- * The answers a grade was produced from.
- *
- * A grade is only ever true of the diagnosis and fix it was computed against.
- * The player can go back and change either — that is the whole point of the
- * flow being replayable — and the moment they do, a cached grade describes a
- * run that no longer exists. Stamping the cache with the answers behind it is
- * what lets a screen prove the verdict it is about to render still belongs to
- * the player's current choices.
- */
-export type GradedAnswers = {
-  rootCauseId: string | null;
-  /** Sorted: re-picking the same evidence in a different order is not a change. */
-  evidenceIds: string[];
-  fixId: string | null;
-  fixApplied: boolean;
-};
-
-export const NO_ANSWERS: GradedAnswers = {
-  rootCauseId: null,
-  evidenceIds: [],
-  fixId: null,
-  fixApplied: false,
-};
-
-/**
- * The mission's saved diagnosis and fix, as a comparable fingerprint.
- *
- * Deliberately reads the two keys directly rather than going through
- * `loadDiagnosisState` / `loadFixState`. Both sides of the comparison — the
- * copy stamped onto the grade and the copy read back later — have to be
- * produced the same way for the comparison to mean anything, and going through
- * the loaders would pull two large mission-content modules into every route
- * that renders a grade, to obtain two key strings.
- */
-export function storedAnswers(missionId: string): GradedAnswers {
-  if (typeof window === "undefined") return NO_ANSWERS;
-  const diagnosis = readStored<{
-    rootCauseId: unknown;
-    evidenceIds: unknown;
-  }>(`coderaid:${missionId}:diagnosis`);
-  const fix = readStored<{ fixId: unknown; applied: unknown }>(
-    `coderaid:${missionId}:fix`,
-  );
-
-  return {
-    rootCauseId:
-      typeof diagnosis?.rootCauseId === "string" ? diagnosis.rootCauseId : null,
-    evidenceIds: Array.isArray(diagnosis?.evidenceIds)
-      ? [...new Set(diagnosis.evidenceIds.filter((id): id is string => typeof id === "string"))].sort()
-      : [],
-    fixId: typeof fix?.fixId === "string" ? fix.fixId : null,
-    fixApplied: fix?.applied === true,
-  };
-}
-
-export function sameAnswers(a: GradedAnswers, b: GradedAnswers): boolean {
-  return (
-    a.rootCauseId === b.rootCauseId &&
-    a.fixId === b.fixId &&
-    a.fixApplied === b.fixApplied &&
-    a.evidenceIds.length === b.evidenceIds.length &&
-    a.evidenceIds.every((id, i) => id === b.evidenceIds[i])
-  );
-}
-
-function readStored<T>(key: string): Partial<T> | null {
-  try {
-    const raw = window.localStorage.getItem(key);
-    if (!raw) return null;
-    const parsed = JSON.parse(raw) as unknown;
-    return parsed && typeof parsed === "object" ? (parsed as Partial<T>) : null;
-  } catch {
-    return null;
-  }
-}
-
 /* ------------------------------ Grade cache ------------------------------ */
 
-export function gradeStorageKey(missionId: string): string {
-  return `coderaid:${missionId}:grade`;
-}
+export { gradeStorageKey, creditStorageKey };
 
 /**
- * Caches the grade **with the answers it describes**, so it can be discarded
- * rather than trusted once those answers change.
+ * A cached grade, stored **with the submission that produced it**.
+ *
+ * The envelope is the point. A bare `MissionGrade` says what the server
+ * decided but not what it decided *about*, so nothing could tell whether it
+ * still described the player's current answers. It didn't: selecting a
+ * different fix left the old grade in place, and verification restored it as a
+ * finished run. Carrying the submission means a verdict can be checked against
+ * what is selected now and discarded when it no longer matches.
  */
+export type CachedGrade = SubmissionRef & { grade: MissionGrade };
+
 export function saveGrade(
   missionId: string,
   grade: MissionGrade,
-  answers: GradedAnswers,
+  submission: SubmissionRef,
 ): void {
   if (typeof window === "undefined") return;
   try {
-    window.localStorage.setItem(
-      gradeStorageKey(missionId),
-      JSON.stringify({ grade, answers }),
-    );
+    const cached: CachedGrade = { ...submission, missionId, grade };
+    window.localStorage.setItem(gradeStorageKey(missionId), JSON.stringify(cached));
   } catch {
     /* ignore quota / privacy-mode errors */
-  }
-}
-
-/** Drops the cached verdict and what it earned. Safe to call when neither exists. */
-export function clearGradedRun(missionId: string): void {
-  if (typeof window === "undefined") return;
-  try {
-    window.localStorage.removeItem(gradeStorageKey(missionId));
-    window.localStorage.removeItem(creditStorageKey(missionId));
-  } catch {
-    /* ignore privacy-mode errors */
   }
 }
 
@@ -198,10 +119,6 @@ export function clearGradedRun(missionId: string): void {
  * grade because both describe the same run and both are read one navigation
  * later.
  */
-export function creditStorageKey(missionId: string): string {
-  return `coderaid:${missionId}:credit`;
-}
-
 export function saveCredit(missionId: string, credit: RunCredit): void {
   if (typeof window === "undefined") return;
   try {
@@ -234,42 +151,56 @@ export function loadCredit(missionId: string): RunCredit | null {
 }
 
 /**
- * The cached grade — **only if it still describes the player's current
- * answers**. Otherwise null, which every caller already treats as "not graded
- * yet" and answers by sending the player back to run verification.
+ * The cached grade **for the answers the player currently has selected**, or
+ * null.
  *
- * This is the rule that keeps a stale verdict off the screen. Changing the fix
- * after a failed run and verifying again used to be able to redisplay the
- * previous unresolved report — the old metrics, the old failed checks, the old
- * verdict — because the cache was keyed by mission alone and a mission has
- * exactly one cache entry however many times it is replayed.
+ * Two ways to get null beyond a missing cache, and both mean "run verification
+ * again" rather than "show something approximate":
  *
- * A cache written before grades carried their answers is treated as stale for
- * the same reason: there is no way to prove what it describes, and asking the
- * player to run verification again costs one click, while trusting it costs
- * them the truth about their own run.
+ *   - the envelope is malformed, truncated or hand-edited;
+ *   - it describes a *different* submission — a changed fix, root cause or
+ *     evidence set. A grade belongs to the answers it graded, and there is no
+ *     honest way to re-use one across a changed answer.
  *
- * Validated only as far as the fields the UI reads — a truncated or hand-edited
- * cache should render nothing rather than a half-built score.
+ * A cache written before the envelope existed has no submission to check, so it
+ * is discarded too. Re-running verification is cheap; showing a player the
+ * verdict from a fix they abandoned is the bug this exists to prevent.
  */
 export function loadGrade(missionId: string): MissionGrade | null {
+  const cached = loadCachedGrade(missionId);
+  if (!cached) return null;
+  return submissionMatches(cached, currentSubmission(missionId))
+    ? cached.grade
+    : null;
+}
+
+/** The raw envelope, including the submission — for tests and diagnostics. */
+export function loadCachedGrade(missionId: string): CachedGrade | null {
   if (typeof window === "undefined") return null;
   try {
     const raw = window.localStorage.getItem(gradeStorageKey(missionId));
     if (!raw) return null;
-    const parsed = JSON.parse(raw) as { grade?: MissionGrade; answers?: GradedAnswers };
+    const parsed = JSON.parse(raw) as Partial<CachedGrade>;
     const grade = parsed?.grade;
-    const answers = parsed?.answers;
     if (
+      typeof parsed?.missionId !== "string" ||
+      !Array.isArray(parsed?.evidenceIds) ||
       typeof grade?.score !== "number" ||
       typeof grade?.resolved !== "boolean" ||
-      !Array.isArray(grade?.breakdown) ||
-      !answers ||
-      !Array.isArray(answers.evidenceIds)
+      !Array.isArray(grade?.breakdown)
     ) {
       return null;
     }
-    return sameAnswers(answers, storedAnswers(missionId)) ? grade : null;
+    return {
+      missionId: parsed.missionId,
+      rootCauseId:
+        typeof parsed.rootCauseId === "string" ? parsed.rootCauseId : null,
+      evidenceIds: parsed.evidenceIds.filter(
+        (id): id is string => typeof id === "string",
+      ),
+      fixId: typeof parsed.fixId === "string" ? parsed.fixId : null,
+      grade,
+    };
   } catch {
     return null;
   }

@@ -64,6 +64,12 @@ export function ResultsWorkspace({
     // The grade was computed and recorded by the server when the player ran
     // verification. This screen renders it — it no longer knows the answers, so
     // it cannot compute one, which is exactly the property we want.
+    //
+    // `loadGrade` returns null when the cached verdict was produced from a
+    // different submission — a fix, root cause or evidence set the player has
+    // since changed. That is treated as ungraded rather than rendered, so this
+    // screen can never show the score from a fix that is no longer applied.
+    // The run itself is untouched: it stays in Postgres as a real attempt.
     const result = loadGrade(mission.id);
     if (!result) {
       setUngraded(true);

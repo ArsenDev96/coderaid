@@ -1,5 +1,4 @@
 import {
-  Award,
   BarChart3,
   Home,
   Layers,
@@ -71,6 +70,62 @@ export const SIDEBAR_ITEMS: SidebarItem[] = [
   { label: "Settings", icon: Settings, href: "/settings" },
 ];
 
+/* ------------------------------ Sparkline ------------------------------- */
+
+/*
+  Declared above `nextActionFor` on purpose. `NEXT_ACTION` below is evaluated
+  at module load, so it reaches these two constants during initialisation —
+  and `const` is in its temporal dead zone until its own declaration runs.
+  Defining them after `NEXT_ACTION` builds fine and then throws
+  "Cannot access 'b' before initialization" at prerender time, on pages that
+  never mention the dashboard. Keep them here.
+*/
+export const SPARK_WIDTH = 240;
+export const SPARK_HEIGHT = 40;
+
+/**
+ * Projects a latency series onto SVG polyline points.
+ *
+ * This replaces `RESPONSE_SERIES`, a hardcoded 21-point squiggle that was
+ * rendered on the Next Action card **beside a real headline metric taken from
+ * the mission's own investigation config** — and was byte-identical for all
+ * fourteen missions. A player comparing the number to the shape beside it was
+ * reading a decoration as data.
+ *
+ * The series is normalised to its own min/max rather than to an absolute
+ * scale: these are latency samples in whatever unit the mission authored, so
+ * only the *shape* is comparable, which is all a sparkline claims to show.
+ * A flat series draws a flat line through the middle instead of dividing by a
+ * zero range.
+ *
+ * Returns `null` for a series too short to draw — the caller omits the chart
+ * rather than rendering a single point.
+ */
+export function sparklinePoints(
+  series: number[],
+  width = SPARK_WIDTH,
+  height = SPARK_HEIGHT,
+): string | null {
+  if (series.length < 2) return null;
+  if (series.some((n) => !Number.isFinite(n))) return null;
+
+  const pad = 3;
+  const min = Math.min(...series);
+  const max = Math.max(...series);
+  const range = max - min;
+  const span = height - pad * 2;
+
+  const round = (n: number) => Math.round(n * 10) / 10;
+
+  return series
+    .map((value, i) => {
+      const x = (i / (series.length - 1)) * width;
+      const y = range === 0 ? height / 2 : height - pad - ((value - min) / range) * span;
+      return `${round(x)},${round(y)}`;
+    })
+    .join(" ");
+}
+
 /* ---------------------------- Your next action -------------------------- */
 
 export type CodeLine = { n: number; content: string; tone?: "comment" | "warn" };
@@ -109,9 +164,11 @@ export function nextActionFor(mission: Mission) {
       label: "Status",
       value: "—",
     },
-    // The mission's own latency samples, not a decorative squiggle.
-    sparkline: sparklinePoints(investigation?.metrics.latency.series ?? []),
     findings: investigation?.summary.findings ?? [],
+    // The sparkline beside the headline metric is now that mission's own
+    // authored latency samples, so the shape and the number describe the same
+    // incident. `null` when the mission has no investigation content to draw.
+    spark: sparklinePoints(investigation?.metrics.latency.series ?? []),
     code,
   };
 }
@@ -130,44 +187,6 @@ export function buildNextAction(view: PlayerView = EMPTY_VIEW): NextActionData {
 }
 
 export const NEXT_ACTION = buildNextAction();
-
-/**
- * A series of samples as SVG polyline points, scaled to fill the card's box.
- *
- * This replaced `RESPONSE_SERIES`, a hardcoded 21-point "noisy, elevated
- * latency series" that rendered beside the card's **real** headline metric and
- * was identical for every mission — a fabricated chart sitting next to a
- * derived number, describing whichever incident happened to be shown.
- *
- * The samples now come from the mission's own authored investigation chart, so
- * the shape on the dashboard is the shape the player is about to investigate:
- * flat and then spiking for `event-loop-overload`, climbing steadily for a
- * leak. `null` when there is nothing to draw, so the caller renders no chart
- * rather than a straight line implying a measurement.
- */
-export function sparklinePoints(
-  series: number[],
-  width = 240,
-  height = 40,
-): string | null {
-  if (series.length < 2) return null;
-
-  const min = Math.min(...series);
-  const max = Math.max(...series);
-  const span = max - min;
-  const step = width / (series.length - 1);
-
-  return series
-    .map((value, i) => {
-      const x = Math.round(i * step * 10) / 10;
-      // A flat series has no shape to show; draw it down the middle rather
-      // than pinned to an edge. Otherwise the peak sits 1px off the top.
-      const ratio = span === 0 ? 0.5 : (value - min) / span;
-      const y = Math.round((height - 1 - ratio * (height - 2)) * 10) / 10;
-      return `${x},${y}`;
-    })
-    .join(" ");
-}
 
 /* ------------------------------ Daily raid ------------------------------ */
 
@@ -223,12 +242,9 @@ export function careerFor(ledger: Ledger) {
 // `canStart`, and `SkillsSummary` reads `lib/skills.ts` by stable skill id.
 // The old `RECOMMENDED_MISSIONS` / `DASHBOARD_SKILLS` fixtures are gone so the
 // dashboard can't advertise unplayable missions or conflicting skill numbers.
-
-/* ------------------------------- Premium -------------------------------- */
-
-// `PREMIUM` was deleted. It rendered the most prominent element in the sidebar
-// — "Go Premium / Upgrade Now", promising premium incidents, exclusive rewards
-// and advanced analytics — as a `<button type="button">` with no handler.
-// None of it exists and none of it can be bought, which makes it the same
-// class of thing as the light theme, `defaultLanguage`, `soundEffects` and the
-// three fake leaderboard scopes: a control nothing can honour (§4.11).
+//
+// `PREMIUM` is gone too. It was a "Go Premium / Upgrade Now" card selling
+// premium incidents, exclusive rewards and advanced analytics — none of which
+// exist, behind a button with no handler. Same reasoning that removed the
+// theme toggle and the three fake leaderboard scopes: a control nothing can
+// honour is worse than no control.

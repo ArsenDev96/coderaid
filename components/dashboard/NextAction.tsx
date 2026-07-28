@@ -11,7 +11,7 @@ import {
 } from "lucide-react";
 import { recommendedMission } from "@/lib/availability";
 import { useProgress } from "@/components/progress/ProgressProvider";
-import { nextActionFor } from "@/lib/dashboard";
+import { nextActionFor, SPARK_HEIGHT, SPARK_WIDTH } from "@/lib/dashboard";
 import type { Mission } from "@/lib/missions";
 import { useMissionResume } from "@/components/missions/map/useMissionResume";
 
@@ -136,11 +136,14 @@ function NextActionCard({ mission }: { mission: Mission }) {
                 {a.headline.value}
               </div>
             </div>
-            {/* Drawn only when the mission has samples to draw — an empty
-                chart is better than an invented one. */}
-            {a.sparkline && (
+            {/*
+              This mission's own authored latency samples, not a shared
+              squiggle. Omitted entirely when there is no series to draw —
+              an empty frame beside a real number would read as "flat".
+            */}
+            {a.spark && (
               <svg
-                viewBox="0 0 240 40"
+                viewBox={`0 0 ${SPARK_WIDTH} ${SPARK_HEIGHT}`}
                 preserveAspectRatio="none"
                 className="h-12 min-w-0 flex-1"
                 aria-hidden
@@ -151,9 +154,12 @@ function NextActionCard({ mission }: { mission: Mission }) {
                     <stop offset="100%" stopColor="#f43f5e" stopOpacity="0" />
                   </linearGradient>
                 </defs>
-                <polygon points={`0,40 ${a.sparkline} 240,40`} fill="url(#na-fill)" />
+                <polygon
+                  points={`0,${SPARK_HEIGHT} ${a.spark} ${SPARK_WIDTH},${SPARK_HEIGHT}`}
+                  fill="url(#na-fill)"
+                />
                 <polyline
-                  points={a.sparkline}
+                  points={a.spark}
                   fill="none"
                   stroke="#f43f5e"
                   strokeWidth="1.4"

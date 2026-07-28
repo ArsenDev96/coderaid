@@ -7,7 +7,7 @@ import {
   saveDiagnosisState,
   type MissionDiagnosisConfig,
 } from "@/lib/diagnosis";
-import { clearGradedRun } from "@/lib/grade-submission";
+import { clearVerdict } from "@/lib/mission-storage";
 import type { Severity } from "@/lib/missions";
 import { completeStage, touchRun } from "@/lib/run";
 import { DiagnosisConfirmBar } from "./DiagnosisConfirmBar";
@@ -56,21 +56,24 @@ export function DiagnosisWorkspace({
   }, [hydrated, config.missionId, rootCauseId, evidenceIds, confirmed]);
 
   /**
-   * A grade is a statement about a diagnosis. Revising the diagnosis makes the
-   * last one a statement about a run the player has moved on from, so it goes
-   * with the change rather than waiting to be noticed downstream.
+   * The diagnosis is part of what gets graded, so changing it invalidates any
+   * verdict already on disk for the same reason a changed fix does — the grade
+   * describes the answers it graded, and these are no longer those answers.
+   *
+   * Only ever called from a real interaction, never from the restore effect, so
+   * merely revisiting the stage cannot discard a legitimate verdict.
    */
   const selectRootCause = (id: string) => {
     if (id === rootCauseId) return;
     setRootCauseId(id);
-    clearGradedRun(config.missionId);
+    clearVerdict(config.missionId);
   };
 
   const toggleEvidence = (id: string) => {
     setEvidenceIds((prev) =>
       prev.includes(id) ? prev.filter((e) => e !== id) : [...prev, id],
     );
-    clearGradedRun(config.missionId);
+    clearVerdict(config.missionId);
   };
 
   const ready = canConfirm(config, { rootCauseId, evidenceIds });
