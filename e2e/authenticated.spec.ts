@@ -140,6 +140,53 @@ test.describe("the authenticated path", () => {
     expect(runs[1].score).toBeLessThan(100);
   });
 
+  test("starts a genuinely fresh attempt from Run It Again", async ({
+    page,
+    player,
+  }) => {
+    // "Run It Again" used to be a plain link to the briefing. The second
+    // attempt therefore opened on the first one's evidence, its confirmed
+    // diagnosis, its applied fix and its still-running clock — a navigation
+    // rather than a replay. Only an unresolved run offers the action, so this
+    // plays badly on purpose.
+    await playToVerification(page, "poor");
+    await runVerification(page);
+    await page.getByRole("link", { name: /Continue to Results/ }).click();
+    await expect(page).toHaveURL(new RegExp(`/missions/${MISSION}/results$`));
+
+    const before = await page.evaluate(
+      (m) => window.localStorage.getItem(`coderaid:${m}:run`),
+      MISSION,
+    );
+    expect(before).not.toBeNull();
+
+    await page.getByRole("button", { name: "Run It Again" }).click();
+    await expect(page).toHaveURL(new RegExp(`/missions/${MISSION}/briefing$`));
+
+    // Every local slot this mission owns is gone.
+    const leftover = await page.evaluate((m) => {
+      const prefix = `coderaid:${m}:`;
+      return Object.keys(window.localStorage).filter((k) => k.startsWith(prefix));
+    }, MISSION);
+    expect(leftover).toEqual([]);
+
+    // So the investigation opens blank — nothing restored, nothing to explain.
+    await page.getByRole("link", { name: "Start Investigation" }).click();
+    await expect(page.getByText(/Investigation progress restored/)).toBeHidden();
+    await expect(page.getByText(/Nothing collected yet/)).toBeVisible();
+    await expect(
+      page.getByRole("button", { name: /Continue to Diagnosis/ }),
+    ).toBeDisabled();
+
+    // And the recorded attempt is untouched: a replay adds a run, it does not
+    // erase one. That is the half of "restart" the browser may never do.
+    const runs = await selectRows<RunRow>(
+      "mission_runs",
+      `player_id=eq.${player.id}&select=score`,
+    );
+    expect(runs).toHaveLength(1);
+  });
+
   test("actually executes the replay and measures the real main thread", async ({
     page,
   }) => {

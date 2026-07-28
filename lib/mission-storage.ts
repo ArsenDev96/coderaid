@@ -14,12 +14,31 @@
 
 const ns = (missionId: string, slot: string) => `coderaid:${missionId}:${slot}`;
 
+export const investigationStorageKey = (missionId: string) => ns(missionId, "investigation");
 export const diagnosisStorageKey = (missionId: string) => ns(missionId, "diagnosis");
 export const fixStorageKey = (missionId: string) => ns(missionId, "fix");
 export const verificationStorageKey = (missionId: string) => ns(missionId, "verification");
 export const resultsStorageKey = (missionId: string) => ns(missionId, "results");
 export const gradeStorageKey = (missionId: string) => ns(missionId, "grade");
 export const creditStorageKey = (missionId: string) => ns(missionId, "credit");
+export const runStorageKey = (missionId: string) => ns(missionId, "run");
+
+/**
+ * Every slot a mission writes, in stage order. `lib/investigation.ts` and
+ * `lib/run.ts` re-export their own key from here rather than rebuilding the
+ * string, so this list is exhaustive by construction: a stage that invents a
+ * new slot has to name it here to have a key at all.
+ */
+const ALL_KEYS = [
+  investigationStorageKey,
+  diagnosisStorageKey,
+  fixStorageKey,
+  verificationStorageKey,
+  resultsStorageKey,
+  gradeStorageKey,
+  creditStorageKey,
+  runStorageKey,
+] as const;
 
 /* --------------------------- Raw state readers -------------------------- */
 
@@ -122,4 +141,42 @@ export function clearVerdict(missionId: string): void {
   remove(creditStorageKey(missionId));
   remove(verificationStorageKey(missionId));
   remove(resultsStorageKey(missionId));
+}
+
+/**
+ * Everything from the investigation forward — what "Restart Investigation" is.
+ *
+ * Dropping the collected evidence without dropping what was built on top of it
+ * would leave a confirmed diagnosis citing findings the player no longer holds,
+ * and a cached grade describing a submission that no longer exists. So the
+ * whole downstream chain goes with it.
+ *
+ * `…:run` is deliberately kept: the clock spans the mission, and re-reading the
+ * logs is part of playing it, not a second attempt. Server-side runs are
+ * untouched — nothing in the browser can delete an attempt that was recorded.
+ */
+export function clearInvestigationOnward(missionId: string): void {
+  remove(investigationStorageKey(missionId));
+  remove(diagnosisStorageKey(missionId));
+  remove(fixStorageKey(missionId));
+  clearVerdict(missionId);
+}
+
+/**
+ * Every local slot this mission owns — what **replaying** is.
+ *
+ * A replay is a fresh attempt, so unlike `clearInvestigationOnward` this also
+ * drops `…:run`: the new attempt is timed from zero and its stage and hint
+ * counts start empty, rather than inheriting the elapsed time and the hints of
+ * the run that just finished. Without this, "Run It Again" reopened the
+ * briefing on top of the previous attempt's state — the investigation restored
+ * its old selections, the diagnosis was still confirmed, and the grade the next
+ * verification produced was computed against a clock that had been running
+ * since the first attempt.
+ *
+ * The recorded runs in Postgres are untouched, which is the point: a replay
+ * adds an attempt, it does not erase one.
+ */
+export function clearMissionWorkingState(missionId: string): void {
+  for (const key of ALL_KEYS) remove(key(missionId));
 }

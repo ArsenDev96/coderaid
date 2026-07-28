@@ -1,6 +1,15 @@
-import { Star } from "lucide-react";
 import { EVIDENCE_SOURCE_META, type EvidenceItem } from "@/lib/investigation";
 
+/**
+ * One collected finding in the evidence rail.
+ *
+ * Every card is rendered identically. It used to stamp a violet **Key** badge
+ * on items whose `isKeyEvidence` flag was set, which turned the rail into an
+ * answer key: mark a row, and the badge told you whether it was one of the
+ * findings the mission is built around before you had reasoned about it at all.
+ * Nothing here now varies with what the mission considers correct — the only
+ * thing that distinguishes two cards is which tool they came from.
+ */
 export function EvidenceCard({ item }: { item: EvidenceItem }) {
   const source = EVIDENCE_SOURCE_META[item.source];
   const Icon = source.icon;
@@ -15,17 +24,9 @@ export function EvidenceCard({ item }: { item: EvidenceItem }) {
         </span>
 
         <div className="min-w-0 flex-1">
-          <div className="flex items-start justify-between gap-2">
-            <h4 className="text-sm font-semibold leading-snug text-slate-100">
-              {item.title}
-            </h4>
-            {item.isKeyEvidence && (
-              <span className="inline-flex shrink-0 items-center gap-1 rounded-md border border-violet-400/30 bg-violet-500/10 px-1.5 py-0.5 text-[0.55rem] font-bold uppercase tracking-[0.1em] text-violet-200">
-                <Star className="h-2.5 w-2.5" strokeWidth={2.5} />
-                Key
-              </span>
-            )}
-          </div>
+          <h4 className="text-sm font-semibold leading-snug text-slate-100">
+            {item.title}
+          </h4>
           <p className="mt-1 text-xs leading-relaxed text-slate-400">
             {item.description}
           </p>

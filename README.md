@@ -163,6 +163,12 @@ Investigation offers five tools (logs, metrics, code, database, trace); the play
 until the key-clue threshold is met, then diagnoses a root cause, chooses a fix, runs verification
 and lands on results.
 
+**The UI never says which evidence is right.** Every meaningful observation is selectable — the
+decisive findings, the healthy subsystems, the plausible alternatives that turn out to be wrong —
+and all of them render identically, so a plus button carries no information about correctness.
+Collecting an irrelevant finding is allowed and simply costs evidence precision when the server
+grades the case. `npm run validate:missions` fails a mission whose selectable rows are an answer key.
+
 **Answers are graded on the server.** Clicking **Run Verification** submits the run to
 `POST /api/runs`, which pairs it with answers the browser has never seen, scores it, records it, and
 returns the breakdown. `lib/grading.ts` scores out of 100 — root cause 45, supporting evidence 25 (a
@@ -371,6 +377,17 @@ shown read-only to a signed-out player who earned it before accounts existed, an
 Best-run-wins is now a **query**, not a mutation: a better replay improves your standing, a worse one
 changes nothing, and refreshing the results screen can't farm XP — properties that fall out of the
 schema rather than being enforced by client code.
+
+Every one of those eight per-mission keys is named in
+[`lib/mission-storage.ts`](lib/mission-storage.ts), which is what makes the three resets exhaustive:
+
+| Reset | Clears | Keeps |
+| --- | --- | --- |
+| A changed answer (`clearVerdict`) | `grade`, `credit`, `verification`, `results` | the answers, `run` |
+| **Restart Investigation** (`clearInvestigationOnward`) | the above + `investigation`, `diagnosis`, `fix` | `run` — the clock spans the mission |
+| **Run It Again** (`clearMissionWorkingState`) | all eight, including `run` | every recorded attempt |
+
+None of them touch `mission_runs`. A replay adds an attempt; nothing in the browser can erase one.
 
 Progress reset protects `coderaid:profile` and `coderaid:user-settings` and clears everything else in
 the namespace. **Signed in, that clears saved stage state only** — runs are append-only, so earned XP

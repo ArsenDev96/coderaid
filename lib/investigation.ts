@@ -6,6 +6,7 @@ import {
   Code2,
   type LucideIcon,
 } from "lucide-react";
+import { investigationStorageKey } from "./mission-storage";
 
 /* -------------------------------- Types --------------------------------- */
 
@@ -283,6 +284,54 @@ const SLOW_API_INVESTIGATION: Investigation = {
         "Database CPU sits at 22%, connection-pool wait is 3ms and no query appears in the slow-query log.",
       isKeyEvidence: false,
     },
+    {
+      id: "single-parent-query",
+      source: "logs",
+      title: "The orders themselves load in one query",
+      description:
+        "A single SELECT returns every order for the user, in 51ms. Whatever the extra work is, it happens after that query rather than inside it.",
+      isKeyEvidence: false,
+    },
+    {
+      id: "requests-consistently-slow",
+      source: "logs",
+      title: "Every sampled request is slow",
+      description:
+        "Both requests in the window returned 200 after roughly 2.4s, well past the 1s threshold. This is the endpoint's normal behaviour now, not one unlucky request.",
+      isKeyEvidence: false,
+    },
+    {
+      id: "error-rate-unchanged",
+      source: "metrics",
+      title: "The endpoint is slow, not failing",
+      description:
+        "The error rate is 0.4% and unchanged. Requests complete successfully — nothing is timing out, erroring or being retried.",
+      isKeyEvidence: false,
+    },
+    {
+      id: "orders-returned-per-request",
+      source: "database",
+      title: "The sampled request returned 48 orders",
+      description:
+        "The size of the result set is the one thing that differs between a fast request and a slow one on this endpoint.",
+      isKeyEvidence: false,
+    },
+    {
+      id: "handler-owns-the-whole-request",
+      source: "trace",
+      title: "Almost the entire request is inside the handler",
+      description:
+        "2,380ms of a 2,384ms request is spent inside getOrdersForUser, so the time belongs to the service's own work rather than to middleware, transport or queueing.",
+      isKeyEvidence: false,
+    },
+    {
+      id: "serialization-is-negligible",
+      source: "trace",
+      title: "Serialising the response costs 18ms",
+      description:
+        "Building the JSON payload is a rounding error against a 2.4s request, which rules out response size as the constraint.",
+      isKeyEvidence: false,
+    },
   ],
 
   logs: {
@@ -300,6 +349,7 @@ const SLOW_API_INVESTIGATION: Investigation = {
         time: "14:32:07.004",
         level: "SQL",
         message: "SELECT * FROM orders WHERE user_id = $1  [123]",
+        evidenceId: "single-parent-query",
       },
       {
         id: "l3",
@@ -334,12 +384,14 @@ const SLOW_API_INVESTIGATION: Investigation = {
         time: "14:32:09.381",
         level: "WARN",
         message: "High API response time: 2384ms  (threshold: 1000ms)",
+        evidenceId: "requests-consistently-slow",
       },
       {
         id: "l8",
         time: "14:32:09.385",
         level: "INFO",
         message: "GET /api/orders 200 2384ms",
+        evidenceId: "requests-consistently-slow",
       },
       {
         id: "l9",
@@ -352,6 +404,7 @@ const SLOW_API_INVESTIGATION: Investigation = {
         time: "14:32:13.413",
         level: "INFO",
         message: "GET /api/orders 200 2411ms",
+        evidenceId: "requests-consistently-slow",
       },
     ],
   },
@@ -372,6 +425,7 @@ const SLOW_API_INVESTIGATION: Investigation = {
         value: "0.4%",
         detail: "Unchanged — requests succeed, they are just slow",
         tone: "normal",
+        evidenceId: "error-rate-unchanged",
       },
       {
         id: "m-cpu",
@@ -387,6 +441,7 @@ const SLOW_API_INVESTIGATION: Investigation = {
         value: "49",
         detail: "Was 2 before the deploy",
         tone: "warning",
+        evidenceId: "query-count-scales",
       },
       {
         id: "m-scaling",
@@ -419,9 +474,13 @@ const SLOW_API_INVESTIGATION: Investigation = {
     language: "JavaScript",
     lines: [
       { n: 12, text: "async function getOrdersForUser(userId) {" },
-      { n: 13, text: "  const orders = await orderRepository.find({" },
-      { n: 14, text: "    where: { userId }," },
-      { n: 15, text: "  });" },
+      {
+        n: 13,
+        text: "  const orders = await orderRepository.find({",
+        evidenceId: "single-parent-query",
+      },
+      { n: 14, text: "    where: { userId },", evidenceId: "single-parent-query" },
+      { n: 15, text: "  });", evidenceId: "single-parent-query" },
       { n: 16, text: "" },
       {
         n: 17,
@@ -450,7 +509,12 @@ const SLOW_API_INVESTIGATION: Investigation = {
     caption: "Captured from the GET /api/orders request at 14:32:07.",
     stats: [
       { id: "d-requests", label: "Requests sampled", value: "1" },
-      { id: "d-orders", label: "Orders returned", value: "48" },
+      {
+        id: "d-orders",
+        label: "Orders returned",
+        value: "48",
+        evidenceId: "orders-returned-per-request",
+      },
       {
         id: "d-queries",
         label: "SQL queries executed",
@@ -470,6 +534,7 @@ const SLOW_API_INVESTIGATION: Investigation = {
         label: "Queries in the slow-query log",
         value: "0",
         detail: "Nothing crossed the 500ms threshold",
+        evidenceId: "database-healthy",
       },
     ],
     queryCallout: {
@@ -482,8 +547,18 @@ const SLOW_API_INVESTIGATION: Investigation = {
     caption: "GET /api/orders — one request, 48 orders returned",
     root: { label: "GET /api/orders", ms: 2384 },
     spans: [
-      { id: "t-handler", label: "orders.controller → getOrdersForUser", ms: 2380 },
-      { id: "t-orders", label: "SELECT orders WHERE user_id", ms: 51 },
+      {
+        id: "t-handler",
+        label: "orders.controller → getOrdersForUser",
+        ms: 2380,
+        evidenceId: "handler-owns-the-whole-request",
+      },
+      {
+        id: "t-orders",
+        label: "SELECT orders WHERE user_id",
+        ms: 51,
+        evidenceId: "single-parent-query",
+      },
       {
         id: "t-items-1",
         label: "SELECT order_items WHERE order_id = 87341",
@@ -508,7 +583,12 @@ const SLOW_API_INVESTIGATION: Investigation = {
         ms: 1890,
         evidenceId: "repeated-spans-in-trace",
       },
-      { id: "t-serialize", label: "JSON serialization", ms: 18 },
+      {
+        id: "t-serialize",
+        label: "JSON serialization",
+        ms: 18,
+        evidenceId: "serialization-is-negligible",
+      },
     ],
   },
 };
@@ -606,6 +686,30 @@ const SIGNUP_LATENCY_INVESTIGATION: Investigation = {
         "Every signup in the window returned 201. Nothing failed, nothing was retried — the requests are slow, not broken, which rules out failure-driven causes.",
       isKeyEvidence: false,
     },
+    {
+      id: "password-hashing-is-normal",
+      source: "logs",
+      title: "Password hashing costs what it should",
+      description:
+        "Hashing completes in 154ms, which is the expected cost of the configured work factor and unchanged since before the release.",
+      isKeyEvidence: false,
+    },
+    {
+      id: "insert-is-a-single-awaited-write",
+      source: "code",
+      title: "A signup writes exactly one row",
+      description:
+        "One awaited create() call, with no loop and no second write, which bounds how much database work a single signup can do.",
+      isKeyEvidence: false,
+    },
+    {
+      id: "pre-email-work-is-minor",
+      source: "trace",
+      title: "Everything before the email costs under 200ms",
+      description:
+        "Validation, hashing and the insert together account for 197ms of a 2,916ms request. Removing all three would barely move the number.",
+      isKeyEvidence: false,
+    },
   ],
 
   logs: {
@@ -629,6 +733,7 @@ const SIGNUP_LATENCY_INVESTIGATION: Investigation = {
         time: "10:41:20.302",
         level: "INFO",
         message: "Password hash completed in 154ms",
+        evidenceId: "password-hashing-is-normal",
       },
       {
         id: "s4",
@@ -701,6 +806,7 @@ const SIGNUP_LATENCY_INVESTIGATION: Investigation = {
         value: "154ms",
         detail: "Expected for the configured cost factor",
         tone: "normal",
+        evidenceId: "password-hashing-is-normal",
       },
       {
         id: "sm-cpu",
@@ -716,6 +822,7 @@ const SIGNUP_LATENCY_INVESTIGATION: Investigation = {
         value: "0.3%",
         detail: "Unchanged — signups succeed, they are just slow",
         tone: "normal",
+        evidenceId: "no-errors-in-logs",
       },
     ],
     latency: {
@@ -735,12 +842,25 @@ const SIGNUP_LATENCY_INVESTIGATION: Investigation = {
       {
         n: 19,
         text: "  const passwordHash = await this.passwordService.hash(input.password);",
+        evidenceId: "password-hashing-is-normal",
       },
       { n: 20, text: "" },
-      { n: 21, text: "  const user = await this.userRepository.create({" },
-      { n: 22, text: "    ...input," },
-      { n: 23, text: "    password: passwordHash," },
-      { n: 24, text: "  });" },
+      {
+        n: 21,
+        text: "  const user = await this.userRepository.create({",
+        evidenceId: "insert-is-a-single-awaited-write",
+      },
+      {
+        n: 22,
+        text: "    ...input,",
+        evidenceId: "insert-is-a-single-awaited-write",
+      },
+      {
+        n: 23,
+        text: "    password: passwordHash,",
+        evidenceId: "insert-is-a-single-awaited-write",
+      },
+      { n: 24, text: "  });", evidenceId: "insert-is-a-single-awaited-write" },
       { n: 25, text: "" },
       {
         n: 26,
@@ -768,10 +888,26 @@ const SIGNUP_LATENCY_INVESTIGATION: Investigation = {
         label: "Database connections",
         value: "Healthy",
         detail: "Pool well below saturation",
+        evidenceId: "database-is-healthy",
       },
-      { id: "sd-locks", label: "Lock waits", value: "0" },
-      { id: "sd-slow", label: "Slow queries", value: "None" },
-      { id: "sd-rows", label: "Rows inserted", value: "1" },
+      {
+        id: "sd-locks",
+        label: "Lock waits",
+        value: "0",
+        evidenceId: "database-is-healthy",
+      },
+      {
+        id: "sd-slow",
+        label: "Slow queries",
+        value: "None",
+        evidenceId: "database-is-healthy",
+      },
+      {
+        id: "sd-rows",
+        label: "Rows inserted",
+        value: "1",
+        evidenceId: "insert-is-a-single-awaited-write",
+      },
     ],
   },
 
@@ -779,8 +915,18 @@ const SIGNUP_LATENCY_INVESTIGATION: Investigation = {
     caption: "One signup request, broken down by span.",
     root: { label: "POST /api/signup", ms: 2916 },
     spans: [
-      { id: "st-validate", label: "validate payload", ms: 12 },
-      { id: "st-hash", label: "hash password", ms: 154 },
+      {
+        id: "st-validate",
+        label: "validate payload",
+        ms: 12,
+        evidenceId: "pre-email-work-is-minor",
+      },
+      {
+        id: "st-hash",
+        label: "hash password",
+        ms: 154,
+        evidenceId: "pre-email-work-is-minor",
+      },
       {
         id: "st-insert",
         label: "insert user",
@@ -900,6 +1046,38 @@ const EVENT_LOOP_INVESTIGATION: Investigation = {
         "Each report run reads roughly 480,000 analytics events from the last seven days.",
       isKeyEvidence: false,
     },
+    {
+      id: "incident-starts-at-the-deploy",
+      source: "logs",
+      title: "The slowdown starts at the 3.8.0 deploy",
+      description:
+        "Nothing was slow before api-service 3.8.0 shipped, and everything was slow within seconds of it. Whatever changed, it arrived with that release.",
+      isKeyEvidence: false,
+    },
+    {
+      id: "throughput-halved",
+      source: "metrics",
+      title: "Throughput fell by more than half",
+      description:
+        "The API handles 85 requests a minute where it used to handle 210 — the same traffic arriving, far less of it getting served.",
+      isKeyEvidence: false,
+    },
+    {
+      id: "report-data-fetched-in-one-query",
+      source: "code",
+      title: "The report data is fetched in a single query",
+      description:
+        "One awaited repository call returns the whole week; there is no loop, no pagination and no per-row lookup on the read path.",
+      isKeyEvidence: false,
+    },
+    {
+      id: "non-aggregation-spans-are-trivial",
+      source: "trace",
+      title: "Everything except the aggregation is trivial",
+      description:
+        "Auth validation and serialization together account for 70ms of a 7,420ms request, so neither the request's entry nor its exit explains the time.",
+      isKeyEvidence: false,
+    },
   ],
 
   logs: {
@@ -911,6 +1089,7 @@ const EVENT_LOOP_INVESTIGATION: Investigation = {
         time: "10:14:01.204",
         level: "INFO",
         message: "deploy completed  service=api-service  version=3.8.0",
+        evidenceId: "incident-starts-at-the-deploy",
       },
       {
         id: "e2",
@@ -930,6 +1109,7 @@ const EVENT_LOOP_INVESTIGATION: Investigation = {
         time: "10:14:11.476",
         level: "DEBUG",
         message: "request received  method=GET  path=/api/health",
+        evidenceId: "unrelated-endpoints-delayed",
       },
       {
         id: "e5",
@@ -964,6 +1144,7 @@ const EVENT_LOOP_INVESTIGATION: Investigation = {
         time: "10:14:16.441",
         level: "INFO",
         message: "GET /api/reports/weekly 200 7420ms",
+        evidenceId: "report-generation-dominates",
       },
       {
         id: "e10",
@@ -1023,6 +1204,7 @@ const EVENT_LOOP_INVESTIGATION: Investigation = {
         value: "8.4%",
         detail: "Was 0.2% — requests queue rather than fail outright",
         tone: "warning",
+        evidenceId: "unrelated-endpoints-delayed",
       },
       {
         id: "em-throughput",
@@ -1030,6 +1212,7 @@ const EVENT_LOOP_INVESTIGATION: Investigation = {
         value: "85 req/min",
         detail: "Was 210 req/min before the deploy",
         tone: "warning",
+        evidenceId: "throughput-halved",
       },
     ],
     latency: {
@@ -1049,9 +1232,14 @@ const EVENT_LOOP_INVESTIGATION: Investigation = {
       {
         n: 23,
         text: "  const events = await this.analyticsRepository.findRecentEvents({",
+        evidenceId: "report-data-fetched-in-one-query",
       },
-      { n: 24, text: "    since: startOfWeek()," },
-      { n: 25, text: "  });" },
+      {
+        n: 24,
+        text: "    since: startOfWeek(),",
+        evidenceId: "report-data-fetched-in-one-query",
+      },
+      { n: 25, text: "  });", evidenceId: "report-data-fetched-in-one-query" },
       { n: 26, text: "" },
       {
         n: 27,
@@ -1091,7 +1279,11 @@ const EVENT_LOOP_INVESTIGATION: Investigation = {
       },
       { n: 39, text: "  }", evidenceId: "sync-aggregation-in-handler" },
       { n: 40, text: "" },
-      { n: 41, text: "  return rows.sort(byTotalDesc);" },
+      {
+        n: 41,
+        text: "  return rows.sort(byTotalDesc);",
+        evidenceId: "sync-aggregation-in-handler",
+      },
       { n: 42, text: "}" },
     ],
   },
@@ -1113,12 +1305,18 @@ const EVENT_LOOP_INVESTIGATION: Investigation = {
         detail: "Well below saturation",
         evidenceId: "database-not-saturated",
       },
-      { id: "ed-locks", label: "Lock waits", value: "0" },
+      {
+        id: "ed-locks",
+        label: "Lock waits",
+        value: "0",
+        evidenceId: "database-not-saturated",
+      },
       {
         id: "ed-slow",
         label: "Slow queries",
         value: "None",
         detail: "No increase since the 3.8.0 deploy",
+        evidenceId: "database-not-saturated",
       },
       {
         id: "ed-rows",
@@ -1135,7 +1333,12 @@ const EVENT_LOOP_INVESTIGATION: Investigation = {
       "One weekly-report request, plus the health check that arrived while it was running.",
     root: { label: "GET /api/reports/weekly", ms: 7420 },
     spans: [
-      { id: "et-auth", label: "auth validation", ms: 8 },
+      {
+        id: "et-auth",
+        label: "auth validation",
+        ms: 8,
+        evidenceId: "non-aggregation-spans-are-trivial",
+      },
       {
         id: "et-db",
         label: "database fetch",
@@ -1148,7 +1351,12 @@ const EVENT_LOOP_INVESTIGATION: Investigation = {
         ms: 7190,
         evidenceId: "report-generation-dominates",
       },
-      { id: "et-serialize", label: "serialization", ms: 62 },
+      {
+        id: "et-serialize",
+        label: "serialization",
+        ms: 62,
+        evidenceId: "non-aggregation-spans-are-trivial",
+      },
       {
         id: "et-health",
         label: "GET /api/health (queued behind the report)",
@@ -1262,6 +1470,46 @@ const PROMISE_CASCADE_INVESTIGATION: Investigation = {
         "No vendor_profiles rows were written, and no write was even attempted.",
       isKeyEvidence: false,
     },
+    {
+      id: "run-attempts-all-48-vendors",
+      source: "logs",
+      title: "One run starts all 48 vendors together",
+      description:
+        "The run opens a single record covering 48 vendors and fires every call at once — there is no batching, no queue and no per-vendor scheduling.",
+      isKeyEvidence: false,
+    },
+    {
+      id: "run-duration-unchanged",
+      source: "metrics",
+      title: "The run is as fast as it ever was",
+      description:
+        "2.1s per run, unchanged since before the failures started. Whatever is wrong, the run is not slow, stuck or timing out — it is finishing and keeping nothing.",
+      isKeyEvidence: false,
+    },
+    {
+      id: "persistence-happens-after-the-await",
+      source: "code",
+      title: "The write happens after the batch settles",
+      description:
+        "saveAll() sits below the awaited batch, so anything that stops the await from resolving skips persistence entirely rather than saving what it has.",
+      isKeyEvidence: false,
+    },
+    {
+      id: "vendor-fetch-has-no-error-handling",
+      source: "code",
+      title: "The per-vendor fetch has no error handling",
+      description:
+        "fetchVendorProfile awaits the HTTP call and returns its body. A non-2xx response rejects, and there is nothing inside the function to absorb it.",
+      isKeyEvidence: false,
+    },
+    {
+      id: "persistence-works-when-it-runs",
+      source: "database",
+      title: "The write path itself is healthy",
+      description:
+        "The last successful run wrote all 48 rows at 6ms latency. Storing a vendor profile has never been the constraint here.",
+      isKeyEvidence: false,
+    },
   ],
 
   logs: {
@@ -1273,18 +1521,21 @@ const PROMISE_CASCADE_INVESTIGATION: Investigation = {
         time: "02:00:00.104",
         level: "INFO",
         message: "enrichment run started  run=r_4471  vendors=48",
+        evidenceId: "run-attempts-all-48-vendors",
       },
       {
         id: "p2",
         time: "02:00:00.612",
         level: "DEBUG",
         message: "vendor fetch ok  vendor=acme  duration_ms=486",
+        evidenceId: "vendor-fleet-otherwise-healthy",
       },
       {
         id: "p3",
         time: "02:00:00.771",
         level: "DEBUG",
         message: "vendor fetch ok  vendor=brightline  duration_ms=642",
+        evidenceId: "vendor-fleet-otherwise-healthy",
       },
       {
         id: "p4",
@@ -1395,6 +1646,7 @@ const PROMISE_CASCADE_INVESTIGATION: Investigation = {
         value: "2.1s",
         detail: "Unchanged — the run is fast, it just keeps nothing",
         tone: "normal",
+        evidenceId: "run-duration-unchanged",
       },
     ],
     latency: {
@@ -1411,7 +1663,11 @@ const PROMISE_CASCADE_INVESTIGATION: Investigation = {
     language: "TypeScript",
     lines: [
       { n: 14, text: "async function runEnrichment(vendors: Vendor[]) {" },
-      { n: 15, text: "  const run = await runRepository.start(vendors.length);" },
+      {
+        n: 15,
+        text: "  const run = await runRepository.start(vendors.length);",
+        evidenceId: "run-attempts-all-48-vendors",
+      },
       { n: 16, text: "" },
       {
         n: 17,
@@ -1425,17 +1681,34 @@ const PROMISE_CASCADE_INVESTIGATION: Investigation = {
       },
       { n: 19, text: "  );", evidenceId: "promise-all-over-mapped-calls" },
       { n: 20, text: "" },
-      { n: 21, text: "  await profileRepository.saveAll(results);" },
-      { n: 22, text: "  return runRepository.complete(run.id, results.length);" },
+      {
+        n: 21,
+        text: "  await profileRepository.saveAll(results);",
+        evidenceId: "persistence-happens-after-the-await",
+      },
+      {
+        n: 22,
+        text: "  return runRepository.complete(run.id, results.length);",
+        evidenceId: "persistence-happens-after-the-await",
+      },
       { n: 23, text: "}" },
       { n: 24, text: "" },
-      { n: 25, text: "async function fetchVendorProfile(vendor: Vendor) {" },
+      {
+        n: 25,
+        text: "async function fetchVendorProfile(vendor: Vendor) {",
+        evidenceId: "vendor-fetch-has-no-error-handling",
+      },
       {
         n: 26,
         text: "  const { data } = await http.get(`/vendors/${vendor.slug}/profile`);",
+        evidenceId: "vendor-fetch-has-no-error-handling",
       },
-      { n: 27, text: "  return { vendorId: vendor.id, profile: data };" },
-      { n: 28, text: "}" },
+      {
+        n: 27,
+        text: "  return { vendorId: vendor.id, profile: data };",
+        evidenceId: "vendor-fetch-has-no-error-handling",
+      },
+      { n: 28, text: "}", evidenceId: "vendor-fetch-has-no-error-handling" },
     ],
   },
 
@@ -1444,8 +1717,18 @@ const PROMISE_CASCADE_INVESTIGATION: Investigation = {
       "One nightly run. The run is marked failed at 814ms; 47 vendor calls are still in flight.",
     root: { label: "enrichment run r_4471", ms: 2150 },
     spans: [
-      { id: "pt-acme", label: "vendor acme", ms: 486 },
-      { id: "pt-brightline", label: "vendor brightline", ms: 642 },
+      {
+        id: "pt-acme",
+        label: "vendor acme",
+        ms: 486,
+        evidenceId: "vendor-fleet-otherwise-healthy",
+      },
+      {
+        id: "pt-brightline",
+        label: "vendor brightline",
+        ms: 642,
+        evidenceId: "vendor-fleet-otherwise-healthy",
+      },
       {
         id: "pt-northwind",
         label: "vendor northwind — 503",
@@ -1494,12 +1777,14 @@ const PROMISE_CASCADE_INVESTIGATION: Investigation = {
         id: "pd-last-good",
         label: "Rows written on the last healthy run",
         value: "48",
+        evidenceId: "persistence-works-when-it-runs",
       },
       {
         id: "pd-latency",
         label: "Write latency",
         value: "6ms",
         detail: "The database was never the constraint",
+        evidenceId: "persistence-works-when-it-runs",
       },
       {
         id: "pd-failed-writes",
@@ -1615,6 +1900,38 @@ const ASYNC_MAP_INVESTIGATION: Investigation = {
         "Zero write errors and zero permission denials — the bucket is configured correctly.",
       isKeyEvidence: false,
     },
+    {
+      id: "worker-goes-idle-immediately",
+      source: "logs",
+      title: "The worker reports itself idle three milliseconds later",
+      description:
+        "Nothing is queued and nothing is claimed, while thumbnails are still being written in the background. The worker's own view of what it is doing is empty.",
+      isKeyEvidence: false,
+    },
+    {
+      id: "batch-holds-500-files",
+      source: "logs",
+      title: "The batch really does contain 500 files",
+      description:
+        "The job, the pipeline invocation and the upload table all agree on 500. The work is not being skipped because there was nothing to do.",
+      isKeyEvidence: false,
+    },
+    {
+      id: "pending-uploads-are-awaited",
+      source: "code",
+      title: "Reading the pending uploads is awaited",
+      description:
+        "The repository call that fetches the batch is awaited and returns in 12ms, so the function does have all 500 files in hand before it goes any further.",
+      isKeyEvidence: false,
+    },
+    {
+      id: "batch-marked-complete-unconditionally",
+      source: "code",
+      title: "The batch is marked complete unconditionally",
+      description:
+        "Nothing between the thumbnail work and the completion call can prevent it: no result is inspected, no error is caught, no count is compared.",
+      isKeyEvidence: false,
+    },
   ],
 
   logs: {
@@ -1626,12 +1943,14 @@ const ASYNC_MAP_INVESTIGATION: Investigation = {
         time: "09:12:04.021",
         level: "INFO",
         message: "job started  job=process-uploads  batch=b_912  files=500",
+        evidenceId: "batch-holds-500-files",
       },
       {
         id: "a2",
         time: "09:12:04.033",
         level: "DEBUG",
         message: "thumbnail pipeline invoked  files=500",
+        evidenceId: "batch-holds-500-files",
       },
       {
         id: "a3",
@@ -1645,6 +1964,7 @@ const ASYNC_MAP_INVESTIGATION: Investigation = {
         time: "09:12:04.038",
         level: "DEBUG",
         message: "worker idle — no jobs queued",
+        evidenceId: "worker-goes-idle-immediately",
       },
       {
         id: "a5",
@@ -1757,7 +2077,11 @@ const ASYNC_MAP_INVESTIGATION: Investigation = {
     language: "TypeScript",
     lines: [
       { n: 31, text: "async function processUploads(batch: UploadBatch) {" },
-      { n: 32, text: "  const files = await uploadRepository.pending(batch.id);" },
+      {
+        n: 32,
+        text: "  const files = await uploadRepository.pending(batch.id);",
+        evidenceId: "pending-uploads-are-awaited",
+      },
       { n: 33, text: "" },
       {
         n: 34,
@@ -1776,10 +2100,15 @@ const ASYNC_MAP_INVESTIGATION: Investigation = {
       },
       { n: 37, text: "  });", evidenceId: "unawaited-promise-array" },
       { n: 38, text: "" },
-      { n: 39, text: "  await batchRepository.complete(batch.id);" },
+      {
+        n: 39,
+        text: "  await batchRepository.complete(batch.id);",
+        evidenceId: "batch-marked-complete-unconditionally",
+      },
       {
         n: 40,
         text: '  logger.info("job completed", { batch: batch.id, files: files.length });',
+        evidenceId: "batch-marked-complete-unconditionally",
       },
       { n: 41, text: "}" },
     ],
@@ -1790,7 +2119,12 @@ const ASYNC_MAP_INVESTIGATION: Investigation = {
       "One process-uploads job, followed to the end of its wall clock. The job span ends at 14ms.",
     root: { label: "process-uploads b_912 (wall clock)", ms: 7992 },
     spans: [
-      { id: "at-read", label: "read pending uploads", ms: 12 },
+      {
+        id: "at-read",
+        label: "read pending uploads",
+        ms: 12,
+        evidenceId: "pending-uploads-are-awaited",
+      },
       {
         id: "at-complete",
         label: "job reports success",
@@ -1827,7 +2161,12 @@ const ASYNC_MAP_INVESTIGATION: Investigation = {
   database: {
     caption: "Upload records for batch b_912, 30 seconds after the job reported success.",
     stats: [
-      { id: "ad-total", label: "Uploads in batch", value: "500" },
+      {
+        id: "ad-total",
+        label: "Uploads in batch",
+        value: "500",
+        evidenceId: "batch-holds-500-files",
+      },
       {
         id: "ad-thumbs",
         label: "Rows with a thumbnail",
@@ -1963,6 +2302,22 @@ const SCHEDULER_OVERLAP_INVESTIGATION: Investigation = {
         "412 invoices per run, up from 190 before the pricing migration.",
       isKeyEvidence: false,
     },
+    {
+      id: "each-tick-opens-its-own-run",
+      source: "code",
+      title: "Every tick opens its own run record",
+      description:
+        "A run row is created at the top of each pass and completed at the bottom, so two passes running together produce two independent run ids rather than sharing one.",
+      isKeyEvidence: false,
+    },
+    {
+      id: "database-keeps-up",
+      source: "database",
+      title: "The database is not the bottleneck",
+      description:
+        "Charge writes land in 11ms with zero lock waits, so nothing here is slowing a run down or blocking one behind another.",
+      isKeyEvidence: false,
+    },
   ],
 
   logs: {
@@ -1982,6 +2337,7 @@ const SCHEDULER_OVERLAP_INVESTIGATION: Investigation = {
         time: "03:00:31.442",
         level: "INFO",
         message: "invoice charged  invoice=INV-20418  run=s_881",
+        evidenceId: "same-invoice-two-runs",
       },
       {
         id: "o3",
@@ -2123,14 +2479,22 @@ const SCHEDULER_OVERLAP_INVESTIGATION: Investigation = {
       { n: 10, text: "}" },
       { n: 11, text: "" },
       { n: 12, text: "async function syncInvoices() {" },
-      { n: 13, text: "  const run = await runRepository.start();" },
+      {
+        n: 13,
+        text: "  const run = await runRepository.start();",
+        evidenceId: "each-tick-opens-its-own-run",
+      },
       {
         n: 14,
         text: "  const invoices = await invoiceRepository.pendingCharges();",
         evidenceId: "interval-does-not-await",
       },
       { n: 15, text: "" },
-      { n: 16, text: "  for (const invoice of invoices) {" },
+      {
+        n: 16,
+        text: "  for (const invoice of invoices) {",
+        evidenceId: "interval-does-not-await",
+      },
       {
         n: 17,
         text: "    await paymentGateway.charge(invoice);",
@@ -2141,9 +2505,13 @@ const SCHEDULER_OVERLAP_INVESTIGATION: Investigation = {
         text: "    await invoiceRepository.markCharged(invoice.id, run.id);",
         evidenceId: "interval-does-not-await",
       },
-      { n: 19, text: "  }" },
+      { n: 19, text: "  }", evidenceId: "interval-does-not-await" },
       { n: 20, text: "" },
-      { n: 21, text: "  return runRepository.complete(run.id, invoices.length);" },
+      {
+        n: 21,
+        text: "  return runRepository.complete(run.id, invoices.length);",
+        evidenceId: "each-tick-opens-its-own-run",
+      },
       { n: 22, text: "}" },
     ],
   },
@@ -2175,6 +2543,7 @@ const SCHEDULER_OVERLAP_INVESTIGATION: Investigation = {
         id: "ovt-charge1",
         label: "INV-20418 charged by s_881",
         ms: 240,
+        evidenceId: "same-invoice-two-runs",
       },
       {
         id: "ovt-charge2",
@@ -2209,12 +2578,18 @@ const SCHEDULER_OVERLAP_INVESTIGATION: Investigation = {
         detail: "The pending list is not stale",
         evidenceId: "no-replica-lag",
       },
-      { id: "od-locks", label: "Lock waits", value: "0" },
+      {
+        id: "od-locks",
+        label: "Lock waits",
+        value: "0",
+        evidenceId: "database-keeps-up",
+      },
       {
         id: "od-write",
         label: "Charge write latency",
         value: "11ms",
         detail: "The database keeps up comfortably",
+        evidenceId: "database-keeps-up",
       },
     ],
   },
@@ -2323,6 +2698,22 @@ const REJECTION_STORM_INVESTIGATION: Investigation = {
         "214 outbox rows are left pending after a restart, and nothing re-drives them on boot.",
       isKeyEvidence: false,
     },
+    {
+      id: "provider-returns-500",
+      source: "logs",
+      title: "The push provider is returning 500s",
+      description:
+        "APNs fails 3.4% of calls — elevated, but well inside what an ordinary retry should absorb. Something turns one failed delivery into a dead process.",
+      isKeyEvidence: false,
+    },
+    {
+      id: "outbox-store-is-healthy",
+      source: "database",
+      title: "The outbox store itself is fine",
+      description:
+        "1,382 messages were marked delivered, writes land in 5ms, and no row is lost or corrupted. The store does exactly what it is asked to do.",
+      isKeyEvidence: false,
+    },
   ],
 
   logs: {
@@ -2341,12 +2732,14 @@ const REJECTION_STORM_INVESTIGATION: Investigation = {
         time: "14:22:07.118",
         level: "DEBUG",
         message: 'delivery event emitted  channel=push  notification=n_5512',
+        evidenceId: "failure-is-off-request-path",
       },
       {
         id: "u3",
         time: "14:22:08.902",
         level: "ERROR",
         message: "push provider responded 500  provider=apns  notification=n_5512",
+        evidenceId: "provider-returns-500",
       },
       {
         id: "u4",
@@ -2375,6 +2768,7 @@ const REJECTION_STORM_INVESTIGATION: Investigation = {
         time: "14:22:11.240",
         level: "INFO",
         message: "notification-service starting  version=2.4.1  node=v20.11.1",
+        evidenceId: "restart-loop",
       },
       {
         id: "u8",
@@ -2395,6 +2789,7 @@ const REJECTION_STORM_INVESTIGATION: Investigation = {
         time: "14:22:11.246",
         level: "INFO",
         message: "ready — listening on :8080",
+        evidenceId: "restart-loop",
       },
     ],
   },
@@ -2447,6 +2842,7 @@ const REJECTION_STORM_INVESTIGATION: Investigation = {
         value: "3.4%",
         detail: "Elevated, but well inside what a retry should absorb",
         tone: "warning",
+        evidenceId: "provider-returns-500",
       },
       {
         id: "um-stranded",
@@ -2472,20 +2868,36 @@ const REJECTION_STORM_INVESTIGATION: Investigation = {
     lines: [
       { n: 12, text: 'router.post("/api/notifications", async (req, res, next) => {' },
       { n: 13, text: "  try {", evidenceId: "route-already-guarded" },
-      { n: 14, text: "    const notification = await outbox.enqueue(req.body);" },
-      { n: 15, text: '    events.emit("delivery", notification);' },
-      { n: 16, text: "    return res.status(202).json({ id: notification.id });" },
+      {
+        n: 14,
+        text: "    const notification = await outbox.enqueue(req.body);",
+        evidenceId: "failure-is-off-request-path",
+      },
+      {
+        n: 15,
+        text: '    events.emit("delivery", notification);',
+        evidenceId: "failure-is-off-request-path",
+      },
+      {
+        n: 16,
+        text: "    return res.status(202).json({ id: notification.id });",
+        evidenceId: "failure-is-off-request-path",
+      },
       { n: 17, text: "  } catch (error) {", evidenceId: "route-already-guarded" },
       { n: 18, text: "    return next(error);", evidenceId: "route-already-guarded" },
-      { n: 19, text: "  }" },
-      { n: 20, text: "});" },
+      { n: 19, text: "  }", evidenceId: "route-already-guarded" },
+      { n: 20, text: "});", evidenceId: "route-already-guarded" },
       { n: 21, text: "" },
       {
         n: 22,
         text: 'events.on("delivery", async (notification: Notification) => {',
         evidenceId: "async-listener-unawaited",
       },
-      { n: 23, text: "  const provider = providerFor(notification.channel);" },
+      {
+        n: 23,
+        text: "  const provider = providerFor(notification.channel);",
+        evidenceId: "async-listener-unawaited",
+      },
       {
         n: 24,
         text: "  await provider.send(notification);",
@@ -2505,7 +2917,12 @@ const REJECTION_STORM_INVESTIGATION: Investigation = {
       "One notification request, followed past its response. The client was answered at 18ms.",
     root: { label: "notification req_88213 (wall clock)", ms: 1797 },
     spans: [
-      { id: "ut-enqueue", label: "validate + enqueue to outbox", ms: 14 },
+      {
+        id: "ut-enqueue",
+        label: "validate + enqueue to outbox",
+        ms: 14,
+        evidenceId: "failure-is-off-request-path",
+      },
       {
         id: "ut-response",
         label: "HTTP 202 returned to the client",
@@ -2544,18 +2961,25 @@ const REJECTION_STORM_INVESTIGATION: Investigation = {
         detail: "Nothing re-drives the outbox after a restart",
         evidenceId: "outbox-stranded-on-crash",
       },
-      { id: "ud-delivered", label: "Messages marked delivered", value: "1,382" },
+      {
+        id: "ud-delivered",
+        label: "Messages marked delivered",
+        value: "1,382",
+        evidenceId: "outbox-store-is-healthy",
+      },
       {
         id: "ud-latency",
         label: "Outbox write latency",
         value: "5ms",
         detail: "The store keeps up",
+        evidenceId: "outbox-store-is-healthy",
       },
       {
         id: "ud-corrupt",
         label: "Rows lost or corrupted",
         value: "0",
         detail: "Nothing is wrong with the store itself",
+        evidenceId: "outbox-store-is-healthy",
       },
     ],
   },
@@ -2672,6 +3096,22 @@ const JWT_REFRESH_RACE_INVESTIGATION: Investigation = {
         "No revocation, no lockout, no orphaned or corrupted rows, and reads land in 3ms.",
       isKeyEvidence: false,
     },
+    {
+      id: "session-invalidated-by-reuse-detection",
+      source: "logs",
+      title: "Reuse detection is what ends the session",
+      description:
+        "The session is not expired, revoked by an admin or logged out by the user. It is torn down because the same refresh token was presented twice, which is the protection behaving as designed.",
+      isKeyEvidence: false,
+    },
+    {
+      id: "token-store-written-after-each-refresh",
+      source: "code",
+      title: "Every refresh overwrites the shared token store",
+      description:
+        "The new pair is written back to one shared store, so whichever refresh finishes last decides what the next request will present.",
+      isKeyEvidence: false,
+    },
   ],
 
   logs: {
@@ -2691,12 +3131,14 @@ const JWT_REFRESH_RACE_INVESTIGATION: Investigation = {
         time: "09:14:02.119",
         level: "INFO",
         message: "GET /api/notifications 401 token_expired  session=sess_7741",
+        evidenceId: "expiry-is-expected",
       },
       {
         id: "j3",
         time: "09:14:02.121",
         level: "INFO",
         message: "GET /api/billing/usage 401 token_expired  session=sess_7741",
+        evidenceId: "expiry-is-expected",
       },
       {
         id: "j4",
@@ -2720,6 +3162,7 @@ const JWT_REFRESH_RACE_INVESTIGATION: Investigation = {
         level: "WARN",
         message:
           "POST /auth/refresh 401 token_reused  family=fam_A21  presented=rt_9f3",
+        evidenceId: "one-refresh-succeeds-rest-reuse",
       },
       {
         id: "j7",
@@ -2727,6 +3170,7 @@ const JWT_REFRESH_RACE_INVESTIGATION: Investigation = {
         level: "WARN",
         message:
           "POST /auth/refresh 401 token_reused  family=fam_A21  presented=rt_9f3",
+        evidenceId: "one-refresh-succeeds-rest-reuse",
       },
       {
         id: "j8",
@@ -2750,6 +3194,7 @@ const JWT_REFRESH_RACE_INVESTIGATION: Investigation = {
         level: "INFO",
         message:
           "session invalidated  session=sess_7741  reason=refresh_token_reuse  user=u_5512",
+        evidenceId: "session-invalidated-by-reuse-detection",
       },
       {
         id: "j11",
@@ -2834,8 +3279,16 @@ const JWT_REFRESH_RACE_INVESTIGATION: Investigation = {
     file: "src/lib/api-client.ts",
     language: "TypeScript",
     lines: [
-      { n: 28, text: "api.interceptors.response.use(undefined, async (error) => {" },
-      { n: 29, text: "  if (error.response?.status !== 401) throw error;" },
+      {
+        n: 28,
+        text: "api.interceptors.response.use(undefined, async (error) => {",
+        evidenceId: "every-401-calls-refresh",
+      },
+      {
+        n: 29,
+        text: "  if (error.response?.status !== 401) throw error;",
+        evidenceId: "every-401-calls-refresh",
+      },
       { n: 30, text: "" },
       {
         n: 31,
@@ -2848,25 +3301,49 @@ const JWT_REFRESH_RACE_INVESTIGATION: Investigation = {
         evidenceId: "every-401-calls-refresh",
       },
       { n: 33, text: "" },
-      { n: 34, text: "  error.config.headers.Authorization = `Bearer ${session.accessToken}`;" },
-      { n: 35, text: "  return api.request(error.config);" },
-      { n: 36, text: "});" },
+      {
+        n: 34,
+        text: "  error.config.headers.Authorization = `Bearer ${session.accessToken}`;",
+        evidenceId: "every-401-calls-refresh",
+      },
+      {
+        n: 35,
+        text: "  return api.request(error.config);",
+        evidenceId: "every-401-calls-refresh",
+      },
+      { n: 36, text: "});", evidenceId: "every-401-calls-refresh" },
       { n: 37, text: "" },
-      { n: 38, text: "export async function refreshSession() {" },
+      {
+        n: 38,
+        text: "export async function refreshSession() {",
+        evidenceId: "token-store-written-after-each-refresh",
+      },
       {
         n: 39,
         text: "  const current = tokenStore.refreshToken; // read at call time",
         evidenceId: "every-401-calls-refresh",
       },
-      { n: 40, text: '  const res = await post("/auth/refresh", { refreshToken: current });' },
+      {
+        n: 40,
+        text: '  const res = await post("/auth/refresh", { refreshToken: current });',
+        evidenceId: "every-401-calls-refresh",
+      },
       {
         n: 41,
         text: "  if (!res.ok) return logout();",
         evidenceId: "every-401-calls-refresh",
       },
       { n: 42, text: "" },
-      { n: 43, text: "  tokenStore.set(res.body);" },
-      { n: 44, text: "  return res.body;" },
+      {
+        n: 43,
+        text: "  tokenStore.set(res.body);",
+        evidenceId: "token-store-written-after-each-refresh",
+      },
+      {
+        n: 44,
+        text: "  return res.body;",
+        evidenceId: "token-store-written-after-each-refresh",
+      },
       { n: 45, text: "}" },
     ],
   },
@@ -2882,8 +3359,18 @@ const JWT_REFRESH_RACE_INVESTIGATION: Investigation = {
         ms: 46,
         evidenceId: "parallel-api-calls-one-expiry",
       },
-      { id: "jt-b", label: "GET /api/notifications → 401", ms: 44 },
-      { id: "jt-c", label: "GET /api/billing/usage → 401", ms: 41 },
+      {
+        id: "jt-b",
+        label: "GET /api/notifications → 401",
+        ms: 44,
+        evidenceId: "parallel-api-calls-one-expiry",
+      },
+      {
+        id: "jt-c",
+        label: "GET /api/billing/usage → 401",
+        ms: 41,
+        evidenceId: "parallel-api-calls-one-expiry",
+      },
       {
         id: "jt-r1",
         label: "POST /auth/refresh — rotates rt_9f3 → rt_c17",
@@ -2900,6 +3387,7 @@ const JWT_REFRESH_RACE_INVESTIGATION: Investigation = {
         id: "jt-r3",
         label: "POST /auth/refresh — presents rt_9f3 → 401 reused",
         ms: 55,
+        evidenceId: "one-refresh-succeeds-rest-reuse",
       },
       {
         id: "jt-logout",
@@ -2946,6 +3434,7 @@ const JWT_REFRESH_RACE_INVESTIGATION: Investigation = {
         label: "Token store read latency",
         value: "3ms",
         detail: "No contention, no timeouts",
+        evidenceId: "account-and-store-healthy",
       },
     ],
   },
@@ -3062,6 +3551,22 @@ const HEALTH_CHECK_INVESTIGATION: Investigation = {
         "select 1 returns in 4ms with 12 of 50 connections in use and no failovers.",
       isKeyEvidence: false,
     },
+    {
+      id: "no-deploy-preceded-the-incident",
+      source: "logs",
+      title: "The version never changed",
+      description:
+        "Instances come back on 3.6.2, the same build they went down on. Nothing was released into this window, so no code change can be the trigger.",
+      isKeyEvidence: false,
+    },
+    {
+      id: "other-dependencies-respond-fast",
+      source: "database",
+      title: "Every other dependency answers quickly",
+      description:
+        "Payments pings in 61ms and messaging in 88ms. Only one of the four checks the endpoint performs is slow.",
+      isKeyEvidence: false,
+    },
   ],
 
   logs: {
@@ -3073,6 +3578,7 @@ const HEALTH_CHECK_INVESTIGATION: Investigation = {
         time: "11:02:14.006",
         level: "INFO",
         message: "GET /health start  instance=i-4f21  probe=liveness",
+        evidenceId: "liveness-probe-runs-deep-dependency-check",
       },
       {
         id: "h2",
@@ -3116,12 +3622,14 @@ const HEALTH_CHECK_INVESTIGATION: Investigation = {
         time: "11:02:19.241",
         level: "INFO",
         message: "SIGTERM received — container restarting  instance=i-4f21",
+        evidenceId: "health-endpoint-exceeds-probe-timeout",
       },
       {
         id: "h8",
         time: "11:02:26.880",
         level: "INFO",
         message: "orders-api ready  instance=i-4f21  version=3.6.2 (unchanged)",
+        evidenceId: "no-deploy-preceded-the-incident",
       },
       {
         id: "h9",
@@ -3235,9 +3743,21 @@ const HEALTH_CHECK_INVESTIGATION: Investigation = {
         evidenceId: "liveness-probe-runs-deep-dependency-check",
       },
       { n: 14, text: "async health() {" },
-      { n: 15, text: '  await this.db.query("select 1");' },
-      { n: 16, text: "  await this.payments.ping();" },
-      { n: 17, text: "  await this.messaging.ping();" },
+      {
+        n: 15,
+        text: '  await this.db.query("select 1");',
+        evidenceId: "liveness-probe-runs-deep-dependency-check",
+      },
+      {
+        n: 16,
+        text: "  await this.payments.ping();",
+        evidenceId: "liveness-probe-runs-deep-dependency-check",
+      },
+      {
+        n: 17,
+        text: "  await this.messaging.ping();",
+        evidenceId: "liveness-probe-runs-deep-dependency-check",
+      },
       {
         n: 18,
         text: "  await this.analytics.getAccountSummary(); // no timeout, not on the order path",
@@ -3258,9 +3778,24 @@ const HEALTH_CHECK_INVESTIGATION: Investigation = {
       "One health request on i-4f21. The probe gave up at 3,000ms; the handler kept going.",
     root: { label: "GET /health i-4f21", ms: 5155 },
     spans: [
-      { id: "ht-db", label: "db select 1", ms: 4 },
-      { id: "ht-pay", label: "payments.ping", ms: 61 },
-      { id: "ht-msg", label: "messaging.ping", ms: 88 },
+      {
+        id: "ht-db",
+        label: "db select 1",
+        ms: 4,
+        evidenceId: "database-healthy",
+      },
+      {
+        id: "ht-pay",
+        label: "payments.ping",
+        ms: 61,
+        evidenceId: "other-dependencies-respond-fast",
+      },
+      {
+        id: "ht-msg",
+        label: "messaging.ping",
+        ms: 88,
+        evidenceId: "other-dependencies-respond-fast",
+      },
       {
         id: "ht-analytics",
         label: "analytics.getAccountSummary — client timeout",
@@ -3287,8 +3822,18 @@ const HEALTH_CHECK_INVESTIGATION: Investigation = {
         detail: "Nowhere near saturation",
         evidenceId: "database-healthy",
       },
-      { id: "hd-pay", label: "Payment provider ping", value: "61ms" },
-      { id: "hd-msg", label: "Messaging ping", value: "88ms" },
+      {
+        id: "hd-pay",
+        label: "Payment provider ping",
+        value: "61ms",
+        evidenceId: "other-dependencies-respond-fast",
+      },
+      {
+        id: "hd-msg",
+        label: "Messaging ping",
+        value: "88ms",
+        evidenceId: "other-dependencies-respond-fast",
+      },
       {
         id: "hd-analytics",
         label: "Analytics provider",
@@ -3411,6 +3956,30 @@ const GRACEFUL_SHUTDOWN_INVESTIGATION: Investigation = {
         "The upstream reset is recorded against sockets this process closed; no instance was removed from rotation first.",
       isKeyEvidence: false,
     },
+    {
+      id: "payment-provider-healthy",
+      source: "metrics",
+      title: "The payment provider is healthy throughout",
+      description:
+        "0.02% errors across the deploy window and outside it. The failed checkouts are not failing at the provider — they are failing after it says yes.",
+      isKeyEvidence: false,
+    },
+    {
+      id: "payment-taken-before-the-cut",
+      source: "trace",
+      title: "The card was already charged when the process exited",
+      description:
+        "Authorization succeeded at 121ms and the order row was inserted; only the COMMIT was interrupted. The customer paid for an order that no longer exists.",
+      isKeyEvidence: false,
+    },
+    {
+      id: "reservations-left-held",
+      source: "database",
+      title: "Inventory stays reserved for fifteen minutes",
+      description:
+        "17 reservations are left held by the abandoned requests, released only when the sweeper next runs — stock nobody can buy in the meantime.",
+      isKeyEvidence: false,
+    },
   ],
 
   logs: {
@@ -3429,6 +3998,7 @@ const GRACEFUL_SHUTDOWN_INVESTIGATION: Investigation = {
         time: "03:12:41.003",
         level: "INFO",
         message: "closing database pool",
+        evidenceId: "sigterm-to-exit-in-milliseconds",
       },
       {
         id: "g3",
@@ -3458,6 +4028,7 @@ const GRACEFUL_SHUTDOWN_INVESTIGATION: Investigation = {
         level: "ERROR",
         message:
           "transaction rolled back by client disconnect  request=req_77120  order=o_9931",
+        evidenceId: "request-cut-mid-transaction",
       },
       {
         id: "g7",
@@ -3471,6 +4042,7 @@ const GRACEFUL_SHUTDOWN_INVESTIGATION: Investigation = {
         time: "03:12:44.880",
         level: "INFO",
         message: "checkout-api ready  version=5.3.1  instance=i-2b90",
+        evidenceId: "errors-only-during-deploys",
       },
       {
         id: "g9",
@@ -3560,6 +4132,7 @@ const GRACEFUL_SHUTDOWN_INVESTIGATION: Investigation = {
         value: "0.02%",
         detail: "Healthy throughout — the failures are ours",
         tone: "normal",
+        evidenceId: "payment-provider-healthy",
       },
     ],
     latency: {
@@ -3580,7 +4153,11 @@ const GRACEFUL_SHUTDOWN_INVESTIGATION: Investigation = {
         text: 'process.on("SIGTERM", async () => {',
         evidenceId: "exit-called-in-signal-handler",
       },
-      { n: 42, text: '  logger.info("SIGTERM received");' },
+      {
+        n: 42,
+        text: '  logger.info("SIGTERM received");',
+        evidenceId: "exit-called-in-signal-handler",
+      },
       {
         n: 43,
         text: "  await db.pool.end();",
@@ -3591,7 +4168,7 @@ const GRACEFUL_SHUTDOWN_INVESTIGATION: Investigation = {
         text: "  process.exit(0);",
         evidenceId: "exit-called-in-signal-handler",
       },
-      { n: 45, text: "});" },
+      { n: 45, text: "});", evidenceId: "exit-called-in-signal-handler" },
       { n: 46, text: "" },
       {
         n: 47,
@@ -3610,10 +4187,30 @@ const GRACEFUL_SHUTDOWN_INVESTIGATION: Investigation = {
     caption: "One checkout caught by the rollout. It never reached COMMIT.",
     root: { label: "POST /api/checkout req_77120", ms: 214 },
     spans: [
-      { id: "gt-validate", label: "validate cart", ms: 11 },
-      { id: "gt-reserve", label: "reserve inventory", ms: 38 },
-      { id: "gt-charge", label: "authorize payment (succeeded)", ms: 121 },
-      { id: "gt-write", label: "insert order row", ms: 27 },
+      {
+        id: "gt-validate",
+        label: "validate cart",
+        ms: 11,
+        evidenceId: "payment-taken-before-the-cut",
+      },
+      {
+        id: "gt-reserve",
+        label: "reserve inventory",
+        ms: 38,
+        evidenceId: "payment-taken-before-the-cut",
+      },
+      {
+        id: "gt-charge",
+        label: "authorize payment (succeeded)",
+        ms: 121,
+        evidenceId: "payment-taken-before-the-cut",
+      },
+      {
+        id: "gt-write",
+        label: "insert order row",
+        ms: 27,
+        evidenceId: "payment-taken-before-the-cut",
+      },
       {
         id: "gt-commit",
         label: "COMMIT — interrupted by process exit, rolled back",
@@ -3638,6 +4235,7 @@ const GRACEFUL_SHUTDOWN_INVESTIGATION: Investigation = {
         label: "Inventory reservations left held",
         value: "17",
         detail: "Released only by the 15-minute sweeper",
+        evidenceId: "reservations-left-held",
       },
       {
         id: "gd-p99",
@@ -3658,6 +4256,7 @@ const GRACEFUL_SHUTDOWN_INVESTIGATION: Investigation = {
         label: "Connections closed by the client",
         value: "50",
         detail: "The application ended them; the server did not",
+        evidenceId: "connections-closed-by-the-app",
       },
     ],
   },
@@ -3774,6 +4373,14 @@ const RATE_LIMITER_RACE_INVESTIGATION: Investigation = {
         "limit=100, window=60s, and the key template matches the documented contract.",
       isKeyEvidence: false,
     },
+    {
+      id: "instances-are-not-under-load",
+      source: "metrics",
+      title: "No instance is under pressure",
+      description:
+        "p95 latency held at 84ms and CPU at 31% before and after scaling out. Nothing is queuing, retrying or falling behind — the requests are being let through deliberately.",
+      isKeyEvidence: false,
+    },
   ],
 
   logs: {
@@ -3799,6 +4406,7 @@ const RATE_LIMITER_RACE_INVESTIGATION: Investigation = {
         time: "15:07:33.202",
         level: "DEBUG",
         message: "rate-limit read  key=rl:client_88:1min  value=97  instance=i-07",
+        evidenceId: "same-count-read-by-several-instances",
       },
       {
         id: "r4",
@@ -3819,6 +4427,7 @@ const RATE_LIMITER_RACE_INVESTIGATION: Investigation = {
         time: "15:07:33.206",
         level: "INFO",
         message: "request allowed  key=rl:client_88:1min  wrote=98  instance=i-07",
+        evidenceId: "writes-overwrite-each-other",
       },
       {
         id: "r7",
@@ -3894,6 +4503,7 @@ const RATE_LIMITER_RACE_INVESTIGATION: Investigation = {
         value: "84ms",
         detail: "Unchanged before and after scaling out",
         tone: "normal",
+        evidenceId: "instances-are-not-under-load",
       },
       {
         id: "rm-cpu",
@@ -3901,6 +4511,7 @@ const RATE_LIMITER_RACE_INVESTIGATION: Investigation = {
         value: "31% / 180 MB",
         detail: "Headroom on every instance",
         tone: "normal",
+        evidenceId: "instances-are-not-under-load",
       },
       {
         id: "rm-skew",
@@ -3933,7 +4544,11 @@ const RATE_LIMITER_RACE_INVESTIGATION: Investigation = {
     language: "TypeScript",
     lines: [
       { n: 17, text: "export async function rateLimit(req, res, next) {" },
-      { n: 18, text: "  const key = `rl:${req.clientId}:1min`;" },
+      {
+        n: 18,
+        text: "  const key = `rl:${req.clientId}:1min`;",
+        evidenceId: "single-client-single-key",
+      },
       { n: 19, text: "" },
       {
         n: 20,
@@ -3952,7 +4567,11 @@ const RATE_LIMITER_RACE_INVESTIGATION: Investigation = {
         evidenceId: "read-modify-write-in-application-code",
       },
       { n: 24, text: "" },
-      { n: 25, text: "  return next();" },
+      {
+        n: 25,
+        text: "  return next();",
+        evidenceId: "read-modify-write-in-application-code",
+      },
       { n: 26, text: "}" },
     ],
   },
@@ -3974,16 +4593,36 @@ const RATE_LIMITER_RACE_INVESTIGATION: Investigation = {
         ms: 3,
         evidenceId: "same-count-read-by-several-instances",
       },
-      { id: "rt-g07", label: "i-07: store.get → 97", ms: 3 },
+      {
+        id: "rt-g07",
+        label: "i-07: store.get → 97",
+        ms: 3,
+        evidenceId: "same-count-read-by-several-instances",
+      },
       {
         id: "rt-s01",
         label: "i-01: store.set 98",
         ms: 4,
         evidenceId: "writes-overwrite-each-other",
       },
-      { id: "rt-s04", label: "i-04: store.set 98 — overwrites i-01", ms: 4 },
-      { id: "rt-s07", label: "i-07: store.set 98 — overwrites i-04", ms: 4 },
-      { id: "rt-allow", label: "all three requests allowed", ms: 6 },
+      {
+        id: "rt-s04",
+        label: "i-04: store.set 98 — overwrites i-01",
+        ms: 4,
+        evidenceId: "writes-overwrite-each-other",
+      },
+      {
+        id: "rt-s07",
+        label: "i-07: store.set 98 — overwrites i-04",
+        ms: 4,
+        evidenceId: "writes-overwrite-each-other",
+      },
+      {
+        id: "rt-allow",
+        label: "all three requests allowed",
+        ms: 6,
+        evidenceId: "stored-count-below-actual-volume",
+      },
     ],
   },
 
@@ -4136,6 +4775,38 @@ const MEMORY_LEAK_INVESTIGATION: Investigation = {
         "Object-storage latency, database latency and CPU outside garbage-collection pauses are all flat and within normal range.",
       isKeyEvidence: false,
     },
+    {
+      id: "jobs-complete-successfully",
+      source: "logs",
+      title: "The jobs themselves are fine",
+      description:
+        "Each job decodes, resizes, uploads and acknowledges in about 3.7 seconds with status ok. Nothing is failing, retrying or hanging.",
+      isKeyEvidence: false,
+    },
+    {
+      id: "restart-returns-heap-to-baseline",
+      source: "logs",
+      title: "A restart puts the heap straight back to 181 MB",
+      description:
+        "Recycling the worker returns it to its boot baseline and loses no jobs, so whatever is being held is in-process state rather than something outside the worker.",
+      isKeyEvidence: false,
+    },
+    {
+      id: "worker-restarts-every-three-hours",
+      source: "logs",
+      title: "The worker is recycled about every three hours",
+      description:
+        "Seven restarts in 24 hours, every one triggered by the memory threshold and none by a crash. The growth rate is steady and predictable.",
+      isKeyEvidence: false,
+    },
+    {
+      id: "unbounded-recent-jobs-array",
+      source: "code",
+      title: "A module-level array grows with every job",
+      description:
+        "recentJobs is appended to on each call and never trimmed, so every completed job stays reachable along with everything it references.",
+      isKeyEvidence: false,
+    },
   ],
 
   logs: {
@@ -4147,12 +4818,14 @@ const MEMORY_LEAK_INVESTIGATION: Investigation = {
         time: "02:14:09.114",
         level: "INFO",
         message: "job start  id=img_41288  bytes=2118400  concurrency=4/4",
+        evidenceId: "payload-size-unchanged",
       },
       {
         id: "l2",
         time: "02:14:12.774",
         level: "INFO",
         message: "job done   id=img_41288  ms=3660  status=ok",
+        evidenceId: "jobs-complete-successfully",
       },
       {
         id: "l3",
@@ -4197,18 +4870,21 @@ const MEMORY_LEAK_INVESTIGATION: Investigation = {
         level: "ERROR",
         message:
           "worker image-worker-3 exceeded memory threshold (1.42GB / 1.5GB) — recycling",
+        evidenceId: "heap-never-returns-to-baseline",
       },
       {
         id: "l9",
         time: "05:47:21.006",
         level: "INFO",
         message: "worker image-worker-3 restarted  heapUsed=181MB  jobs_lost=0",
+        evidenceId: "restart-returns-heap-to-baseline",
       },
       {
         id: "l10",
         time: "05:47:21.100",
         level: "DEBUG",
         message: "restart #7 in 24h  mean uptime between restarts: 3h 12m",
+        evidenceId: "worker-restarts-every-three-hours",
       },
     ],
   },
@@ -4253,6 +4929,7 @@ const MEMORY_LEAK_INVESTIGATION: Investigation = {
         value: "7",
         detail: "All triggered by the memory threshold, none by crashes",
         tone: "warning",
+        evidenceId: "worker-restarts-every-three-hours",
       },
     ],
     latency: {
@@ -4268,7 +4945,11 @@ const MEMORY_LEAK_INVESTIGATION: Investigation = {
     file: "src/workers/image-job.worker.ts",
     language: "TypeScript",
     lines: [
-      { n: 28, text: "const recentJobs: ImageJob[] = [];" },
+      {
+        n: 28,
+        text: "const recentJobs: ImageJob[] = [];",
+        evidenceId: "unbounded-recent-jobs-array",
+      },
       { n: 29, text: "" },
       { n: 30, text: "async function processJob(job: ImageJob) {" },
       {
@@ -4281,17 +4962,33 @@ const MEMORY_LEAK_INVESTIGATION: Investigation = {
         text: "    logger.debug({ jobId: job.id, sourceBuffer: job.sourceBuffer, value });",
         evidenceId: "listener-added-per-job-never-removed",
       },
-      { n: 33, text: "  };" },
+      {
+        n: 33,
+        text: "  };",
+        evidenceId: "listener-added-per-job-never-removed",
+      },
       { n: 34, text: "" },
       {
         n: 35,
         text: '  worker.on("progress", onProgress);',
         evidenceId: "listener-added-per-job-never-removed",
       },
-      { n: 36, text: "  recentJobs.push(job);" },
+      {
+        n: 36,
+        text: "  recentJobs.push(job);",
+        evidenceId: "unbounded-recent-jobs-array",
+      },
       { n: 37, text: "" },
-      { n: 38, text: "  const result = await worker.run(job);" },
-      { n: 39, text: "  await storage.put(result.key, result.buffer);" },
+      {
+        n: 38,
+        text: "  const result = await worker.run(job);",
+        evidenceId: "jobs-complete-successfully",
+      },
+      {
+        n: 39,
+        text: "  await storage.put(result.key, result.buffer);",
+        evidenceId: "jobs-complete-successfully",
+      },
       { n: 40, text: "" },
       {
         n: 41,
@@ -4332,10 +5029,30 @@ const MEMORY_LEAK_INVESTIGATION: Investigation = {
     caption: "One image job, dispatch to completion — the job itself is healthy",
     root: { label: "job img_48802", ms: 3712 },
     spans: [
-      { id: "t-decode", label: "decode source image", ms: 402 },
-      { id: "t-resize", label: "resize + encode variants", ms: 2810 },
-      { id: "t-upload", label: "upload variants to storage", ms: 461 },
-      { id: "t-ack", label: "ack job — completes successfully", ms: 6 },
+      {
+        id: "t-decode",
+        label: "decode source image",
+        ms: 402,
+        evidenceId: "jobs-complete-successfully",
+      },
+      {
+        id: "t-resize",
+        label: "resize + encode variants",
+        ms: 2810,
+        evidenceId: "jobs-complete-successfully",
+      },
+      {
+        id: "t-upload",
+        label: "upload variants to storage",
+        ms: 461,
+        evidenceId: "downstream-services-healthy",
+      },
+      {
+        id: "t-ack",
+        label: "ack job — completes successfully",
+        ms: 6,
+        evidenceId: "jobs-complete-successfully",
+      },
       {
         id: "t-gc",
         label: "major GC during job: 1 every 11s, 24MB reclaimed",
@@ -4463,6 +5180,14 @@ const QUEUE_BACKLOG_INVESTIGATION: Investigation = {
         "Notifications are being enqueued at 1,100/min, the same as the previous week. The growth is on the drain side, not the fill side.",
       isKeyEvidence: false,
     },
+    {
+      id: "delivery-path-is-a-single-provider-call",
+      source: "code",
+      title: "Delivering a notification is one provider call",
+      description:
+        "Resolve the recipient, send, count it. There is no batching, no concurrency limit and nothing that reads the provider's retry-after header.",
+      isKeyEvidence: false,
+    },
   ],
 
   logs: {
@@ -4512,6 +5237,7 @@ const QUEUE_BACKLOG_INVESTIGATION: Investigation = {
         time: "11:04:05.900",
         level: "WARN",
         message: "queue depth 184,012  oldest job age 42m  dead-letter 0",
+        evidenceId: "backlog-grows-with-empty-dead-letter",
       },
       {
         id: "l7",
@@ -4552,6 +5278,7 @@ const QUEUE_BACKLOG_INVESTIGATION: Investigation = {
         value: "184,012",
         detail: "Oldest job is 42 minutes old",
         tone: "critical",
+        evidenceId: "backlog-grows-with-empty-dead-letter",
       },
       {
         id: "m-429",
@@ -4601,13 +5328,30 @@ const QUEUE_BACKLOG_INVESTIGATION: Investigation = {
     lines: [
       { n: 44, text: "export async function processNotification(job: Job<Notification>) {" },
       { n: 45, text: "  try {" },
-      { n: 46, text: "    const recipient = await resolveRecipient(job.data);" },
-      { n: 47, text: "    await provider.send(recipient, job.data.template);" },
-      { n: 48, text: "    metrics.delivered.inc();" },
-      { n: 49, text: "  } catch (error) {" },
+      {
+        n: 46,
+        text: "    const recipient = await resolveRecipient(job.data);",
+        evidenceId: "delivery-path-is-a-single-provider-call",
+      },
+      {
+        n: 47,
+        text: "    await provider.send(recipient, job.data.template);",
+        evidenceId: "delivery-path-is-a-single-provider-call",
+      },
+      {
+        n: 48,
+        text: "    metrics.delivered.inc();",
+        evidenceId: "delivery-path-is-a-single-provider-call",
+      },
+      {
+        n: 49,
+        text: "  } catch (error) {",
+        evidenceId: "immediate-requeue-in-catch",
+      },
       {
         n: 50,
         text: "    logger.error({ id: job.id, attempt: job.attemptsMade, reason: String(error) });",
+        evidenceId: "immediate-requeue-in-catch",
       },
       { n: 51, text: "" },
       {
@@ -4625,7 +5369,7 @@ const QUEUE_BACKLOG_INVESTIGATION: Investigation = {
         text: "    // no attempt cap, no backoff, no permanent/transient split",
         evidenceId: "immediate-requeue-in-catch",
       },
-      { n: 55, text: "  }" },
+      { n: 55, text: "  }", evidenceId: "immediate-requeue-in-catch" },
       { n: 56, text: "}" },
     ],
   },
@@ -4659,6 +5403,7 @@ const QUEUE_BACKLOG_INVESTIGATION: Investigation = {
         label: "Redeliveries in the last minute",
         value: "71,400",
         detail: "Against 90 successful deliveries",
+        evidenceId: "same-job-retried-endlessly",
       },
     ],
   },
@@ -4667,8 +5412,18 @@ const QUEUE_BACKLOG_INVESTIGATION: Investigation = {
     caption: "One failing notification job, followed through a worker slot",
     root: { label: "job notif_88213 attempt 4812", ms: 40 },
     spans: [
-      { id: "t-claim", label: "claim job from queue", ms: 3 },
-      { id: "t-resolve", label: "resolveRecipient", ms: 8 },
+      {
+        id: "t-claim",
+        label: "claim job from queue",
+        ms: 3,
+        evidenceId: "poison-job-cycle-in-trace",
+      },
+      {
+        id: "t-resolve",
+        label: "resolveRecipient",
+        ms: 8,
+        evidenceId: "delivery-path-is-a-single-provider-call",
+      },
       {
         id: "t-send",
         label: "provider.send → 429 Too Many Requests",
@@ -4802,6 +5557,30 @@ const CONNECTION_POOL_INVESTIGATION: Investigation = {
         "The rate of missing-order lookups is 2.1% of requests, the same as last week. The error path is not new — only its consequence is.",
       isKeyEvidence: false,
     },
+    {
+      id: "successful-path-does-release",
+      source: "logs",
+      title: "The successful path does return its connection",
+      description:
+        "conn_42 is checked out and released 41ms later, in the same second conn_41 is lost. Not every request leaks — only the ones that end early do.",
+      isKeyEvidence: false,
+    },
+    {
+      id: "connection-held-across-an-external-call",
+      source: "code",
+      title: "A connection is held across an external HTTP call",
+      description:
+        "The billing API is called while the pooled connection is still checked out, so every request occupies a connection for longer than it actually needs one.",
+      isKeyEvidence: false,
+    },
+    {
+      id: "query-volume-fell",
+      source: "database",
+      title: "The database is being asked to do less, not more",
+      description:
+        "310 queries a second, down from 1,240. Traffic has not risen — the application simply cannot get hold of a connection to send its queries on.",
+      isKeyEvidence: false,
+    },
   ],
 
   logs: {
@@ -4828,12 +5607,14 @@ const CONNECTION_POOL_INVESTIGATION: Investigation = {
         time: "09:41:02.020",
         level: "DEBUG",
         message: "pool checkout  conn=conn_42  handler=getOrderDetail  active=18/20",
+        evidenceId: "successful-path-does-release",
       },
       {
         id: "l4",
         time: "09:41:02.061",
         level: "DEBUG",
         message: "pool release   conn=conn_42  held_ms=41",
+        evidenceId: "successful-path-does-release",
       },
       {
         id: "l5",
@@ -4864,6 +5645,7 @@ const CONNECTION_POOL_INVESTIGATION: Investigation = {
         time: "09:41:15.222",
         level: "INFO",
         message: "GET /api/orders/91002 200 4902ms  (query 14ms)",
+        evidenceId: "wait-dominates-request",
       },
       {
         id: "l9",
@@ -4877,6 +5659,7 @@ const CONNECTION_POOL_INVESTIGATION: Investigation = {
         time: "09:41:18.771",
         level: "WARN",
         message: "leaked connections since boot: 20  reclaimed: 0",
+        evidenceId: "checkout-without-matching-release",
       },
     ],
   },
@@ -4897,6 +5680,7 @@ const CONNECTION_POOL_INVESTIGATION: Investigation = {
         value: "4.8s",
         detail: "Was 2ms before the incident",
         tone: "critical",
+        evidenceId: "wait-dominates-request",
       },
       {
         id: "m-query",
@@ -4904,6 +5688,7 @@ const CONNECTION_POOL_INVESTIGATION: Investigation = {
         value: "18ms",
         detail: "Unchanged — the queries themselves are fine",
         tone: "normal",
+        evidenceId: "query-execution-healthy",
       },
       {
         id: "m-db",
@@ -4919,6 +5704,7 @@ const CONNECTION_POOL_INVESTIGATION: Investigation = {
         value: "63",
         detail: "All raised before any SQL was sent",
         tone: "warning",
+        evidenceId: "acquire-timeouts",
       },
     ],
     latency: {
@@ -4935,9 +5721,17 @@ const CONNECTION_POOL_INVESTIGATION: Investigation = {
     language: "TypeScript",
     lines: [
       { n: 61, text: "router.get(\"/orders/:id\", async (req, res) => {" },
-      { n: 62, text: "  const connection = await pool.getConnection();" },
+      {
+        n: 62,
+        text: "  const connection = await pool.getConnection();",
+        evidenceId: "checkout-without-matching-release",
+      },
       { n: 63, text: "" },
-      { n: 64, text: "  const order = await orderRepository.findById(req.params.id);" },
+      {
+        n: 64,
+        text: "  const order = await orderRepository.findById(req.params.id);",
+        evidenceId: "early-return-skips-release",
+      },
       {
         n: 65,
         text: "  if (!order) {",
@@ -4954,8 +5748,16 @@ const CONNECTION_POOL_INVESTIGATION: Investigation = {
         evidenceId: "early-return-skips-release",
       },
       { n: 68, text: "" },
-      { n: 69, text: "  const items = await connection.query(ITEMS_SQL, [order.id]);" },
-      { n: 70, text: "  const invoice = await billingApi.fetchInvoice(order.id);" },
+      {
+        n: 69,
+        text: "  const items = await connection.query(ITEMS_SQL, [order.id]);",
+        evidenceId: "connection-held-across-an-external-call",
+      },
+      {
+        n: 70,
+        text: "  const invoice = await billingApi.fetchInvoice(order.id);",
+        evidenceId: "connection-held-across-an-external-call",
+      },
       { n: 71, text: "" },
       {
         n: 72,
@@ -4989,12 +5791,14 @@ const CONNECTION_POOL_INVESTIGATION: Investigation = {
         label: "Server-side sessions",
         value: "20",
         detail: "Open and idle-in-session — held by the API, not working",
+        evidenceId: "pool-saturated-idle-zero",
       },
       {
         id: "db-throughput",
         label: "Queries per second",
         value: "310",
         detail: "Down from 1,240 — the database is being asked to do less",
+        evidenceId: "query-volume-fell",
       },
     ],
   },
@@ -5015,7 +5819,12 @@ const CONNECTION_POOL_INVESTIGATION: Investigation = {
         ms: 14,
         evidenceId: "wait-dominates-request",
       },
-      { id: "t-billing", label: "billingApi.fetchInvoice", ms: 52 },
+      {
+        id: "t-billing",
+        label: "billingApi.fetchInvoice",
+        ms: 52,
+        evidenceId: "connection-held-across-an-external-call",
+      },
       { id: "t-serialize", label: "JSON serialization", ms: 9 },
     ],
   },
@@ -5081,9 +5890,9 @@ export function findEvidence(
 
 /* ------------------------- Persistence (localStorage) ------------------- */
 
-export function investigationStorageKey(missionId: string): string {
-  return `coderaid:${missionId}:investigation`;
-}
+/* Re-exported rather than rebuilt: `lib/mission-storage.ts` names every
+   per-mission slot in one place so a sweep can't miss one. */
+export { investigationStorageKey };
 
 /**
  * Restores a mission's progress. `allowedTools` is the mission's own tool list,

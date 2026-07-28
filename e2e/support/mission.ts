@@ -21,9 +21,16 @@ export const MISSION = "event-loop-overload";
  * This is what replaying actually is for a signed-in player: the runs are
  * append-only in Postgres and are deliberately untouched, while the local
  * per-stage state — which evidence was marked, which cause was confirmed — is
- * what "Reset Progress" clears so the mission can be walked a second time.
- * Without it the investigation panel restores the first run's selections and
- * the evidence rows are already collected rather than selectable.
+ * what gets cleared so the mission can be walked a second time. Without it the
+ * investigation panel restores the first run's selections and the evidence rows
+ * are already collected rather than selectable.
+ *
+ * The app does this for itself now: "Run It Again" calls
+ * `clearMissionWorkingState()`, and the investigation's Restart action calls
+ * `clearInvestigationOnward()`. The authenticated spec covers that button
+ * directly. This stays a raw sweep on purpose — a test that sets up a replay
+ * should not have to route through whichever CTA happens to offer one, and the
+ * measurement specs below replay from stages where no CTA exists at all.
  */
 export async function resetMissionState(page: Page, missionId: string): Promise<void> {
   await page.evaluate((id) => {

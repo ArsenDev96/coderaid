@@ -146,7 +146,25 @@
 > player is no longer told their progress lives in this browser. Rules live in `lib/start.ts`; local
 > mission work is untouched. See §8 → Onboarding.
 >
-> The suite is **501 tests across 19 files**, plus 18 Playwright specs. All six gates green:
+> **New in the investigation-state pass (2026-07-28).** Two defects in how the investigation stage
+> handled evidence and its own saved state:
+>
+> - **The UI was answering the question.** A row is selectable only when it carries an `evidenceId`,
+>   and in practice only the findings a mission is built around had one. The plus buttons therefore
+>   named the correct evidence before the player had read anything, and `EvidenceCard` stamped a
+>   violet **Key** badge on collected key findings, confirming it. All 14 missions were audited
+>   across all five tools: every meaningful observation — negative evidence, plausible distractors,
+>   ruled-out alternatives, duplicate rows whose siblings were already selectable — now carries a
+>   stable id, and the Key badge is gone. Non-key evidence roughly doubled. No answer data moved into
+>   the client, the precision/recall grading is unchanged, and `validate:missions` now **fails** a
+>   mission whose selectable set is an answer key (§6 → Stage 2, §15.2).
+> - **Restored state appeared without explanation, and a replay reused it.** Reopening a mission
+>   silently restored collected evidence; the workspace now says so, with the real count, and offers
+>   a confirmed Restart. "Run It Again" was a plain link to the briefing, so a replay inherited the
+>   previous attempt's evidence, diagnosis, fix and running clock — it now clears all eight of the
+>   mission's local slots first (§6 → Stage 2 and Stage 6, §16.7).
+>
+> The suite is **546 tests across 21 files**, plus 27 Playwright specs. All six gates green:
 > `typecheck`, `lint`, `test`, `validate:missions`, `build`, `playwright`.
 
 ---
@@ -187,8 +205,8 @@ The README (`README.md`) has been rewritten to match this positioning and is no 
 | Fonts | `next/font/google` — Inter (`--font-inter`), JetBrains Mono (`--font-jetbrains`) |
 | Backend | **Supabase** — Postgres + GitHub OAuth. Four route handlers under `app/api/`; no server actions |
 | Auth | `@supabase/ssr` 0.12 + `@supabase/supabase-js` 2 — GitHub OAuth only, cookie sessions |
-| Tests | **Vitest 2** — `tests/`, 20 files, 523 tests, Node environment, `@/*` alias |
-| Browser smoke | **Playwright 1.61** — `e2e/`, 19 Chromium tests against the production build: 7 signed-out, 12 authenticated (§15.5, §17.4) |
+| Tests | **Vitest 2** — `tests/`, 21 files, 546 tests, Node environment, `@/*` alias |
+| Browser smoke | **Playwright 1.61** — `e2e/`, 27 Chromium tests against the production build: 14 signed-out, 13 authenticated (§15.5, §17.4) |
 | Lint | **ESLint 8 + `eslint-config-next`**, committed `.eslintrc.json` extending `next/core-web-vitals` |
 | Content validation | `tsx scripts/validate-missions.ts` over `lib/mission-validation.ts` |
 
@@ -204,18 +222,18 @@ and `SUPABASE_SERVICE_ROLE_KEY`. The service-role key is read only inside `lib/s
 which begins with `import "server-only"`, so no import path can pull it toward the browser bundle.
 It must never be given a `NEXT_PUBLIC_` prefix.
 
-### Verified command results (re-run 2026-07-22, after the decoration pass)
+### Verified command results (re-run 2026-07-28, after the investigation-state pass)
 
 | Command | Result |
 | --- | --- |
 | `npm run typecheck` | **passes clean**, no errors |
 | `npm run lint` | **runs non-interactively** — "No ESLint warnings or errors" |
-| `npm run test` | **523 passed** across 20 files |
+| `npm run test` | **546 passed** across 21 files |
 | `npm run validate:missions` | **0 errors, 0 warnings** — 20 missions checked, 14 fully playable |
 | `npm run build` | **succeeds**, "Compiled successfully" |
-| `npx playwright test` | **19 passed** (Chromium, against the production build) |
+| `npx playwright test` | **27 passed** (Chromium, against the production build) |
 
-All 13 Playwright specs **ran** rather than skipping, which is the thing to check: the eleven
+All 27 Playwright tests **ran** rather than skipping, which is the thing to check: the thirteen
 authenticated ones skip themselves without the Supabase keys, and a run where they skip reports the
 same green as a run where they pass. The GitHub Actions secrets were set on 2026-07-22, so CI can
 now run them too — but confirm they executed in the job log before trusting it (§12 item 2).
@@ -295,7 +313,8 @@ lib/
   mission-validation.ts      Pure content-validation rules (what validate:missions runs)
   code-theme.ts              Pure code tokenizer + editor-theme palettes (what CodeText renders)
   start.ts                   Pure /start rules: which state, which mission, which storage copy
-  mission-storage.ts         CANONICAL per-mission localStorage keys + clearVerdict()
+  mission-storage.ts         CANONICAL per-mission localStorage keys (all eight) + clearVerdict()
+                             + clearInvestigationOnward() + clearMissionWorkingState()
   verification-runtime.ts    The replay that actually executes: workload, probe, measurement (§17)
   verification-offload.ts    The browser's Worker offloader for that replay
   server/replay.ts           server-only: which fix moves the work off the thread
@@ -324,10 +343,12 @@ scripts/
 tests/                       Vitest — pure domain logic + end-to-end mission flows
   grading  progress  availability  verification  skills  achievements  dashboard  start
   leaderboards  mission-validation  settings  mission-flow
-  bundle-secrecy  ledger-derivation  claim
+  bundle-secrecy  ledger-derivation  claim  stale-verdict
+  investigation-restore-and-replay   which localStorage slots each reset clears and keeps
   stubs/server-only.ts       Aliased by vitest.config.ts so server modules import in Node
 
-e2e/                         Playwright — mission-flow.spec.ts + onboarding.spec.ts (signed out),
+e2e/                         Playwright — mission-flow.spec.ts + onboarding.spec.ts +
+                             investigation-state.spec.ts (signed out),
                              authenticated.spec.ts (session-backed, §15.5)
   support/                   session.ts (mint a session), fixtures.ts (player
                              lifecycle), mission.ts (play a mission well or badly)
@@ -523,6 +544,38 @@ selection to the collected-evidence rail. A key-clue counter gates progression:
 threshold now also gates the diagnosis *route*, not just the button (§15.3).
 State: `{ activeTool, collectedEvidenceIds[] }`.
 
+**Selectability must not leak the answer (2026-07-28).** "Rows that carry an `evidenceId` are
+selectable" is a rendering rule, but it was also a *disclosure*: only the findings the author
+considered decisive carried one, so the plus buttons named the answer before the player had read a
+single row. Two things changed, and neither moved any answer data into the client:
+
+- **The content was audited across all 14 missions and every tool.** Every log line, metric card,
+  database stat, code line and trace span that a reasonable engineer would note during the incident
+  now has a stable evidence id — healthy subsystems, plausible alternate failures, ruled-out causes,
+  duplicate rows whose siblings were already selectable, and ordinary observations alike. What
+  stayed unselectable is genuinely structural: blank lines, function signatures, closing braces,
+  request-start markers and one methodology stat. Non-key evidence roughly doubled, from 2–4 items
+  per mission to 6–9. **`requiredKeyClues` and the grading weights are untouched**, and selecting an
+  irrelevant finding is still allowed and still costs evidence precision (§14.2).
+- **The `Key` badge was deleted from `EvidenceCard`.** It stamped `isKeyEvidence` on collected
+  findings, which told the player whether a row mattered after one click and before any reasoning.
+  Every card now renders identically; the only thing that varies is which tool it came from.
+
+`isKeyEvidence` itself stays in the public config because the clue gate counts it — moving that gate
+server-side would make it an answer oracle. It is no longer rendered anywhere, and the validator now
+fails any *other* field on public evidence (§15.2).
+
+**Restored progress is now explained (2026-07-28).** Reopening a mission with saved work restored
+the collected evidence silently, so the player saw green borders and "Collected" tags they had not
+produced in this visit. `RestoredProgressNotice` states it — *"Investigation progress restored — N
+evidence items already collected"*, with the real filtered count — as a `role="status"` strip above
+the workspace. It appears only when state came back from a previous visit, and disappears the moment
+the player collects anything now, since there is then nothing left to explain. Its secondary action
+opens `RestartInvestigationDialog` (`role="alertdialog"`, Escape closes, focus on Cancel), which
+spells out that collected evidence and all later choices go and that **earned server progress and
+previous attempts do not**. Confirming calls `clearInvestigationOnward()`; `…:run` is deliberately
+kept, because re-reading the logs is part of the mission rather than a second attempt.
+
 ### Stage 3 — Diagnosis `/missions/[id]/diagnosis`
 Single-select root cause + multi-select supporting evidence + a collapsible hint.
 `canConfirm = rootCauseId != null && evidenceIds.length >= minimumEvidenceRequired` (2 on
@@ -599,6 +652,16 @@ impact panel is relabelled "Impact you missed" rather than crediting improvement
 happened. The Next Mission link resolves through `canStart` / `nextMissionId` against the player's
 own progress.
 State: `{ claimed, score }`.
+
+**"Run It Again" now actually resets (2026-07-28).** It was a `<Link>` to the briefing, so the second
+attempt opened on the first one's state: the investigation restored its selections, the diagnosis was
+still confirmed, the fix was still applied, and the run clock had been ticking since the first
+attempt — meaning the replay's elapsed time and hint count were inherited rather than earned. It is
+now a button that calls `clearMissionWorkingState(missionId)` before routing, sweeping **all eight**
+of this mission's local slots — `investigation`, `diagnosis`, `fix`, `verification`, `results`,
+`grade`, `credit` and `run`. Unlike the investigation's Restart action it *does* clear `…:run`,
+because a replay is a fresh attempt and must be timed from zero. The `mission_runs` rows in Postgres
+are untouched, which is the point: a replay adds an attempt, it does not erase one.
 
 ### Missing-content behaviour
 Investigation / diagnosis / fix / verification / results routes for missions with no config render a
@@ -1535,9 +1598,24 @@ This was only ever about what the browser may re-display. Run telemetry (`…:ru
 the clock spans the whole mission, and changing a fix is part of the mission, not a restart.
 
 `lib/mission-storage.ts` is now the canonical home for every per-mission key; `lib/fix.ts`,
-`lib/verification.ts`, `lib/results.ts` and `lib/diagnosis.ts` re-export theirs from it. It is
-deliberately import-free, so the Fix route can invalidate the verification and results caches
-without pulling every mission's authored content into its bundle.
+`lib/verification.ts`, `lib/results.ts`, `lib/diagnosis.ts` and — since 2026-07-28 — `lib/run.ts` and
+`lib/investigation.ts` re-export theirs from it. It is deliberately import-free, so the Fix route can
+invalidate the verification and results caches without pulling every mission's authored content into
+its bundle.
+
+Those last two mattered: `runStorageKey()` and `investigationStorageKey()` used to rebuild the
+`coderaid:{id}:{slot}` string themselves, so the module that exists to name every slot in one place
+did not in fact know about two of them. With all eight registered, the three sweeps below are
+exhaustive **by construction** rather than by an author remembering to extend a list:
+
+| Function | Clears | Keeps | Called by |
+| --- | --- | --- | --- |
+| `clearVerdict` | `grade`, `credit`, `verification`, `results` | the player's answers, `run` | Fix and Diagnosis, on a changed answer |
+| `clearInvestigationOnward` | the above **+** `investigation`, `diagnosis`, `fix` | `run` — the clock spans the mission | the investigation's Restart action |
+| `clearMissionWorkingState` | **all eight**, including `run` | nothing local; every `mission_runs` row | "Run It Again" on the results screen |
+
+A test asserts that a fully played mission writes no `coderaid:{id}:` key outside that set, so a
+stage that invents a new slot fails rather than quietly surviving all three sweeps.
 
 Covered by `tests/stale-verdict.test.ts` (22 tests) and a Playwright regression that plays
 `event-loop-overload`, submits `Promise.resolve()`, switches to the worker-thread fix and asserts
@@ -1907,6 +1985,7 @@ half-authored mission is how a dead-end CTA happens.
 | Catalogue | Unique mission ids (and a warning on duplicate indexes); chapter ids exist; XP and duration are positive integers; difficulty is known; title/description/objectives/reward label non-empty; `rewardSkillId` is a canonical skill; skill definitions only reference real missions; future-track missions carry a future status and no reward skill; Node.js missions avoid future-only categories, are never `coming-soon`, and always carry a `rewardSkillId` |
 | Stage completeness | All five configs present ⇒ playable; any subset ⇒ a warning naming the missing stages; a fully authored Node.js mission whose status still hides it is an **error** |
 | Investigation | Unique evidence ids; every `evidenceId` referenced from logs, metrics, code, database or trace resolves; key evidence exists; `requiredKeyClues > 0` and ≤ the key evidence authored; every enabled tool has content; no duplicate tools; the trace tool and trace content imply each other; non-empty non-negative latency series with an in-range deploy marker; positive trace root; non-empty objective |
+| Investigation → **selectability** | **≥2 selectable findings that are not key evidence**; **the selectable set may not be exactly the key set** (that is a complete answer key); **no public evidence field outside `{ id, source, title, description, isKeyEvidence }`**, and none matching `/correct\|answer\|recommend\|distract\|decoy\|wrong\|red.?herring/i`; an enabled tool that renders content but exposes nothing selectable is a **warning**, not an error — a panel can legitimately be all context, and forcing an evidence id onto a caption would be worse |
 | Diagnosis | Unique root-cause and evidence ids; **`answers.rootCauseId` is one of the offered root causes**; ≥2 options; every id in `answers.evidenceIds` exists and appears once; `minimumEvidenceRequired` positive and ≤ options; **the correct evidence set is large enough to satisfy the minimum** (else a perfect score is unreachable); non-empty hint and prompt; a mission with no authored answers is flagged — it can be played but not graded |
 | Fix | Unique option ids; **`answers.fixId` is one of the offered fixes**; non-empty title, description, explanation and code example per option |
 | Verification | Unique metric and check ids; before/after/label/delta present; **at least one check depends on the fix**; success and unresolved logs both present; both summaries complete; chart series non-empty, equal-length, non-negative, positive `yMax`, `fixFraction` in 0–1; both request breakdowns non-empty with non-negative durations and a positive total (a warning if the spans exceed it) |

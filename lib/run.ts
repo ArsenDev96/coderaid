@@ -9,6 +9,7 @@
  * One run per mission, reset when the player restarts the mission.
  */
 
+import { runStorageKey } from "./mission-storage";
 import { MISSION_FLOW, type MissionStage } from "./missions";
 
 export type RunTelemetry = {
@@ -31,9 +32,9 @@ export function emptyRun(now: number = Date.now()): RunTelemetry {
   };
 }
 
-export function runStorageKey(missionId: string): string {
-  return `coderaid:${missionId}:run`;
-}
+/* Re-exported rather than rebuilt: `lib/mission-storage.ts` names every
+   per-mission slot in one place so a sweep can't miss one. */
+export { runStorageKey };
 
 function safeStorage(): Storage | null {
   if (typeof window === "undefined") return null;

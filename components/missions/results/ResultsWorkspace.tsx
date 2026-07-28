@@ -2,11 +2,13 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { ArrowLeft, ArrowRight, Sparkles, Zap } from "lucide-react";
 import { useProgress } from "@/components/progress/ProgressProvider";
 import { canStart, nextMissionId } from "@/lib/availability";
 import { loadCredit, loadGrade } from "@/lib/grade-submission";
 import { type MissionGrade } from "@/lib/grading";
+import { clearMissionWorkingState } from "@/lib/mission-storage";
 import { MISSION_FLOW, getMission, type Mission } from "@/lib/missions";
 import { skillLevelFromXp } from "@/lib/progress";
 import { loadResultsState, narrativeFor, saveResultsState, type MissionResultConfig } from "@/lib/results";
@@ -47,6 +49,7 @@ export function ResultsWorkspace({
   config: MissionResultConfig;
 }) {
   const { ledger, view, hydrated } = useProgress();
+  const router = useRouter();
   const [grade, setGrade] = useState<MissionGrade | null>(null);
   const [gains, setGains] = useState<SkillGain[]>([]);
   const [xpAdded, setXpAdded] = useState(0);
@@ -229,14 +232,22 @@ export function ResultsWorkspace({
             <ArrowLeft className="h-4 w-4" />
             Back to Missions
           </Link>
-          {/* An unresolved incident is worth another attempt before moving on. */}
+          {/* An unresolved incident is worth another attempt before moving on.
+              A button rather than a link because replaying has to *clear* this
+              mission's local state before the briefing loads — otherwise the
+              second attempt reopens on the first one's evidence, diagnosis and
+              clock, which is not a replay. */}
           {!grade.resolved && (
-            <Link
-              href={`/missions/${mission.id}/briefing`}
+            <button
+              type="button"
+              onClick={() => {
+                clearMissionWorkingState(mission.id);
+                router.push(`/missions/${mission.id}/briefing`);
+              }}
               className="inline-flex items-center justify-center gap-2 rounded-xl border border-amber-400/40 bg-amber-500/10 px-8 py-3.5 text-sm font-semibold text-amber-200 transition-colors hover:border-amber-400/60"
             >
               Run It Again
-            </Link>
+            </button>
           )}
           <Link
             href={nextHref}

@@ -64,6 +64,16 @@ function fixture(): ValidationInput {
             description: "…",
             isKeyEvidence: false,
           },
+          // A second selectable non-key finding. Without it the fixture would
+          // trip the selectability rule: one plus button on the only correct
+          // row is the leak that rule exists to catch.
+          {
+            id: "context",
+            source: "code",
+            title: "Context",
+            description: "…",
+            isKeyEvidence: false,
+          },
         ],
         logs: {
           service: "svc",
@@ -91,8 +101,17 @@ function fixture(): ValidationInput {
             deployLabel: "Deploy",
           },
         },
-        code: { file: "a.ts", language: "TypeScript", lines: [{ n: 1, text: "…" }] },
-        database: { caption: "…", stats: [{ id: "d1", label: "Query", value: "1ms" }] },
+        code: {
+          file: "a.ts",
+          language: "TypeScript",
+          lines: [{ n: 1, text: "…", evidenceId: "context" }],
+        },
+        database: {
+          caption: "…",
+          stats: [
+            { id: "d1", label: "Query", value: "1ms", evidenceId: "context" },
+          ],
+        },
       },
     },
     diagnoses: {
@@ -326,6 +345,93 @@ describe("investigation rules", () => {
       (i) => (i.investigations.fixture.metrics.latency.series = []),
     );
     expect(matching(messages, "no data points").length).toBe(1);
+  });
+});
+
+/* ---------------------- Selectability must not leak --------------------- */
+
+/**
+ * The rule these cover: a row is selectable exactly when it carries an
+ * `evidenceId`, so the set of selectable rows is visible to the player before
+ * they have reasoned about any of them. If that set is the answer, the UI has
+ * answered the question.
+ */
+describe("investigation selectability", () => {
+  it("rejects a mission where only key evidence is selectable", () => {
+    const messages = errorsAfter((i) => {
+      const inv = i.investigations.fixture;
+      // Strip every non-key reference: only the key metric stays selectable.
+      inv.logs.lines[0].evidenceId = undefined;
+      inv.code.lines[0].evidenceId = undefined;
+      inv.database.stats[0].evidenceId = undefined;
+    });
+    expect(matching(messages, "selectable finding(s) are not key evidence")).toHaveLength(1);
+    expect(matching(messages, "complete answer key")).toHaveLength(1);
+  });
+
+  it("rejects a mission with only one selectable non-key finding", () => {
+    const messages = errorsAfter((i) => {
+      const inv = i.investigations.fixture;
+      inv.code.lines[0].evidenceId = undefined;
+      inv.database.stats[0].evidenceId = undefined;
+    });
+    // The key metric is still selectable, so this is not a complete answer key
+    // — but one lone distractor is not enough cover either.
+    expect(matching(messages, "selectable finding(s) are not key evidence")).toHaveLength(1);
+    expect(matching(messages, "complete answer key")).toHaveLength(0);
+  });
+
+  it("rejects a correctness label on public evidence", () => {
+    for (const field of ["isCorrect", "recommended", "isDistractor"]) {
+      const messages = errorsAfter((i) => {
+        (i.investigations.fixture.evidence[0] as unknown as Record<string, unknown>)[
+          field
+        ] = true;
+      });
+      expect(matching(messages, `carries the unknown public field "${field}"`)).toHaveLength(1);
+    }
+  });
+
+  it("keeps isKeyEvidence, which the clue gate counts", () => {
+    const report = validateMissions(fixture());
+    expect(matching(report.errors.map((e) => e.message), "isKeyEvidence")).toEqual([]);
+  });
+
+  it("warns about an enabled tool with nothing selectable", () => {
+    const input = fixture();
+    input.investigations.fixture.database.stats[0].evidenceId = undefined;
+    const report = validateMissions(input);
+    expect(
+      report.warnings.filter((w) =>
+        w.message.includes('Tool "database" renders content but has nothing selectable'),
+      ),
+    ).toHaveLength(1);
+  });
+
+  it("ignores tools the mission does not enable", () => {
+    const input = fixture();
+    // trace content is absent and the tool is off, so it cannot leak anything.
+    const report = validateMissions(input);
+    expect(
+      report.issues.filter((i) => i.message.includes('Tool "trace"')),
+    ).toEqual([]);
+  });
+});
+
+/* ------------------------- The live content passes ---------------------- */
+
+describe("every playable mission's selectable evidence", () => {
+  const report = validateMissions();
+
+  it("raises no selectability findings at all", () => {
+    const relevant = report.issues.filter(
+      (i) =>
+        i.message.includes("not key evidence") ||
+        i.message.includes("complete answer key") ||
+        i.message.includes("nothing selectable") ||
+        i.message.includes("correctness label"),
+    );
+    expect(relevant.map((i) => `${i.missionId}: ${i.message}`)).toEqual([]);
   });
 });
 

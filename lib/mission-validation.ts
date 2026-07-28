@@ -277,6 +277,27 @@ function validateCatalogue(missions: Mission[]): ValidationIssue[] {
 
 /* --------------------------- Investigation rules ------------------------ */
 
+/**
+ * The only fields an `EvidenceItem` may carry.
+ *
+ * `isKeyEvidence` is on the list because the clue gate counts it, but nothing
+ * else may join it: a field like `isCorrect`, `recommended` or `distractor`
+ * would put the answer in a module the browser downloads, and — worse — invite
+ * a panel to render it. The correctness of a finding lives in
+ * `lib/server/answers.ts` and nowhere else.
+ */
+const PUBLIC_EVIDENCE_FIELDS = new Set([
+  "id",
+  "source",
+  "title",
+  "description",
+  "isKeyEvidence",
+]);
+
+/** Field names that would be a correctness label under any spelling. */
+const CORRECTNESS_FIELD_PATTERN =
+  /correct|answer|recommend|distract|decoy|wrong|red.?herring|supports?RootCause/i;
+
 function validateInvestigation(c: Collector, inv: Investigation): void {
   const stage = "investigation" as const;
   const ids = inv.evidence.map((e) => e.id);
@@ -375,6 +396,103 @@ function validateInvestigation(c: Collector, inv: Investigation): void {
   if (blank(inv.objective)) c.error(stage, "Investigation objective is empty.");
   if (inv.summary.findings.length === 0) {
     c.warn(stage, "Investigation summary has no findings.");
+  }
+
+  validateSelectabilityLeak(c, inv, populated);
+}
+
+/**
+ * **The rule that stops the UI from answering the question.**
+ *
+ * An investigation panel makes a row selectable when — and only when — it
+ * carries an `evidenceId`. That is a rendering decision, but it is also a
+ * *disclosure*: whatever is selectable is what the mission author thought was
+ * worth noticing. When only the key findings carried an id, the workspace told
+ * the player which rows mattered before they had read a single one of them, and
+ * collecting evidence degenerated into clicking whatever had a plus button.
+ *
+ * So the invariant is not "everything is selectable" — a blank line and a
+ * closing brace are not findings, and making them selectable would be noise
+ * rather than fairness. It is that **selectability must not correlate with
+ * correctness**: the selectable set has to contain enough plausible-but-wrong,
+ * healthy-subsystem and eliminating observations that being selectable tells
+ * the player nothing.
+ *
+ * These checks bound that from below. They cannot prove an author included
+ * every reasonable finding, but they do fail the shape the bug actually had.
+ */
+function validateSelectabilityLeak(
+  c: Collector,
+  inv: Investigation,
+  populated: Record<InvestigationToolId, boolean>,
+): void {
+  const stage = "investigation" as const;
+
+  /* No public evidence field may carry a correctness label. */
+  for (const item of inv.evidence) {
+    for (const field of Object.keys(item as unknown as Record<string, unknown>)) {
+      if (!PUBLIC_EVIDENCE_FIELDS.has(field)) {
+        c.error(
+          stage,
+          `Evidence "${item.id}" carries the unknown public field "${field}". Investigation content ships to the browser — anything describing whether a finding is correct belongs in lib/server/answers.ts.`,
+        );
+      }
+      if (CORRECTNESS_FIELD_PATTERN.test(field)) {
+        c.error(
+          stage,
+          `Evidence "${item.id}" carries "${field}", which reads as a correctness label on client-visible content.`,
+        );
+      }
+    }
+  }
+
+  /* What each enabled tool actually makes selectable. */
+  const selectableByTool: Record<InvestigationToolId, string[]> = {
+    logs: inv.logs.lines.flatMap((l) => (l.evidenceId ? [l.evidenceId] : [])),
+    metrics: inv.metrics.cards.flatMap((m) => (m.evidenceId ? [m.evidenceId] : [])),
+    code: inv.code.lines.flatMap((l) => (l.evidenceId ? [l.evidenceId] : [])),
+    database: inv.database.stats.flatMap((s) => (s.evidenceId ? [s.evidenceId] : [])),
+    trace: inv.trace?.spans.flatMap((s) => (s.evidenceId ? [s.evidenceId] : [])) ?? [],
+  };
+
+  // Only enabled tools render, so only they can leak anything.
+  const selectable = new Set(
+    inv.tools.flatMap((tool) => selectableByTool[tool]),
+  );
+  const keyIds = new Set(
+    inv.evidence.filter((e) => e.isKeyEvidence).map((e) => e.id),
+  );
+  const selectableNonKey = [...selectable].filter((id) => !keyIds.has(id));
+
+  c.check(
+    stage,
+    selectableNonKey.length >= 2,
+    `Only ${selectableNonKey.length} selectable finding(s) are not key evidence. A player can then read the answer off which rows have a plus button — author at least two negative, distracting or otherwise non-decisive observations that are selectable too.`,
+  );
+
+  // Stated separately from the count because it is the property that matters:
+  // the two sets coinciding is exactly the bug, whatever their size.
+  const selectableKey = [...selectable].filter((id) => keyIds.has(id));
+  c.check(
+    stage,
+    !(
+      selectable.size > 0 &&
+      selectableKey.length === selectable.size &&
+      keyIds.size > 0
+    ),
+    "Every selectable finding is key evidence, so selectability is a complete answer key.",
+  );
+
+  /* A tool that renders content but offers nothing to collect. Warned rather
+     than failed: a panel can legitimately be all context — a query callout, a
+     caption, a chart — and forcing an evidence id onto it would be worse. */
+  for (const tool of inv.tools) {
+    if (populated[tool] && selectableByTool[tool].length === 0) {
+      c.warn(
+        stage,
+        `Tool "${tool}" renders content but has nothing selectable. If any of it is a finding a reasonable engineer would note, give it an evidence id.`,
+      );
+    }
   }
 }
 
