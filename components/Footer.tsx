@@ -1,4 +1,3 @@
-import { Github, MessageCircle, Twitter } from "lucide-react";
 import { Logo } from "./ui/Logo";
 
 const PRODUCT_LINKS = [
@@ -10,16 +9,16 @@ const PRODUCT_LINKS = [
   { label: "Leaderboards", href: "/leaderboards" },
 ];
 
-const LEGAL_LINKS = [
-  { label: "Privacy Policy", href: "/demo" },
-  { label: "Terms of Service", href: "/demo" },
-];
-
-const SOCIALS = [
-  { label: "GitHub", href: "/demo", icon: Github },
-  { label: "Twitter", href: "/demo", icon: Twitter },
-  { label: "Discord", href: "/demo", icon: MessageCircle },
-];
+/*
+ * The legal and social links are gone rather than repointed.
+ *
+ * All five — Privacy Policy, Terms of Service, GitHub, Twitter, Discord —
+ * pointed at `/demo`, a placeholder page reading "Watch the demo". The legal
+ * pair is the one that acquired real weight once accounts and a database
+ * existed: a Terms link that is not terms is worse than no link, because it
+ * implies terms were agreed to. Writing that copy is not a call this codebase
+ * can make, so the links wait for the pages rather than the other way round.
+ */
 
 export function Footer() {
   return (
@@ -39,34 +38,7 @@ export function Footer() {
                 {link.label}
               </a>
             ))}
-            <span aria-hidden className="hidden h-4 w-px bg-white/10 lg:block" />
-            {LEGAL_LINKS.map((link) => (
-              <a
-                key={link.label}
-                href={link.href}
-                className="text-xs text-slate-500 transition-colors hover:text-white"
-              >
-                {link.label}
-              </a>
-            ))}
           </nav>
-
-          {/* Socials */}
-          <div className="flex gap-2">
-            {SOCIALS.map((social) => {
-              const Icon = social.icon;
-              return (
-                <a
-                  key={social.label}
-                  href={social.href}
-                  aria-label={social.label}
-                  className="grid h-8 w-8 place-items-center rounded-lg border border-white/[0.08] bg-white/[0.02] text-slate-400 transition-colors hover:border-white/20 hover:text-white"
-                >
-                  <Icon className="h-3.5 w-3.5" />
-                </a>
-              );
-            })}
-          </div>
         </div>
 
         <p className="mt-8 border-t border-white/[0.06] pt-5 text-center text-xs text-slate-600">

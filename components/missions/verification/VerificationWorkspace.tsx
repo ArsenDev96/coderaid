@@ -5,7 +5,14 @@ import Link from "next/link";
 import { ArrowRight, Info, Loader2, PlayCircle } from "lucide-react";
 import { getDiagnosis, loadDiagnosisState } from "@/lib/diagnosis";
 import { getFix, loadFixState } from "@/lib/fix";
-import { loadGrade, saveCredit, saveGrade, submitRun } from "@/lib/grade-submission";
+import {
+  clearGradedRun,
+  loadGrade,
+  saveCredit,
+  saveGrade,
+  storedAnswers,
+  submitRun,
+} from "@/lib/grade-submission";
 import { today } from "@/lib/progress";
 import { completeStage, emptyRun, loadRun, touchRun } from "@/lib/run";
 import { useProgress } from "@/components/progress/ProgressProvider";
@@ -72,9 +79,19 @@ export function VerificationWorkspace({
 
     // "Done" requires a grade, not just a local flag: without one there is
     // nothing truthful to render, so the player runs verification again.
+    //
+    // `loadGrade` returns one only while it still describes the answers
+    // currently saved, so a player who went back and changed their fix lands
+    // here on the run screen rather than on the previous run's verdict. That
+    // is the whole repair: the report below is resolved from a grade, and a
+    // grade about different answers is not a report about this attempt.
     if (cached && saved?.completed) {
       setFixResolves(cached.resolved);
       setPhase("done");
+    } else {
+      // Nothing renderable is left — drop the superseded verdict rather than
+      // leave bytes behind that another screen might read.
+      clearGradedRun(config.missionId);
     }
 
     setHydrated(true);
@@ -114,6 +131,11 @@ export function VerificationWorkspace({
     const fixConfig = getFix(config.missionId);
     const fixState = fixConfig ? loadFixState(fixConfig) : null;
 
+    // Captured before the round trip: this is what the grade coming back will
+    // be a statement about, and it is stamped onto the cache so a later change
+    // to either answer invalidates the verdict instead of outliving it.
+    const answers = storedAnswers(config.missionId);
+
     const result = await submitRun({
       missionId: config.missionId,
       rootCauseId: diagnosisState?.rootCauseId ?? null,
@@ -152,7 +174,7 @@ export function VerificationWorkspace({
           timer.current = setTimeout(() => resolve(null), 1400);
         });
 
-    saveGrade(config.missionId, result.grade);
+    saveGrade(config.missionId, result.grade, answers);
     // What the run earned, as measured by the server around the insert. The
     // results screen renders it; it cannot work it out for itself, which is
     // the same reason it cannot compute the score.

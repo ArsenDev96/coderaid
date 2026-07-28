@@ -27,7 +27,7 @@ function fixture(): ValidationInput {
     category: "Async JavaScript",
     tags: ["Node.js"],
     description: "A fixture.",
-    objectives: [{ text: "Do the thing", done: false }],
+    objectives: ["Do the thing"],
     rewardSkill: "Event Loop +1",
     rewardSkillId: "event-loop",
   };
@@ -248,6 +248,25 @@ describe("catalogue rules", () => {
     expect(
       matching(errorsAfter((i) => (i.missions[0].minutes = -5)), "duration"),
     ).toHaveLength(1);
+  });
+
+  it("rejects an objective carrying player state", () => {
+    // Objectives were `{ text, done }` and six were authored `done: true`,
+    // which the mission browser rendered as completed ticks to a player who
+    // had never opened the mission. §4.10 forbids exactly that, and this is
+    // the rule that stops the shape returning.
+    const messages = errorsAfter((i) => {
+      (i.missions[0].objectives as unknown[])[0] = {
+        text: "Do the thing",
+        done: true,
+      };
+    });
+    expect(matching(messages, "authored progress").length).toBe(1);
+  });
+
+  it("rejects an empty objective", () => {
+    const messages = errorsAfter((i) => (i.missions[0].objectives = ["  "]));
+    expect(matching(messages, "non-empty strings").length).toBe(1);
   });
 
   it("rejects a reward skill that is not in the taxonomy", () => {

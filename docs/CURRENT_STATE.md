@@ -1,7 +1,7 @@
 # CodeRaid — Current State of the Codebase
 
 > **Purpose of this document.** A complete, self-contained snapshot of what exists in the CodeRaid
-> repository as of 2026-07-21. It is written to be handed to a planning model (ChatGPT) that has
+> repository as of 2026-07-28. It is written to be handed to a planning model (ChatGPT) that has
 > **no access to the code**, so it can plan next steps without re-deriving anything. Everything
 > below is verified against the source, not aspirational.
 >
@@ -116,8 +116,43 @@
 >   no control: the light theme, `defaultLanguage`, `soundEffects`, the three dead leaderboard
 >   scopes, and the promise that "Reset Progress" erases earned XP.
 >
-> The suite is **460 tests across 16 files**. All six gates green: `typecheck`, `lint`, `test`,
-> `validate:missions`, `build`, `playwright`.
+> At the close of that pass the suite was 460 tests across 16 files, with all six gates green.
+>
+> **New in the verification-replay pass (2026-07-22).** `event-loop-overload` stopped describing its
+> incident and started *executing* it: 12,000 rows of real quadratic work, with the main thread's
+> responsiveness genuinely measured in the browser (§17). The mission → offloading-fix mapping moved
+> behind `import "server-only"` after the first draft compiled the fix answer into the client bundle,
+> and `tests/bundle-secrecy.test.ts` gained a fourth assertion to keep it out. The other thirteen
+> missions still run the 1,400ms timer, because their incidents are not honestly reproducible in one
+> browser tab — §17 says which ones could be next and why.
+>
+> **New in the authenticated-spec pass (2026-07-22).** The half of the app behind the sign-in wall —
+> grading, the ledger, the claim, the leaderboard, RLS — is covered by eight committed Playwright
+> specs that mint a real session with the service-role key (§15.5), closing the half of §12 item 2
+> that said the server-authoritative path was verified by hand and by nothing else.
+>
+> **New in the decoration audit (2026-07-22).** A deliberate sweep for anything still ornamental,
+> recorded as §12 items 13–18: one live defect ("Log out" does not end the session) and five pieces
+> of debt. **Documented, not yet fixed.**
+>
+> **New in the trust-defect pass (2026-07-28) — §18.** Two things the app was telling players that
+> were not true. **A cached grade could outlive the answers it described**: changing a wrong fix to
+> the right one and verifying again could redisplay the previous unresolved report — and, because
+> that state renders the report *instead of* the run panel, left no **Run Verification** button to
+> re-run with. Grades now carry a fingerprint of the diagnosis and fix they were computed from and
+> are refused once either changes; separately, `applied` no longer survives a change of fix
+> selection. **And "Log out" now logs out** — it was a `<Link href="/">` that left the session fully
+> intact beside a correct, unused `POST /auth/sign-out` route (§12 item 13, closed).
+>
+> Also in that pass, the **decoration audit was cleared** (§12 items 14–18, §18.3): the Premium card
+> and the footer's five `/demo` links deleted, the dashboard sparkline **derived from each mission's
+> own latency samples** rather than a hardcoded squiggle, and the objective `done` flags removed —
+> which turned out to be a live defect rather than the dead code the audit described, since the
+> mission browser rendered them and six were authored `true`. Item 17, the profile that never
+> reaches the server, is the only one of the six still open, and it is a product decision.
+>
+> The suite is **494 tests across 19 files**, plus **12 Playwright specs**. All six gates green:
+> `typecheck`, `lint`, `test`, `validate:missions`, `build`, `playwright`.
 
 ---
 
@@ -157,8 +192,8 @@ The README (`README.md`) has been rewritten to match this positioning and is no 
 | Fonts | `next/font/google` — Inter (`--font-inter`), JetBrains Mono (`--font-jetbrains`) |
 | Backend | **Supabase** — Postgres + GitHub OAuth. Four route handlers under `app/api/`; no server actions |
 | Auth | `@supabase/ssr` 0.12 + `@supabase/supabase-js` 2 — GitHub OAuth only, cookie sessions |
-| Tests | **Vitest 2** — `tests/`, 17 files, 471 tests, Node environment, `@/*` alias |
-| Browser smoke | **Playwright 1.61** — `e2e/`, 11 Chromium tests against the production build: 2 signed-out, 9 authenticated (§15.5, §17.4) |
+| Tests | **Vitest 2** — `tests/`, 19 files, 494 tests, Node environment, `@/*` alias |
+| Browser smoke | **Playwright 1.61** — `e2e/`, 12 Chromium tests against the production build: 2 signed-out, 10 authenticated (§15.5, §17.4, §18) |
 | Lint | **ESLint 8 + `eslint-config-next`**, committed `.eslintrc.json` extending `next/core-web-vitals` |
 | Content validation | `tsx scripts/validate-missions.ts` over `lib/mission-validation.ts` |
 
@@ -174,16 +209,19 @@ and `SUPABASE_SERVICE_ROLE_KEY`. The service-role key is read only inside `lib/s
 which begins with `import "server-only"`, so no import path can pull it toward the browser bundle.
 It must never be given a `NEXT_PUBLIC_` prefix.
 
-### Verified command results (re-run 2026-07-21, after the Supabase migration)
+### Verified command results (re-run 2026-07-28)
 
 | Command | Result |
 | --- | --- |
 | `npm run typecheck` | **passes clean**, no errors |
 | `npm run lint` | **runs non-interactively** — "No ESLint warnings or errors" |
-| `npm run test` | **460 passed** across 16 files |
+| `npm run test` | **494 passed** across 19 files |
 | `npm run validate:missions` | **0 errors, 0 warnings** — 20 missions checked, 14 fully playable |
 | `npm run build` | **succeeds**, "Compiled successfully" |
-| `npx playwright test` | **2 passed** (Chromium, against the production build) |
+| `npx playwright test` | **12 passed** (Chromium, against the production build) |
+
+All six were re-run on 2026-07-28, after the stale-verification and sign-out fixes (§18), and are
+recorded above as observed.
 
 > **A note on `npm run test` and the build.** `tests/bundle-secrecy.test.ts` greps `.next` for the
 > removed answer fields, and **skips itself when `.next` is absent**. That makes the suite work on a
@@ -406,14 +444,14 @@ for run telemetry rather than keeping a second list that could drift.
 | `AVAILABILITY_META` | const | `Record<Availability, { label, note?, cls, interactive }>` |
 | `IN_DEVELOPMENT_NOTE` / `COMING_SOON_NOTE` | const | Copy for the two "not yet" states |
 | `hasFullContent(missionId)` | fn | **The content derivation.** True only when the id appears in *all five* stage registries (`INVESTIGATABLE_`, `DIAGNOSABLE_`, `FIXABLE_`, `VERIFIABLE_`, `RESULT_MISSION_IDS`). Each is `Object.keys(<stage>Configs)`, so **authoring a mission's stage configs is the single act that makes it startable.** |
-| `PLAYABLE_MISSION_IDS` | const | `NODE_MISSIONS.filter(hasFullContent)` → currently the five Chapter 1 missions plus `user-signup-latency-spike`, in catalogue order |
+| `PLAYABLE_MISSION_IDS` | const | `NODE_MISSIONS.filter(hasFullContent)` → currently all 14 Node.js missions — chapters 1, 2 and 3 — in catalogue order |
 | `missionAvailability(mission, view?)` | fn | future-track chapter → `coming-soon`; authored `coming-soon` / `locked` → as authored; **lacking full content → `in-development`**; **in the ledger → `completed`**; **started but unfinished → `current`**; otherwise `available`. |
 | `canStart(mission, view?)` | fn | Not coming-soon, locked or in-development, **and** `hasFullContent`. |
 | `canReview(mission, view?)` | fn | Completed *and* content exists — which now always holds, since completion can only come from a real run. |
 | `blockedReason(mission, view?)` | fn | Copy for a CTA that must stay disabled, or `null`. The old "Mission review is being prepared." special case is gone with the fake completions. |
 | `recommendedMission(view?)` | fn | The mission to open next: Node.js track, fully playable, preferring one the player has **started**, then one they haven't finished. Can never dead-end. |
 | `nextMissionId(currentId, view?)` | fn | Next mission by index that `canStart` and the player hasn't completed; `undefined` when nothing playable remains. |
-| `playableSummary()` | fn | `{ playable, inDevelopment, total }` over `NODE_MISSIONS` → currently `{ 6, 8, 14 }`. Player-independent, and **derived** — no component hardcodes the count. |
+| `playableSummary()` | fn | `{ playable, inDevelopment, total }` over `NODE_MISSIONS` → currently `{ 14, 0, 14 }`. Player-independent, and **derived** — no component hardcodes the count. |
 | `overallProgress(view?, list?)` | fn | **Moved here from `lib/missions.ts`** and counted from the ledger. `{ done, total, pct }` over `NODE_MISSIONS`. |
 | `chapterProgress(chapterId, view?)` | fn | **Moved here.** Counted from the ledger. |
 | `chapterState(chapterId, view?)` | fn | **Moved here.** `complete` only when the player has finished every mission in it. |
@@ -474,14 +512,15 @@ which stages were finished. This is what the results screen grades against.
 `resolveBriefing(mission)` merges authored briefing fields over derived defaults, so **all 20
 missions have a briefing**. Renders overview, objectives, metadata, skill tags, an illustration, and
 a collapsible "View Mission Details" context list, plus an `AvailabilityBadge`. The CTA becomes a
-disabled, labelled button with an `AvailabilityNote` whenever `canStart` is false — today 18 of 20.
+disabled, labelled button with an `AvailabilityNote` whenever `canStart` is false — today 6 of 20,
+all of them in the future-track chapters 4 and 5.
 "Start Investigation" calls `touchRun()` + `completeStage("Briefing")`: this is where the clock starts.
 
 ### Stage 2 — Investigation `/missions/[id]/investigation`
 Five tools (`logs`, `metrics`, `code`, `database`, `trace`); each mission enables a subset. Rows that
 carry an `evidenceId` are selectable; "Mark as Evidence" batches, de-duplicates, and commits the
 selection to the collected-evidence rail. A key-clue counter gates progression:
-`keyCollected >= min(requiredKeyClues, #keyEvidence)` — 3 on both playable missions — before
+`keyCollected >= min(requiredKeyClues, #keyEvidence)` — 3 on all fourteen playable missions — before
 "Continue to Diagnosis" appears; following it records `completeStage("Investigation")`. The same
 threshold now also gates the diagnosis *route*, not just the button (§15.3).
 State: `{ activeTool, collectedEvidenceIds[] }`.
@@ -489,7 +528,7 @@ State: `{ activeTool, collectedEvidenceIds[] }`.
 ### Stage 3 — Diagnosis `/missions/[id]/diagnosis`
 Single-select root cause + multi-select supporting evidence + a collapsible hint.
 `canConfirm = rootCauseId != null && evidenceIds.length >= minimumEvidenceRequired` (2 on
-`user-signup-latency-spike`, 3 on `event-loop-overload`). The confirm bar names the single missing
+`user-signup-latency-spike`, 3 on the other thirteen). The confirm bar names the single missing
 blocker. Opening the hint calls `recordHint(missionId, "diagnosis")` —
 once, no matter how often it is toggled — and costs 5 points at grading time.
 State: `{ rootCauseId, evidenceIds[], confirmed }`.
@@ -509,6 +548,10 @@ applied decides everything downstream. Reaching the stage at all requires a conf
 this screen can tell the player whether the fix they are looking at is the right one. That was the
 last place the correct answer was visible before committing to it.
 State: `{ fixId, applied }`.
+**Changing the selection is the start of a new attempt** (§18.1): `applied` resets to false, because
+applying is a deliberate act that has not happened yet for the new option, and the cached grade is
+dropped, because it describes the option the player just moved away from. Both used to survive the
+change.
 The "Confirmed Root Cause" card shows **the player's own diagnosis**, read back from the saved
 diagnosis state, falling back to the authored line only when nothing was saved. Choosing a fix for
 a cause you didn't pick would be incoherent.
@@ -544,7 +587,9 @@ before-line, the request breakdown still shows the slow span on the critical pat
 pre-fix logs, and every check with `dependsOnFix !== false` fails. Checks about unrelated subsystems
 stay true either way. Reaching `done` records `completeStage("Verification")`.
 State: `{ run, completed }` — and "done" now requires a cached grade, not just the local flag:
-without one there is nothing truthful to render, so the player runs verification again.
+without one there is nothing truthful to render, so the player runs verification again. **The grade
+must also still describe the answers currently saved** (§18.1): a player who went back and changed
+their fix gets the run screen, not the previous attempt's report.
 
 ### Stage 6 — Results `/missions/[id]/results`
 On mount: `completeStage("Complete")`, then it **reads** the grade the server returned at
@@ -637,9 +682,10 @@ the authored literal in the catalogue.
 Missions 1–5 are chapter 1, 6–10 chapter 2, 11–14 chapter 3, 15–18 chapter 4, 19–20 chapter 5.
 Every mission has 4 objectives, tags, an XP value and a `rewardSkill` string. The authored status is
 a **content** state only; the derived `Availability` column is what the UI renders, and for every
-playable mission it moves Available → In Progress → Completed as *this* player plays them. Objective
-`done` flags remain static literals and are decorative. There are currently **no missions in the
-`locked` state**; the value remains supported by the type and the UI.
+playable mission it moves Available → In Progress → Completed as *this* player plays them.
+**`Objective` is a plain string** — it carried a `done` flag until 2026-07-28, six of which were
+authored `true` and rendered as completed ticks in the mission browser (§12 item 18). There are
+currently **no missions in the `locked` state**; the value remains supported by the type and the UI.
 
 ### Playability, precisely
 
@@ -946,8 +992,9 @@ formula** — `xpForLevel` / `levelFromXp` — so nothing is a free-standing lit
 
 Also in `lib/dashboard.ts`: `SIDEBAR_ITEMS`, `nextActionFor(mission)` / `buildNextAction(view)`
 (derived from `recommendedMission(view)`, with the code preview pulled from that mission's
-investigation config), `RESPONSE_SERIES`, `DAILY_RAID` (copy only — no route, no XP figure, a
-disabled CTA and a note saying so), `PREMIUM`.
+investigation config), `sparklinePoints(series)` (§12 item 16 — the card's chart, scaled from the
+mission's own authored latency samples) and `DAILY_RAID` (copy only — no route, no XP figure, a
+disabled CTA and a note saying so). `RESPONSE_SERIES` and `PREMIUM` were **deleted** on 2026-07-28.
 
 `nextActionFor` deliberately carries **no** progress figures. Step, phase, clues found and time
 left used to be the literals `2`, `"Investigate"`, `2` and `"12 min"`; they now come from
@@ -1137,7 +1184,7 @@ that is exactly why a mission can be played without an account.
 | `coderaid:profile` | onboarding, settings profile | `{ name, avatarId, slogan, pathId, experienceId, step, completed }` |
 | `coderaid:user-settings` | settings experience | `{ codeEditorTheme, showLineNumbers }` — stored values from a previous shape are dropped by the loader |
 | `coderaid:player:progress` | **nothing, any more** | The pre-migration ledger. Read-only: shown to a signed-out player who earned it before accounts existed, and cleared once phase 4 imports it. No code path writes this key. |
-| `coderaid:{missionId}:grade` | verification | The grade **the server returned** — cached so the results screen renders the same verdict without a second round trip or a second run row |
+| `coderaid:{missionId}:grade` | verification | `{ grade, answers }` — the grade **the server returned**, stamped with the diagnosis and fix it describes. Cached so the results screen renders the same verdict without a second round trip or a second run row; the stamp is what stops it describing a *previous* attempt (§18) |
 | `coderaid:{missionId}:credit` | verification | What the run added, as the server measured it: `{ xpAdded, skillXpAdded, firstCompletion }` |
 | `coderaid:{missionId}:run` | every stage | `{ startedAt, lastActiveAt, stagesCompleted: MissionStage[], hintsUsed: string[] }` — the run telemetry the grade is computed from |
 | `coderaid:{missionId}:investigation` | investigation | `{ activeTool, collectedEvidenceIds: string[] }` |
@@ -1193,7 +1240,8 @@ says so rather than promising more than it can do:
   bottom sheets on small screens and slide-overs/centred dialogs above, all closing on Escape; tab
   strips use `role="tablist"` + `aria-selected`.
 - **App shell** — `DashboardShell` = sticky sidebar (Dashboard / Missions / Skills / Leaderboards /
-  Achievements / Settings + a Go-Premium card) plus a sticky top bar with streak / XP / rank pills.
+  Achievements / Settings, with a sign-out form pinned to the bottom) plus a sticky top bar with
+  streak / XP / rank pills.
 - **Responsiveness** — multi-column grids collapse to single columns; the career rail and log/code
   panels scroll horizontally inside their own containers so the page body never scrolls sideways.
 
@@ -1255,18 +1303,15 @@ and next-mission links, derived from which stage configs exist) — plus, new in
   no longer advertises a reward the ledger could never credit.
 - There is no light palette, and no control offers one — CodeRaid is dark, declared once as
   `:root { color-scheme: dark }` in `app/globals.css`.
-- `/demo` is still a placeholder page. `/sign-in` is real — **but the footer's Privacy Policy and
-  Terms of Service links both point at `/demo`**, as do GitHub, Twitter and Discord (§12 item 15).
-- **"Log out" is wired to `href="/"` and does not end the session** (§12 item 13). The working
-  `POST /auth/sign-out` route exists and nothing calls it. Listed here because a reader auditing
-  what is real would otherwise reasonably assume sign-out is.
-- **The sidebar's "Go Premium / Upgrade Now" button has no handler** and sells nothing that exists
-  (§12 item 14).
-- **The dashboard's Next Action sparkline is a hardcoded series** (`RESPONSE_SERIES`), rendered
-  beside a real headline metric and identical for every mission (§12 item 16).
+- `/demo` is still a placeholder page. `/sign-in` is real. The footer's Privacy Policy, Terms of
+  Service, GitHub, Twitter and Discord links all pointed at `/demo` and were **removed** on
+  2026-07-28 (§12 item 15) — the pages are still unwritten, which is why the links are absent rather
+  than repointed.
 - **Profile edits never leave the browser.** Settings and onboarding write `coderaid:profile` in
   `localStorage`; `players.display_name` is only ever written once, by the sign-up trigger, and it
-  is what the leaderboard shows (§12 item 17).
+  is what the leaderboard shows (§12 item 17). **The last item on this list** — sign-out, the
+  Premium card, the fabricated sparkline and the authored objective ticks were all cleared on
+  2026-07-28 (§18).
 
 ---
 
@@ -1398,33 +1443,40 @@ Genuinely outstanding:
 A deliberate sweep for anything still ornamental now that grading, the ledger and the leaderboard
 are real. One of the five is a live defect rather than debt.
 
-13. **"Log out" does not log out — this is a bug, not decoration.**
-    `components/dashboard/DashboardSidebar.tsx` renders it as `<Link href="/">`, which navigates to
-    the landing page and **leaves the session intact**; returning to `/dashboard` is still signed
-    in. A correct route already exists at `app/auth/sign-out/route.ts` — deliberately a `POST`,
-    with a comment explaining that a `GET` would let any page on the internet log the player out
-    with an `<img>` tag — and **nothing calls it**. It was written and never wired up. This was
-    harmless while there was no auth; there is now, so on a shared machine the next person inherits
-    the account. Fixing it means a small form or button that POSTs to the existing route.
+13. ~~**"Log out" does not log out — this is a bug, not decoration.**~~ **Resolved 2026-07-28
+    (§18.2).** `DashboardSidebar` rendered it as `<Link href="/">`, which navigated to the landing
+    page and **left the session intact**; returning to `/dashboard` was still signed in. The
+    correct route had existed at `app/auth/sign-out/route.ts` the whole time — deliberately a
+    `POST`, with a comment explaining that a `GET` would let any page on the internet log the
+    player out with an `<img>` tag — and nothing called it. It is now a form that POSTs to it,
+    covered by a browser spec that asserts `/api/ledger` answers 401 afterwards.
 
-14. **The Premium block advertises a product that does not exist.** The sidebar's "Go Premium /
-    Upgrade Now" (`PREMIUM` in `lib/dashboard.ts`) is a `<button type="button">` with **no
-    handler**. It promises "premium Node.js incidents, exclusive rewards and advanced analytics",
-    none of which exist and none of which can be bought. Same category as the deleted theme toggle,
-    `defaultLanguage`, `soundEffects` and the three fake leaderboard scopes — a control nothing can
-    honour — and it is the most prominent element in the sidebar.
+14. ~~**The Premium block advertises a product that does not exist.**~~ **Resolved 2026-07-28.**
+    The sidebar's "Go Premium / Upgrade Now" (`PREMIUM` in `lib/dashboard.ts`) was a
+    `<button type="button">` with **no handler**, promising "premium Node.js incidents, exclusive
+    rewards and advanced analytics" — none of which exist and none of which can be bought. Deleted,
+    on the same reasoning as the theme toggle, `defaultLanguage`, `soundEffects` and the three fake
+    leaderboard scopes (§4.11). The `mt-auto` it carried moved to the sign-out form, which is what
+    holds the sidebar's last item against the bottom.
 
-15. **The footer's legal links are not legal links.** `components/Footer.tsx` points **Privacy
-    Policy** and **Terms of Service** at `/demo`, a `PlaceholderPage` reading "Watch the demo".
-    GitHub, Twitter and Discord point there too. Unlike everything else on this list this one
-    acquires real weight now that accounts and a database exist: a Terms link that is not terms is
-    worse than no link.
+15. ~~**The footer's legal links are not legal links.**~~ **Resolved 2026-07-28 — by removal.**
+    `components/Footer.tsx` pointed **Privacy Policy** and **Terms of Service** at `/demo`, a
+    `PlaceholderPage` reading "Watch the demo"; GitHub, Twitter and Discord too. All five links are
+    gone rather than repointed. The legal pair is the one that acquired real weight once accounts
+    and a database existed — a Terms link that is not terms is worse than no link, because it
+    implies terms were agreed to. **Writing the actual pages is still open** and is a product/legal
+    decision, not a code one; the links should return with the pages, not before them.
 
-16. **The dashboard sparkline is a hardcoded squiggle.** `RESPONSE_SERIES` in `lib/dashboard.ts` is
-    21 authored points described in its own comment as a "noisy, elevated latency series". It
-    renders on the Next Action card next to a **real** headline metric, so a fabricated chart sits
-    beside a derived number, and it is identical for every mission regardless of which incident the
-    card is showing. It is `aria-hidden`, so the cost is honesty rather than accessibility.
+16. ~~**The dashboard sparkline is a hardcoded squiggle.**~~ **Resolved 2026-07-28 — by deriving
+    it.** `RESPONSE_SERIES` was 21 authored points described in its own comment as a "noisy,
+    elevated latency series", rendered on the Next Action card beside a **real** headline metric and
+    identical for every mission whatever incident the card was showing. It is replaced by
+    `sparklinePoints(series)`, a pure scaler fed from the mission's **own authored investigation
+    chart** (`metrics.latency.series`), so the shape on the dashboard is the shape the player is
+    about to investigate — flat then spiking for `event-loop-overload`, a steady climb for a leak.
+    `null` when a mission has fewer than two samples, and the card then renders no chart rather than
+    a straight line implying a measurement. `tests/dashboard.test.ts` pins the scaling and asserts
+    that different missions produce different shapes.
 
 17. **The profile never reaches the server.** `players` carries `display_name`, `avatar_id`,
     `slogan`, `path_id`, `experience_id` and `onboarding_completed`, and `0001_init.sql` grants
@@ -1435,11 +1487,17 @@ are real. One of the five is a live defect rather than debt.
     leaves everyone else seeing the old one. This is a feature gap rather than clutter: the schema
     and the RLS grant were built for it and the client was never connected.
 
-18. **80 dead `done` flags in the catalogue.** Every mission's objectives carry `done: true|false`.
-    `MissionObjectives` takes `steps: string[]` and never reads them, so nothing renders — but they
-    are 80 authored assertions about a player's progress, which is the exact class of thing the
-    "nothing about a player may be authored" principle (§4.10) exists to forbid. Harmless until
-    someone renders them.
+18. ~~**80 dead `done` flags in the catalogue.**~~ **Resolved 2026-07-28 — and they were not dead.**
+    The audit said `MissionObjectives` takes `steps: string[]` and never reads them, so nothing
+    rendered. That was true of the *briefing*, and wrong about the app: `MissionBrowser` rendered
+    them in the mission detail panel, drawing a violet `Check` for `done: true` and a grey `Circle`
+    otherwise. **Six were authored `true`** — across `user-signup-latency-spike`,
+    `jwt-session-expiry`, `health-check-flapping`, `graceful-shutdown-bug` and `rate-limiter-race` —
+    so a player who had never opened those missions was shown objectives already ticked on their
+    behalf. A live §4.10 violation, not latent debt. `Objective` is now just `string`, all 80 flags
+    are gone, the browser renders plain markers (nothing tracks per-objective progress, so there is
+    no honest tick to draw), and `validate:missions` fails an objective that is not a non-empty
+    string — which is where authored player-state is already caught.
 
     **Deliberately not on this list:** `DAILY_RAID`. It carries no XP figure and no route and says
     outright that daily challenges "aren't playable yet" — it advertises an idea and admits it,
@@ -1630,7 +1688,7 @@ the claim and the leaderboard are all behind authentication, so none of them is 
 They were verified against the live database by hand (§16.6). Closing that gap — §12 item 2 — is
 what would make this section's claim true again rather than mostly true.
 
-### 15.1 The test suite — `tests/`, Vitest, 471 tests across 17 files
+### 15.1 The test suite — `tests/`, Vitest, 494 tests across 19 files
 
 Node environment, no DOM, no component testing library. `vitest.config.ts` re-declares the `@/*`
 alias so tests import modules exactly the way the app does, **and aliases `server-only` to
@@ -1656,11 +1714,13 @@ item 2.
 | `claim.test.ts` | **New.** A genuine run kept with rewards re-derived; a submitted XP figure ignored entirely; scores clamped; unknown, coming-soon and prototype-polluting mission ids dropped; good rows kept when one is unusable; duration and hints bounded; `parseClaimDate` keeping real past dates but refusing the future and anything older than the app |
 | `bundle-secrecy.test.ts` | **New.** Greps the real `.next` output for the four removed answer field names, and for any serialised `rootCauseId:"…"` / `fixId:"…"` pairing. Deliberately does **not** grep for bare answer ids — those are radio-button values and are legitimately in the bundle; the secret is which id is correct. Skips itself when `.next` is absent (see the warning in §2) |
 | `settings.test.ts` | Option defaults valid, **the stored key set pinned so a preference nothing reads can't return**, the code tokenizer (lossless round-trip, keyword/string/comment/number classification, no keyword-inside-identifier) and the editor palettes (one per offered theme, unknown id falling back, no colour reused within a palette), reset protecting identity/preferences and sweeping unknown stage keys, plus every stage-prerequisite rule |
-| `mission-validation.test.ts` | The live catalogue has zero errors and agrees with `availability` about playability; a valid fixture passes; **37 invalid-fixture cases** (8 catalogue, 7 investigation, 5 diagnosis, 5 fix, 6 verification, 6 results) each breaking exactly one rule, so a failure names the rule it broke |
+| `mission-validation.test.ts` | The live catalogue has zero errors and agrees with `availability` about playability; a valid fixture passes; **39 invalid-fixture cases** (10 catalogue, 7 investigation, 5 diagnosis, 5 fix, 6 verification, 6 results) each breaking exactly one rule, so a failure names the rule it broke — including an objective carrying player state, and an empty one |
+| `dashboard.test.ts` | **New.** `sparklinePoints` — nothing drawn below two samples, the series spanning the full width oldest→newest, the peak at the top and trough at the bottom, every point inside the box, a flat series down the middle rather than pinned to an edge, and a monotonic climb rendering as one — plus that every playable mission's Next Action card carries **its own** latency samples and that different missions produce different shapes (§12 item 16) |
 | `mission-flow.test.ts` | **The four flows, end to end through the real modules**, walked in detail for the reference mission — see below |
 | `mission-flows-all.test.ts` | The same four flows plus a content contract, run against **every** playable mission via `describe.each(PLAYABLE_MISSION_IDS)` — see below |
 | `chapter-three.test.ts` | Chapter 3 and the close of the MVP: the four missions are authored and available, the chapter reaches `complete` only when all four are, the Chapter 2 → Chapter 3 walk and the stop after `slow-api-incident`, `playableSummary()` deriving 14/0/14, the validator reporting zero warnings, `n-plus-one-carnage` staying non-playable — plus one content-correctness block per incident: a forced `global.gc()` and a bigger heap must not resolve a retained-reference leak, more workers must not resolve a queue backlog, a bigger pool must not resolve a connection leak, and an unrestricted `Promise.all()` must not resolve an N+1. Ends with a documented progression-and-achievement attainability audit |
 | `chapter-two.test.ts` | Chapter 2 specifically: the five missions are authored and available, the chapter reaches `complete` only when all five are, the Chapter 1 → Chapter 2 walk and the stop at the content cliff, no Chapter 3 mission recommended while Chapter 2 is unfinished, all three onboarding suggestions playable without fallback, and one content-correctness block per mission — the JWT single-flight requirement and the fixes that must *not* resolve, the liveness/readiness split, the ordering of the shutdown drain sequence asserted against the code example, and the atomic rate-limit requirement including the in-memory mutex being insufficient |
+| `stale-grade.test.ts` | **New.** That a cached grade never outlives the answers it describes: the fingerprint normalising evidence order and reading an absent state as empty; the cache refused after the fix changes, after the diagnosis changes, when written before grades carried their answers, and when truncated — and returned again if the player reverts to exactly the answers it was computed from; `clearGradedRun` taking the credit with it; and the reported reproduction, wrong fix → graded → correct fix, ending with nothing for the verification or results screen to report rather than the previous verdict (§18) |
 | `helpers/mission-run.ts` | Not a test: the shared harness (`installStorage`, `play`, `collectResults`, `stageProgress`) all three flow suites drive |
 
 `mission-flow.test.ts` is the one worth knowing about. It drives the same functions the stage
@@ -1770,7 +1830,8 @@ silent in opposite directions — one hides a real leak, the other invents one.
 
 **This closes the gap §12 item 2 described.** Grading, the ledger, the claim and the leaderboard
 used to be verified by hand and by nothing else (§16.6); the probes that did it were never
-committed. They are now eight committed Playwright specs that cross the sign-in wall.
+committed. They are now ten committed Playwright specs that cross the sign-in wall — the eight
+below plus the two added with the §18 fixes.
 
 **How a session is minted, since GitHub OAuth cannot be driven by a test.** `e2e/support/session.ts`
 does what the OAuth callback would: creates a user via `POST /auth/v1/admin/users` with the
@@ -1786,7 +1847,7 @@ deleted in teardown even when the test fails, with `on delete cascade` taking th
 and achievements with it. Per-test rather than a shared seeded account is what keeps them parallel
 and stops one test's runs appearing in another's ledger.
 
-What the eight cover, mirroring §16.6 one for one:
+What the original eight cover, mirroring §16.6 one for one:
 
 | Spec | Asserts |
 | --- | --- |
@@ -2055,6 +2116,129 @@ accidentally run anonymously.
 
 ---
 
+## 18. Two trust-critical defects, fixed 2026-07-28
+
+Both were cases of the app telling the player something untrue about their own work — the first
+about their run, the second about their session. Neither was a design question; both were state
+outliving the thing it described.
+
+### 18.1 A grade outliving the answers it was about
+
+**The reproduction.** Play `event-loop-overload`, pick a wrong fix, run verification, and correctly
+get an unresolved report. Go back to the Fix stage, pick
+`move-report-generation-to-worker-thread` — the authored correct fix, the one
+`tests/verification-runtime.test.ts` proves actually keeps the thread responsive — apply it, and
+verify again. The screen showed **the previous run's report**: event-loop lag unchanged, API
+latency unchanged, checks failing, the old verdict. The player did the incident correctly and was
+told they hadn't.
+
+**Two independent causes, both fixed.**
+
+1. **The cached grade was keyed by mission alone.** A mission has exactly one `coderaid:{id}:grade`
+   entry however many times it is replayed, so the entry had no way to say which attempt it
+   belonged to, and `VerificationWorkspace` restored `phase: "done"` from it on mount. Worse than
+   showing the wrong verdict: in that state the screen renders the report *instead of* the run
+   panel, so there was no **Run Verification** button — the player could not re-run from the screen
+   whose entire job is re-running.
+2. **`applied` survived a change of selection.** `FixWorkspace` wrote `{ fixId, applied }` from two
+   independent pieces of state, so picking a different option kept `applied: true` from the
+   previous one. A newly selected fix therefore arrived at verification already marked applied —
+   past `StageGate`, and about to be graded as though the player had applied it.
+
+**The fix.** `lib/grade-submission.ts` gained `GradedAnswers`, a fingerprint of the saved diagnosis
+and fix (`rootCauseId`, sorted `evidenceIds`, `fixId`, `fixApplied`). `saveGrade` stamps it onto the
+cache; `loadGrade` returns the grade **only while it still matches** what is saved now, and null
+otherwise — which every existing caller already handles, because "no grade" is the state a player
+who has not verified is in. So the verification screen offers the run and the results screen says
+the run has not been graded yet, with no new UI for either. Alongside that, `selectFix` resets
+`applied` and calls `clearGradedRun`, and the diagnosis stage clears it too when a cause or an
+evidence item changes.
+
+**Why both, when either would do.** They fail differently. Clearing on change is prompt and covers
+the ordinary path; the fingerprint is the backstop for what clearing cannot see — another tab, a
+hand-edited store, a cache written before grades carried their answers. That last case is treated as
+stale deliberately: there is no way to prove what such an entry describes, and asking for one more
+click costs the player far less than being shown a verdict about a run they have moved on from.
+
+The fingerprint reads the two stage keys **directly** rather than through `loadDiagnosisState` /
+`loadFixState`. Both sides of the comparison have to be produced identically for it to mean
+anything, and going through the loaders would pull two large mission-content modules into every
+route that renders a grade to obtain two key strings.
+
+**Verified by reintroducing the defect.** With the freshness check reverted, four
+`tests/stale-grade.test.ts` cases fail. The browser spec needed **both** halves reverted to go red —
+either one alone prevents the bug, which is the point of having both — and then failed exactly as
+reported: `getByRole("button", { name: "Run Verification" })` not found, because the screen was
+still showing the first attempt's report.
+
+### 18.2 A sign-out that signed nobody out
+
+§12 item 13, now closed. The sidebar's "Log out" was `<Link href="/">`: it navigated to the landing
+page and left the Supabase session completely intact, so returning to `/dashboard` was still signed
+in and on a shared machine the next person inherited the account. `app/auth/sign-out/route.ts` had
+been written correctly — a `POST`, because a `GET` sign-out would let any page on the internet log
+the player out with an `<img>` tag — and never wired to anything.
+
+It is now a `<form action="/auth/sign-out" method="post">`. A plain form rather than a `fetch`
+because the 303 the route returns reloads the document, which is what clears the signed-in ledger
+`ProgressProvider` is holding in memory; it also works with JavaScript disabled.
+
+**Verified by reintroducing the defect**: pointed at `/` with `method="get"` the new spec fails with
+`/api/ledger` answering 200 after "logging out" — the old behaviour, exactly.
+
+### 18.3 Clearing the decoration audit
+
+The rest of §12 items 14–18, in the same pass. Three were deletions, one was a derivation, and one
+turned out to be a live defect the audit had misread.
+
+- **The Premium card** (item 14) is gone from `lib/dashboard.ts` and the sidebar. Its `mt-auto` —
+  what held the sidebar's last item against the bottom — moved to the sign-out form.
+- **The footer's five `/demo` links** (item 15) are gone rather than repointed. Writing privacy and
+  terms copy is a product and legal decision, so the links wait for the pages.
+- **The sparkline** (item 16) is derived instead of deleted. `sparklinePoints(series)` scales the
+  mission's **own** authored `metrics.latency.series` into the card's box, so the dashboard shows
+  the shape of the incident the player is about to open.
+- **The objective `done` flags** (item 18) were **not** dead, which is the finding worth keeping.
+  The audit checked `MissionObjectives` — the briefing component, which genuinely ignores them —
+  and concluded nothing rendered. `MissionBrowser` renders them, as a violet tick or a grey circle,
+  and six were authored `true`. Players were being shown objectives completed on their behalf for
+  five missions they had never opened. `Objective` is now `string`, and `validate:missions` rejects
+  anything else.
+
+The lesson generalises past this item: *"nothing renders it"* is a claim about the whole app, and
+checking one of two consumers is not checking it. The validator rule exists because that is the
+layer that catches authored player-state regardless of which component happens to read it.
+
+---
+
+*Updated 2026-07-28 — **two trust-critical defects fixed** (§18). A cached grade could outlive the
+answers it described, so changing a wrong fix to the correct one and verifying again could show the
+previous run's unresolved report — with no Run Verification button on screen to try again with.
+Grades now carry a fingerprint of the diagnosis and fix behind them and are refused the moment
+either changes, the Fix stage no longer carries `applied` across a change of selection, and both
+halves were confirmed by reintroducing them: four Vitest cases and one browser spec go red without
+the fix, the browser spec failing exactly as reported. And **"Log out" now ends the session** rather
+than navigating away from it, closing §12 item 13 — the correct `POST` route had existed unused
+since it was written. The same pass cleared the **decoration audit** (§12 items 14–18): the Premium
+card and the footer's five `/demo` links deleted, the Next Action sparkline derived from each
+mission's own authored latency series instead of a hardcoded squiggle, and the objective `done`
+flags removed — the audit had called those dead code, but the mission browser rendered them and six
+were authored `true`, so five missions showed players objectives ticked on their behalf.
+`validate:missions` now rejects an objective that is not a plain non-empty string. 494 tests across
+19 files, 12 Playwright specs; all six gates re-run green.*
+
+---
+
+*Re-verified 2026-07-28 (earlier the same day) — no code changed. `typecheck`, `lint`, `test` and `validate:missions` were
+re-run and recorded in §2 as observed (471 tests across 17 files; 20 missions checked, 14 playable,
+0 errors, 0 warnings). Nine stale figures left behind by earlier passes were corrected: the §2
+command table still reported the pre-replay 460/16 and a 2-test Playwright run; the browser-smoke
+row and the §17 footer both counted 11 Playwright specs where there are 10 (2 signed-out + the 8
+§15.5 already listed correctly); and §5 and §6 still described the pre-Chapter-2 world — six
+playable missions, `playableSummary()` at `{ 6, 8, 14 }`, and a briefing CTA disabled on 18 of 20
+missions. The three 2026-07-22 passes had also never reached the preamble, which still read "as of
+2026-07-21"; they are summarised there now.*
+
 *Updated 2026-07-22 — a **decoration audit** (§12 items 13–18), which found one live defect and four
 ornaments: **"Log out" does not end the session** — it is an `href="/"` beside a correct, unused
 `POST /auth/sign-out` route; the sidebar's **"Go Premium" button has no handler** and sells nothing
@@ -2067,7 +2251,7 @@ incident instead of describing it, with 12,000 rows of real quadratic work and t
 responsiveness really measured; the mission→fix mapping moved behind `server-only` after the first
 draft compiled the fix answer into the client bundle, with a new `bundle-secrecy` assertion to keep
 it out; and the authored correct fix versus every distractor is now asserted by execution rather
-than by claim. 471 tests across 17 files, 11 Playwright tests; all six gates green. See §17.
+than by claim. 471 tests across 17 files, 10 Playwright tests; all six gates green. See §17.
 Preceded by the **authenticated CI specs** (§15.5): a service-role-minted session encoded the way
 `@supabase/ssr` reads it, a per-test player fixture with teardown, and eight specs covering grading,
 the ledger, the replay rule, the claim, the leaderboard and RLS — closing the half of §12 item 2

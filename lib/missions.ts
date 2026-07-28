@@ -42,7 +42,16 @@ export type Category =
   | "Databases"
   | "Distributed Systems";
 
-export type Objective = { text: string; done: boolean };
+/**
+ * One objective, as authored text.
+ *
+ * It used to be `{ text, done }`, and six of the eighty carried `done: true` —
+ * authored assertions that a player had already finished something, rendered
+ * as ticks in the mission browser to people who had never opened the mission.
+ * That is exactly what §4.10 forbids, and there is no per-objective progress
+ * model to derive a real tick from, so the flag is gone rather than faked.
+ */
+export type Objective = string;
 
 /**
  * Pre-investigation briefing shown at /missions/[missionId]/briefing.
@@ -161,10 +170,10 @@ export const MISSIONS: Mission[] = [
     description:
       "A new reporting endpoint is doing CPU-heavy work on the main thread, and the whole API has slowed down with it. Find out why unrelated endpoints are affected and keep the process responsive.",
     objectives: [
-      { text: "Reproduce the blocked event loop", done: false },
-      { text: "Identify the synchronous hot path", done: false },
-      { text: "Move the work off the main thread", done: false },
-      { text: "Verify latency returns to normal", done: false },
+      "Reproduce the blocked event loop",
+      "Identify the synchronous hot path",
+      "Move the work off the main thread",
+      "Verify latency returns to normal",
     ],
     rewardSkill: "Event Loop +1",
     rewardSkillId: "event-loop",
@@ -200,10 +209,10 @@ export const MISSIONS: Mission[] = [
     description:
       "A nightly enrichment run keeps nothing because one vendor of 48 returns a 503. Make the batch resilient without losing error visibility.",
     objectives: [
-      { text: "Trace the rejected promise", done: false },
-      { text: "Compare allSettled vs all", done: false },
-      { text: "Add partial-failure handling", done: false },
-      { text: "Confirm the batch survives failures", done: false },
+      "Trace the rejected promise",
+      "Compare allSettled vs all",
+      "Add partial-failure handling",
+      "Confirm the batch survives failures",
     ],
     rewardSkill: "Promises +1",
     rewardSkillId: "promises",
@@ -242,10 +251,10 @@ export const MISSIONS: Mission[] = [
     description:
       "An async callback inside .map() returns promises nobody awaits, so an upload job reports success before any thumbnail exists.",
     objectives: [
-      { text: "Spot the un-awaited promise array", done: false },
-      { text: "Trace why the job exits early", done: false },
-      { text: "Await the batch correctly", done: false },
-      { text: "Verify every item is processed", done: false },
+      "Spot the un-awaited promise array",
+      "Trace why the job exits early",
+      "Await the batch correctly",
+      "Verify every item is processed",
     ],
     rewardSkill: "Async JavaScript +1",
     rewardSkillId: "async-javascript",
@@ -284,10 +293,10 @@ export const MISSIONS: Mission[] = [
     description:
       "A billing sync fires again before the previous run finishes, so the same invoices are being charged twice.",
     objectives: [
-      { text: "Correlate duplicate job log lines", done: false },
-      { text: "Measure run duration vs interval", done: false },
-      { text: "Add a run lock or drain guard", done: false },
-      { text: "Confirm runs never overlap", done: false },
+      "Correlate duplicate job log lines",
+      "Measure run duration vs interval",
+      "Add a run lock or drain guard",
+      "Confirm runs never overlap",
     ],
     rewardSkill: "Background Jobs +1",
     rewardSkillId: "background-jobs",
@@ -326,10 +335,10 @@ export const MISSIONS: Mission[] = [
     description:
       "The notification service exits several times an hour and strands queued messages. Find the promise nobody is waiting on.",
     objectives: [
-      { text: "Trace the unhandled rejections", done: false },
-      { text: "Add error boundaries and logging", done: false },
-      { text: "Harden the async call sites", done: false },
-      { text: "Verify the service stays up", done: false },
+      "Trace the unhandled rejections",
+      "Add error boundaries and logging",
+      "Harden the async call sites",
+      "Verify the service stays up",
     ],
     rewardSkill: "Error Handling +1",
     rewardSkillId: "error-handling",
@@ -370,10 +379,10 @@ export const MISSIONS: Mission[] = [
     description:
       "New user registrations are taking several seconds to complete. Investigate the signup flow, identify the bottleneck, and restore normal response times.",
     objectives: [
-      { text: "Investigate the slow signup endpoint", done: true },
-      { text: "Profile each step of the request", done: true },
-      { text: "Diagnose the real root cause", done: false },
-      { text: "Ship the fix and monitor results", done: false },
+      "Investigate the slow signup endpoint",
+      "Profile each step of the request",
+      "Diagnose the real root cause",
+      "Ship the fix and monitor results",
     ],
     rewardSkill: "Request Performance +1",
     rewardSkillId: "request-performance",
@@ -409,10 +418,10 @@ export const MISSIONS: Mission[] = [
     description:
       "Users are being logged out of valid sessions. Follow the refresh flow through a burst of parallel requests and restore correct session lifetimes.",
     objectives: [
-      { text: "Reproduce a forced logout", done: true },
-      { text: "Follow every refresh attempt in one expiry", done: false },
-      { text: "Diagnose why a valid session is revoked", done: false },
-      { text: "Fix the client and verify sessions survive", done: false },
+      "Reproduce a forced logout",
+      "Follow every refresh attempt in one expiry",
+      "Diagnose why a valid session is revoked",
+      "Fix the client and verify sessions survive",
     ],
     rewardSkill: "Authentication +1",
     rewardSkillId: "authentication",
@@ -448,10 +457,10 @@ export const MISSIONS: Mission[] = [
     description:
       "Healthy instances keep being restarted while they are still serving traffic. Stabilise the health check before capacity runs out.",
     objectives: [
-      { text: "Review health-check timings", done: true },
-      { text: "Find the dependency that decides the outcome", done: false },
-      { text: "Diagnose why a healthy process is restarted", done: false },
-      { text: "Ship the fix and confirm instances stay up", done: false },
+      "Review health-check timings",
+      "Find the dependency that decides the outcome",
+      "Diagnose why a healthy process is restarted",
+      "Ship the fix and confirm instances stay up",
     ],
     rewardSkill: "API Design +1",
     rewardSkillId: "api-design",
@@ -487,10 +496,10 @@ export const MISSIONS: Mission[] = [
     description:
       "Deploys drop in-flight requests and redeliver jobs that were already acknowledged. Wire up graceful shutdown so rollouts stop losing work.",
     objectives: [
-      { text: "Observe dropped requests during a deploy", done: true },
-      { text: "Measure what happens between SIGTERM and exit", done: false },
-      { text: "Diagnose what the process failed to wait for", done: false },
-      { text: "Ship the fix and verify a clean rollout", done: false },
+      "Observe dropped requests during a deploy",
+      "Measure what happens between SIGTERM and exit",
+      "Diagnose what the process failed to wait for",
+      "Ship the fix and verify a clean rollout",
     ],
     rewardSkill: "Process Lifecycle +1",
     rewardSkillId: "process-lifecycle",
@@ -526,10 +535,10 @@ export const MISSIONS: Mission[] = [
     description:
       "Clients are being allowed far more requests than the configured limit, and it gets worse with every replica. Close the race and make the limiter correct under load.",
     objectives: [
-      { text: "Reproduce the overshoot under load", done: true },
-      { text: "Compare what each instance reads and writes", done: false },
-      { text: "Diagnose why increments disappear", done: false },
-      { text: "Ship the fix and load-test the limiter", done: false },
+      "Reproduce the overshoot under load",
+      "Compare what each instance reads and writes",
+      "Diagnose why increments disappear",
+      "Ship the fix and load-test the limiter",
     ],
     rewardSkill: "API Design +1",
     rewardSkillId: "api-design",
@@ -567,10 +576,10 @@ export const MISSIONS: Mission[] = [
     description:
       "Worker processes grow until they crash. Hunt the leak with heap snapshots and stop the restarts.",
     objectives: [
-      { text: "Capture heap snapshots over time", done: false },
-      { text: "Locate the retained references", done: false },
-      { text: "Release the leaked resources", done: false },
-      { text: "Confirm stable memory usage", done: false },
+      "Capture heap snapshots over time",
+      "Locate the retained references",
+      "Release the leaked resources",
+      "Confirm stable memory usage",
     ],
     rewardSkill: "Closures and Memory +1",
     rewardSkillId: "closures-memory",
@@ -606,10 +615,10 @@ export const MISSIONS: Mission[] = [
     description:
       "Background jobs are piling up faster than workers can drain them. Find the choke point and clear the backlog.",
     objectives: [
-      { text: "Measure enqueue vs drain rate", done: false },
-      { text: "Profile the slowest job type", done: false },
-      { text: "Tune concurrency and batching", done: false },
-      { text: "Confirm the queue drains", done: false },
+      "Measure enqueue vs drain rate",
+      "Profile the slowest job type",
+      "Tune concurrency and batching",
+      "Confirm the queue drains",
     ],
     rewardSkill: "Background Jobs +1",
     rewardSkillId: "background-jobs",
@@ -645,10 +654,10 @@ export const MISSIONS: Mission[] = [
     description:
       "Requests hang waiting for a pooled connection that never comes back. Track the leak and restore headroom.",
     objectives: [
-      { text: "Watch pool saturation metrics", done: false },
-      { text: "Find connections never released", done: false },
-      { text: "Fix the leaking call path", done: false },
-      { text: "Verify pool usage stabilises", done: false },
+      "Watch pool saturation metrics",
+      "Find connections never released",
+      "Fix the leaking call path",
+      "Verify pool usage stabilises",
     ],
     rewardSkill: "Performance Debugging +1",
     rewardSkillId: "performance-debugging",
@@ -684,10 +693,10 @@ export const MISSIONS: Mission[] = [
     description:
       "Users are reporting slow responses when fetching orders. The slowdown began after a recent deployment.",
     objectives: [
-      { text: "Read the incident metrics and traces", done: false },
-      { text: "Inspect the hot request handler", done: false },
-      { text: "Diagnose the real root cause", done: false },
-      { text: "Apply and verify the fix", done: false },
+      "Read the incident metrics and traces",
+      "Inspect the hot request handler",
+      "Diagnose the real root cause",
+      "Apply and verify the fix",
     ],
     rewardSkill: "Request Performance +1",
     rewardSkillId: "request-performance",
@@ -725,10 +734,10 @@ export const MISSIONS: Mission[] = [
     description:
       "A report fires hundreds of queries per request. Collapse the N+1 pattern into an efficient batch.",
     objectives: [
-      { text: "Count queries per request", done: false },
-      { text: "Spot the N+1 loop", done: false },
-      { text: "Batch with a single query", done: false },
-      { text: "Verify latency drops sharply", done: false },
+      "Count queries per request",
+      "Spot the N+1 loop",
+      "Batch with a single query",
+      "Verify latency drops sharply",
     ],
     rewardSkill: "SQL +1",
   },
@@ -746,10 +755,10 @@ export const MISSIONS: Mission[] = [
     description:
       "A full table scan is crushing a hot query. Read the query plan and add the index that fixes it.",
     objectives: [
-      { text: "Read the EXPLAIN plan", done: false },
-      { text: "Identify the missing index", done: false },
-      { text: "Add and validate the index", done: false },
-      { text: "Confirm the scan is gone", done: false },
+      "Read the EXPLAIN plan",
+      "Identify the missing index",
+      "Add and validate the index",
+      "Confirm the scan is gone",
     ],
     rewardSkill: "SQL +1",
   },
@@ -767,10 +776,10 @@ export const MISSIONS: Mission[] = [
     description:
       "Random checkout failures trace back to database deadlocks. Reorder access and end the contention.",
     objectives: [
-      { text: "Read the deadlock graph", done: false },
-      { text: "Find the conflicting lock order", done: false },
-      { text: "Reorder transactions consistently", done: false },
-      { text: "Confirm checkouts succeed", done: false },
+      "Read the deadlock graph",
+      "Find the conflicting lock order",
+      "Reorder transactions consistently",
+      "Confirm checkouts succeed",
     ],
     rewardSkill: "SQL +2",
   },
@@ -788,10 +797,10 @@ export const MISSIONS: Mission[] = [
     description:
       "Users see stale data after writes. Design around replication lag without hammering the primary.",
     objectives: [
-      { text: "Measure replication lag", done: false },
-      { text: "Map read-after-write paths", done: false },
-      { text: "Route critical reads correctly", done: false },
-      { text: "Verify consistency guarantees", done: false },
+      "Measure replication lag",
+      "Map read-after-write paths",
+      "Route critical reads correctly",
+      "Verify consistency guarantees",
     ],
     rewardSkill: "Design +1",
   },
@@ -811,10 +820,10 @@ export const MISSIONS: Mission[] = [
     description:
       "Memory usage is climbing and cache misses are spiking. Tame the cache before it takes production down.",
     objectives: [
-      { text: "Inspect Redis memory metrics", done: false },
-      { text: "Find the runaway key pattern", done: false },
-      { text: "Apply eviction and TTL strategy", done: false },
-      { text: "Confirm hit-rate recovers", done: false },
+      "Inspect Redis memory metrics",
+      "Find the runaway key pattern",
+      "Apply eviction and TTL strategy",
+      "Confirm hit-rate recovers",
     ],
     rewardSkill: "Caching +1",
   },
@@ -832,10 +841,10 @@ export const MISSIONS: Mission[] = [
     description:
       "A critical outage is impacting payments. Trace the root cause, restore service, and prevent future incidents.",
     objectives: [
-      { text: "Triage the multi-service outage", done: false },
-      { text: "Correlate traces across services", done: false },
-      { text: "Restore the failing dependency", done: false },
-      { text: "Ship safeguards to prevent recurrence", done: false },
+      "Triage the multi-service outage",
+      "Correlate traces across services",
+      "Restore the failing dependency",
+      "Ship safeguards to prevent recurrence",
     ],
     rewardSkill: "Boss Loot",
   },
@@ -946,7 +955,7 @@ export function resolveBriefing(mission: Mission): ResolvedBriefing {
   return {
     severity: authored?.severity ?? SEVERITY_BY_DIFFICULTY[mission.difficulty],
     technologies: authored?.technologies ?? mission.tags,
-    steps: authored?.steps ?? mission.objectives.map((o) => o.text),
+    steps: authored?.steps ?? mission.objectives,
     skills: authored?.skills ?? CATEGORY_SKILLS[mission.category],
     firstPhase: authored?.firstPhase ?? "Investigate",
     context: authored?.context ?? [

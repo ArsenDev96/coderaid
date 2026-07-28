@@ -447,17 +447,17 @@ function MissionRail({ mission }: { mission: Mission }) {
         <div className="text-[0.62rem] font-semibold uppercase tracking-[0.14em] text-slate-500">
           Objectives
         </div>
+        {/*
+          Plain markers, not checkboxes. These used to render a tick or an
+          empty circle from an authored `done` flag, so six missions showed a
+          player objectives already completed on their behalf. Nothing tracks
+          progress per objective, so there is no honest tick to draw.
+        */}
         <ul className="mt-3 space-y-2.5">
-          {mission.objectives.map((o) => (
-            <li key={o.text} className="flex items-start gap-2.5 text-sm">
-              {o.done ? (
-                <Check className="mt-0.5 h-4 w-4 shrink-0 text-violet-400" strokeWidth={3} />
-              ) : (
-                <Circle className="mt-0.5 h-4 w-4 shrink-0 text-slate-600" />
-              )}
-              <span className={o.done ? "text-slate-200" : "text-slate-500"}>
-                {o.text}
-              </span>
+          {mission.objectives.map((objective) => (
+            <li key={objective} className="flex items-start gap-2.5 text-sm">
+              <Circle className="mt-0.5 h-4 w-4 shrink-0 text-slate-600" />
+              <span className="text-slate-400">{objective}</span>
             </li>
           ))}
         </ul>

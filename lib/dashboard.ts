@@ -109,6 +109,8 @@ export function nextActionFor(mission: Mission) {
       label: "Status",
       value: "—",
     },
+    // The mission's own latency samples, not a decorative squiggle.
+    sparkline: sparklinePoints(investigation?.metrics.latency.series ?? []),
     findings: investigation?.summary.findings ?? [],
     code,
   };
@@ -129,9 +131,43 @@ export function buildNextAction(view: PlayerView = EMPTY_VIEW): NextActionData {
 
 export const NEXT_ACTION = buildNextAction();
 
-// Noisy, elevated latency series for the response-time sparkline.
-export const RESPONSE_SERIES =
-  "0,30 12,22 24,28 36,18 48,26 60,15 72,24 84,20 96,27 108,12 120,20 132,8 144,18 156,14 168,22 180,10 192,19 204,13 216,24 228,16 240,26";
+/**
+ * A series of samples as SVG polyline points, scaled to fill the card's box.
+ *
+ * This replaced `RESPONSE_SERIES`, a hardcoded 21-point "noisy, elevated
+ * latency series" that rendered beside the card's **real** headline metric and
+ * was identical for every mission — a fabricated chart sitting next to a
+ * derived number, describing whichever incident happened to be shown.
+ *
+ * The samples now come from the mission's own authored investigation chart, so
+ * the shape on the dashboard is the shape the player is about to investigate:
+ * flat and then spiking for `event-loop-overload`, climbing steadily for a
+ * leak. `null` when there is nothing to draw, so the caller renders no chart
+ * rather than a straight line implying a measurement.
+ */
+export function sparklinePoints(
+  series: number[],
+  width = 240,
+  height = 40,
+): string | null {
+  if (series.length < 2) return null;
+
+  const min = Math.min(...series);
+  const max = Math.max(...series);
+  const span = max - min;
+  const step = width / (series.length - 1);
+
+  return series
+    .map((value, i) => {
+      const x = Math.round(i * step * 10) / 10;
+      // A flat series has no shape to show; draw it down the middle rather
+      // than pinned to an edge. Otherwise the peak sits 1px off the top.
+      const ratio = span === 0 ? 0.5 : (value - min) / span;
+      const y = Math.round((height - 1 - ratio * (height - 2)) * 10) / 10;
+      return `${x},${y}`;
+    })
+    .join(" ");
+}
 
 /* ------------------------------ Daily raid ------------------------------ */
 
@@ -190,10 +226,9 @@ export function careerFor(ledger: Ledger) {
 
 /* ------------------------------- Premium -------------------------------- */
 
-export const PREMIUM = {
-  title: "Go Premium",
-  blurb:
-    "Unlock premium Node.js incidents, exclusive rewards and advanced analytics.",
-  cta: "Upgrade Now",
-  icon: Award,
-};
+// `PREMIUM` was deleted. It rendered the most prominent element in the sidebar
+// — "Go Premium / Upgrade Now", promising premium incidents, exclusive rewards
+// and advanced analytics — as a `<button type="button">` with no handler.
+// None of it exists and none of it can be bought, which makes it the same
+// class of thing as the light theme, `defaultLanguage`, `soundEffects` and the
+// three fake leaderboard scopes: a control nothing can honour (§4.11).

@@ -207,6 +207,15 @@ function validateCatalogue(missions: Mission[]): ValidationIssue[] {
       mission.objectives.length > 0,
       "Mission has no objectives.",
     );
+    // §4.10: nothing about a player may be authored. Objectives used to carry a
+    // `done` flag and six of them were authored `true`, which rendered as
+    // completed ticks to players who had never opened the mission. This keeps
+    // the shape that made that possible from coming back.
+    c.check(
+      "catalogue",
+      mission.objectives.every((o) => typeof o === "string" && !blank(o)),
+      "Objectives must be non-empty strings — an objective carrying player state (e.g. `done`) is authored progress.",
+    );
     c.check(
       "catalogue",
       !blank(mission.rewardSkill),

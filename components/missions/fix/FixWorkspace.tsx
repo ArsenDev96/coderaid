@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { getDiagnosis, loadDiagnosisState } from "@/lib/diagnosis";
 import { loadFixState, saveFixState, type MissionFixConfig } from "@/lib/fix";
+import { clearGradedRun } from "@/lib/grade-submission";
 import { completeStage, touchRun } from "@/lib/run";
 import { ConfirmedRootCause } from "./ConfirmedRootCause";
 import { FixActions } from "./FixActions";
@@ -61,6 +62,25 @@ export function FixWorkspace({
     [config.options, fixId],
   );
 
+  /**
+   * Choosing a different option is the start of a new attempt, not an edit to
+   * the last one.
+   *
+   * `applied` used to survive the change, so a player who had applied one fix
+   * and verified it could pick another and walk straight back into
+   * verification with the new option already marked applied — and, because the
+   * cached verdict was keyed by mission alone, be shown the previous run's
+   * result. Both halves are cleared here: applying is a deliberate act that
+   * has not happened yet for this option, and the grade describes the option
+   * they just moved away from.
+   */
+  const selectFix = (id: string) => {
+    if (id === fixId) return;
+    setFixId(id);
+    setApplied(false);
+    clearGradedRun(config.missionId);
+  };
+
   return (
     <div className="flex flex-col gap-6">
       <FixMissionHeader
@@ -86,7 +106,7 @@ export function FixWorkspace({
           <FixOptionList
             options={config.options}
             selectedId={fixId}
-            onSelect={setFixId}
+            onSelect={selectFix}
           />
           {/* Describes the option without judging it — the verdict is the
               server's, and arrives at verification. */}

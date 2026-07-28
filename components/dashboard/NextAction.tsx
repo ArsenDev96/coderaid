@@ -11,7 +11,7 @@ import {
 } from "lucide-react";
 import { recommendedMission } from "@/lib/availability";
 import { useProgress } from "@/components/progress/ProgressProvider";
-import { nextActionFor, RESPONSE_SERIES } from "@/lib/dashboard";
+import { nextActionFor } from "@/lib/dashboard";
 import type { Mission } from "@/lib/missions";
 import { useMissionResume } from "@/components/missions/map/useMissionResume";
 
@@ -136,28 +136,32 @@ function NextActionCard({ mission }: { mission: Mission }) {
                 {a.headline.value}
               </div>
             </div>
-            <svg
-              viewBox="0 0 240 40"
-              preserveAspectRatio="none"
-              className="h-12 min-w-0 flex-1"
-              aria-hidden
-            >
-              <defs>
-                <linearGradient id="na-fill" x1="0" y1="0" x2="0" y2="1">
-                  <stop offset="0%" stopColor="#f43f5e" stopOpacity="0.3" />
-                  <stop offset="100%" stopColor="#f43f5e" stopOpacity="0" />
-                </linearGradient>
-              </defs>
-              <polygon points={`0,40 ${RESPONSE_SERIES} 240,40`} fill="url(#na-fill)" />
-              <polyline
-                points={RESPONSE_SERIES}
-                fill="none"
-                stroke="#f43f5e"
-                strokeWidth="1.4"
-                strokeLinejoin="round"
-                vectorEffect="non-scaling-stroke"
-              />
-            </svg>
+            {/* Drawn only when the mission has samples to draw — an empty
+                chart is better than an invented one. */}
+            {a.sparkline && (
+              <svg
+                viewBox="0 0 240 40"
+                preserveAspectRatio="none"
+                className="h-12 min-w-0 flex-1"
+                aria-hidden
+              >
+                <defs>
+                  <linearGradient id="na-fill" x1="0" y1="0" x2="0" y2="1">
+                    <stop offset="0%" stopColor="#f43f5e" stopOpacity="0.3" />
+                    <stop offset="100%" stopColor="#f43f5e" stopOpacity="0" />
+                  </linearGradient>
+                </defs>
+                <polygon points={`0,40 ${a.sparkline} 240,40`} fill="url(#na-fill)" />
+                <polyline
+                  points={a.sparkline}
+                  fill="none"
+                  stroke="#f43f5e"
+                  strokeWidth="1.4"
+                  strokeLinejoin="round"
+                  vectorEffect="non-scaling-stroke"
+                />
+              </svg>
+            )}
           </div>
 
           {/* Code preview */}

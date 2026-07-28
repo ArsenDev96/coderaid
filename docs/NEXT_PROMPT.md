@@ -27,7 +27,27 @@ without the URL, `/api/ledger` throws at runtime, `POST /api/runs` 500s instead 
 sign-in wall `mission-flow.spec.ts` asserts on never renders. **Confirm the secrets exist before
 trusting a green CI.**
 
-## Tasks, in order
+## Status 2026-07-28 — tasks 1–5 are DONE
+
+All five are complete and on `real-verification-replay`, with §18 of `CURRENT_STATE.md` recording
+them. Plus one defect not on this list: **a cached grade could outlive the answers it described**,
+so changing a wrong fix to the correct one and verifying again redisplayed the previous unresolved
+report — with no Run Verification button on screen to retry with (§18.1).
+
+Two notes on how the tasks below were resolved, where the outcome differs from the instruction:
+
+- **Task 3 (footer)** — the five `/demo` links were **removed**, not repointed. Writing privacy and
+  terms copy is not a code decision; the links should return with the pages.
+- **Task 5 (`done` flags)** — the premise was wrong. They were **not** dead: `MissionBrowser`
+  rendered them and **six were authored `true`**, so five missions showed players objectives ticked
+  on their behalf. `Objective` is now `string` and `validate:missions` enforces it.
+
+**What remains** is the two decisions below, plus the profile (§12 item 17), plus everything under
+"Also open". `main` is still behind — merge `real-verification-replay` (it contains
+`authenticated-ci-specs`) and confirm the three CI secrets exist, or CI stays green for the wrong
+reason.
+
+## Tasks, in order (all five done — kept for context)
 
 1. **Fix the logout — this is a live defect, not cleanup.** §12 item 13.
    `components/dashboard/DashboardSidebar.tsx` renders Log out as `<Link href="/">`, which navigates

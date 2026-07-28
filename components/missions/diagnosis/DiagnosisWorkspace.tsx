@@ -7,6 +7,7 @@ import {
   saveDiagnosisState,
   type MissionDiagnosisConfig,
 } from "@/lib/diagnosis";
+import { clearGradedRun } from "@/lib/grade-submission";
 import type { Severity } from "@/lib/missions";
 import { completeStage, touchRun } from "@/lib/run";
 import { DiagnosisConfirmBar } from "./DiagnosisConfirmBar";
@@ -54,10 +55,23 @@ export function DiagnosisWorkspace({
     saveDiagnosisState(config.missionId, { rootCauseId, evidenceIds, confirmed });
   }, [hydrated, config.missionId, rootCauseId, evidenceIds, confirmed]);
 
-  const toggleEvidence = (id: string) =>
+  /**
+   * A grade is a statement about a diagnosis. Revising the diagnosis makes the
+   * last one a statement about a run the player has moved on from, so it goes
+   * with the change rather than waiting to be noticed downstream.
+   */
+  const selectRootCause = (id: string) => {
+    if (id === rootCauseId) return;
+    setRootCauseId(id);
+    clearGradedRun(config.missionId);
+  };
+
+  const toggleEvidence = (id: string) => {
     setEvidenceIds((prev) =>
       prev.includes(id) ? prev.filter((e) => e !== id) : [...prev, id],
     );
+    clearGradedRun(config.missionId);
+  };
 
   const ready = canConfirm(config, { rootCauseId, evidenceIds });
   const evidenceNeeded = Math.max(
@@ -94,7 +108,7 @@ export function DiagnosisWorkspace({
           <RootCauseList
             options={config.rootCauses}
             selectedId={rootCauseId}
-            onSelect={setRootCauseId}
+            onSelect={selectRootCause}
           />
           <DiagnosisEvidenceList
             options={config.evidence}
