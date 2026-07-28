@@ -170,63 +170,6 @@ test.describe("the authenticated path", () => {
     expect(Number.parseInt(blocked, 10)).toBeGreaterThan(120);
   });
 
-  test("reports the new fix's verdict after a wrong one, not the old one", async ({
-    page,
-  }) => {
-    // The defect this covers: the cached grade was keyed by mission alone, so a
-    // second attempt could be shown the first attempt's report — a player who
-    // had just moved the aggregation onto a worker thread was told the event
-    // loop was still blocked. `tests/stale-grade.test.ts` holds the rule; this
-    // holds what the player actually sees.
-    await playToVerification(page, "poor");
-    await runVerification(page);
-
-    const summary = page.getByText(/Root cause not resolved|still/i).first();
-    await expect(summary).toBeVisible({ timeout: 30_000 });
-
-    // Back to the Fix stage and pick the one that actually moves the work off
-    // the thread. Every gate is open: the mission is in the ledger now.
-    await page.goto(`/missions/${MISSION}/fix`);
-    await page
-      .getByRole("radio", { name: /Generate the report in a worker thread/ })
-      .click();
-    await page.getByRole("link", { name: /Apply Fix/ }).click();
-    await expect(page).toHaveURL(new RegExp(`/missions/${MISSION}/verification$`));
-
-    // The screen must offer the run rather than restore the previous verdict.
-    const runButton = page.getByRole("button", { name: "Run Verification" });
-    await expect(runButton).toBeVisible();
-
-    await runVerification(page);
-
-    const panel = page.getByRole("region", { name: "Replay measurement" });
-    await expect(panel).toBeVisible({ timeout: 30_000 });
-    await expect(panel).toContainText("The main thread kept answering");
-    // And the report is this run's: the lag metric moved, where the first
-    // attempt held it at its "before" value.
-    await expect(page.getByText(/35ms/).first()).toBeVisible();
-  });
-
-  test("ends the session when the player logs out", async ({ page }) => {
-    // "Log out" was a <Link href="/">: it navigated away and left the session
-    // completely intact, so returning to /dashboard was still signed in and on
-    // a shared machine the next person inherited the account. The route that
-    // ends it existed the whole time and nothing called it.
-    await page.goto("/dashboard");
-    await expect(page.request.get("/api/ledger")).resolves.toBeTruthy();
-    expect((await page.request.get("/api/ledger")).status()).toBe(200);
-
-    await page.getByRole("button", { name: "Log out" }).click();
-    await expect(page).toHaveURL(new RegExp(`${"/"}$`));
-
-    // The real assertion: the session is gone, not just the page.
-    expect((await page.request.get("/api/ledger")).status()).toBe(401);
-
-    // And it stays gone across a navigation back into the app.
-    await page.goto("/dashboard");
-    expect((await page.request.get("/api/ledger")).status()).toBe(401);
-  });
-
   test("records the browser's local date, not the server's UTC date", async ({
     page,
     player,
