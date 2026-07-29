@@ -174,7 +174,19 @@
 > menu opens. What is **not** solved is display-name moderation — `sanitizeDisplayName` is a
 > rendering guard, not a word list (§12 item 17).
 >
-> The suite is **571 tests across 22 files**, plus 27 Playwright specs. All six gates green:
+> **New in the view-privileges fix (2026-07-29) — the most serious defect found on this project.**
+> `best_runs` is a view over an RLS-protected table, and **a Postgres view does not enforce the RLS
+> underneath it** unless declared `security_invoker`. Supabase grants `SELECT` on public relations to
+> `anon` by default, so the view served **every player's runs — including `root_cause_id`,
+> `evidence_ids` and `fix_id`, the answer key — to anyone holding the anon key that ships in the
+> client bundle**, with no session. `mission_runs` and `players` returned `[]` throughout; only the
+> view was open. It leaked to `authenticated` as well, so `0003_lock_best_runs.sql` both sets
+> `security_invoker` and revokes the grant from both roles. `service_role` has `bypassrls`, so the
+> ledger and the leaderboard are unaffected — verified, not assumed. The house rule now lives beside
+> the RLS block in `0001_init.sql`, and `e2e/view-privileges.spec.ts` is the alarm (§12 item 20,
+> §15.6).
+>
+> The suite is **571 tests across 22 files**, plus **30 Playwright specs**. All six gates green:
 > `typecheck`, `lint`, `test`, `validate:missions`, `build`, `playwright`.
 
 ---
@@ -216,7 +228,7 @@ The README (`README.md`) has been rewritten to match this positioning and is no 
 | Backend | **Supabase** — Postgres + GitHub OAuth. Five route handlers under `app/api/`; no server actions |
 | Auth | `@supabase/ssr` 0.12 + `@supabase/supabase-js` 2 — GitHub OAuth only, cookie sessions |
 | Tests | **Vitest 2** — `tests/`, 22 files, 571 tests, Node environment, `@/*` alias |
-| Browser smoke | **Playwright 1.61** — `e2e/`, 27 Chromium tests against the production build: 14 signed-out, 13 authenticated (§15.5, §17.4) |
+| Browser smoke | **Playwright 1.61** — `e2e/`, 30 Chromium tests against the production build: 14 signed-out, 13 authenticated (§15.5, §17.4), 3 database-privilege checks that use no browser at all (§15.6) |
 | Lint | **ESLint 8 + `eslint-config-next`**, committed `.eslintrc.json` extending `next/core-web-vitals` |
 | Content validation | `tsx scripts/validate-missions.ts` over `lib/mission-validation.ts` |
 
@@ -362,6 +374,7 @@ lib/supabase/                env.ts · client.ts (browser) · server.ts (session
 supabase/migrations/
   0001_init.sql              Tables, best_runs view, RLS, handle_new_user trigger
   0002_claim_local_progress.sql  players.claimed_at, mission_runs.source, claim uniqueness
+  0003_lock_best_runs.sql    security_invoker + revoke on best_runs — the view bypassed RLS
 
 scripts/
   validate-missions.ts       CLI wrapper: grouped output, non-zero exit on errors
@@ -376,8 +389,10 @@ tests/                       Vitest — pure domain logic + end-to-end mission f
 
 e2e/                         Playwright — mission-flow.spec.ts + onboarding.spec.ts +
                              investigation-state.spec.ts (signed out),
-                             authenticated.spec.ts (session-backed, §15.5)
-  support/                   session.ts (mint a session), fixtures.ts (player
+                             authenticated.spec.ts (session-backed, §15.5),
+                             view-privileges.spec.ts (no browser, no session — what the
+                             anon key can read straight from the database API, §15.6)
+  support/                   session.ts (mint a session, readAsAnon), fixtures.ts (player
                              lifecycle), mission.ts (play a mission well or badly)
 .eslintrc.json               next/core-web-vitals
 vitest.config.ts             Node environment, @/* alias, `server-only` → tests/stubs
@@ -1846,6 +1861,61 @@ surfaces:
     have to keep. Not implemented — recorded here because §16.3 currently reads as though this were
     already handled.
 
+20. **`best_runs` bypassed RLS and served the answer key to the open internet.** Found and fixed
+    2026-07-29 — the most serious defect found on this project so far.
+
+    **The mechanism.** A Postgres view does not enforce the RLS of the tables underneath it. Unless
+    the view is declared `security_invoker`, its queries run as the view's **owner** — here, the
+    superuser that ran `0001_init.sql` — so every policy on `mission_runs` was bypassed. Supabase
+    then grants `SELECT` on new public relations to `anon` and `authenticated` by default, which
+    made the bypass reachable with the anon key **that ships in the client bundle**. Nothing was
+    misconfigured in the sense of a wrong line; the view was simply created the ordinary way, and
+    the ordinary way is open.
+
+    **Measured, with the anon key and no session at all:**
+
+    ```
+    GET /rest/v1/mission_runs -> []          RLS holds
+    GET /rest/v1/players      -> []          RLS holds
+    GET /rest/v1/best_runs    -> every row   RLS bypassed
+    ```
+
+    **What that exposed.** `best_runs` is `mission_runs.*` plus an attempts count, so every row
+    carried `root_cause_id`, `evidence_ids` and `fix_id` — **the answer key** — for every mission any
+    player had completed, alongside their scores, telemetry and completion dates. This is precisely
+    what `lib/server/answers.ts` puts behind `server-only` and what `tests/bundle-secrecy.test.ts`
+    greps the real build to keep out. Both were guarding the front door while the database API held
+    the back one open. It also contradicted the privacy boundary `app/api/leaderboard/route.ts`
+    documents — that the rows name other people and therefore require a session.
+
+    **It leaked to `authenticated` too, not only to `anon`.** Checked with a real minted session:
+    `mission_runs` returned 0 rows while `best_runs` returned every row in the table. A fix that
+    revoked only `anon` would have left any account able to read the answer key, which is why the
+    revoke names both roles. This is the kind of thing that is only ever found by running it.
+
+    **The fix** (`supabase/migrations/0003_lock_best_runs.sql`) is two statements, and both are
+    load-bearing for different failure modes:
+
+    ```sql
+    alter view public.best_runs set (security_invoker = true);
+    revoke all on public.best_runs from anon, authenticated;
+    ```
+
+    `security_invoker` makes the view return the right *rows*; the revoke makes it unqueryable by
+    either role at all. Two guards rather than one because **`create or replace view` silently drops
+    the `security_invoker` setting** — a future migration that rewrites the view loses half the fix
+    without saying so, and the revoke is what still stands.
+
+    **`service_role` has `bypassrls` and is unaffected**, so `ledgerFor()` and `standings()` keep
+    working — but that was verified rather than assumed, by re-running the suite and the Playwright
+    specs after applying it.
+
+    **The alarm** is `e2e/view-privileges.spec.ts` (§15.6), and it was proven to fail by the
+    vulnerability itself rather than by a mutation. **The house rule** — every view over an
+    RLS-protected table sets `security_invoker = true` and grants nothing to `anon` or
+    `authenticated` — is written into the RLS comment block of `0001_init.sql`, where the next
+    person adding a view will be looking.
+
 ---
 
 ## 13. The gap between here and a real product
@@ -2252,6 +2322,35 @@ moment of blank. This is consistency protection for the front end, **not securit
 migration it no longer needs to be. Skipping straight to verification submits an empty diagnosis,
 which the server grades as zero.
 
+### 15.6 Database privileges — `e2e/view-privileges.spec.ts` (new 2026-07-29)
+
+Three specs that use **no browser and no session**, added with the `best_runs` fix (§12 item 20).
+They ask the only question that matters about the database API: *what can a stranger holding the
+anon key read?* — which is everyone, since that key ships in the client bundle by design.
+
+| Spec | Asserts |
+| --- | --- |
+| `best_runs hands nothing to an anonymous caller` | Either no row set at all (401/403 — the `revoke`) or an empty one (200 — `security_invoker` with no rows of your own). **Both are correct and they are different fixes**, so the spec accepts either and fails only if rows come back |
+| `no answer-key column reaches an anonymous caller` | `root_cause_id`, `evidence_ids` and `fix_id` appear on nothing returned. Named explicitly, because the failure being guarded against is not "rows leaked" but *these fields* leaked — an empty result passes the row-count check by accident of the moment, and this one states the stakes |
+| `RLS still holds on the tables underneath` | `mission_runs`, `players` and `player_achievements` each answer **200 with `[]`**. The control: if all three specs go red the project is unreachable or the key is wrong; if only the first two do, the view has lost its protection again |
+
+`readAsAnon()` in `e2e/support/session.ts` reports the status instead of throwing on one, because
+"permission denied" and "no rows" are both right answers here and a caller asserting *nothing came
+back* should not have to care which it got.
+
+**These live in `e2e/` rather than `tests/` deliberately.** §15.1 records that nothing in the Vitest
+suite talks to Supabase, and that property is what makes the unit suite runnable with no credentials
+and no network. This is a fact about the live database's privileges, not about any module.
+
+**Proven to fail, and not by a mutation.** Run against production before `0003_lock_best_runs.sql`
+was applied, the first two went red on real leaked rows — including a `root_cause_id` — while the
+third passed. That is the strongest form of the house rule "when you add a guard, prove it can fail":
+the guard's first run reproduced the vulnerability it exists to catch.
+
+The usual caveat applies with more force than elsewhere: like the authenticated specs, these
+`skip` themselves without credentials, and **a skipped run is the same colour as a passing one**.
+For this guard that means the alarm is silent exactly when nobody is watching. Confirm they ran.
+
 ---
 
 ## 16. The server-authoritative architecture (new 2026-07-21)
@@ -2267,7 +2366,7 @@ was worth.**
 | `mission_runs` | **Append-only.** Every graded run: score, XP, resolved, per-skill award, what they submitted, telemetry, `completed_on`, and `source` (`played` \| `claimed`) | Route handlers only |
 | `player_active_days` | `(player_id, day)`. Opening the app is activity, which is what a streak measures — so it is not derivable from runs alone | Route handlers only |
 | `player_achievements` | `(player_id, achievement_id, unlocked_at)`, stamped on the crossing | Route handlers only |
-| `best_runs` (view) | `distinct on (player_id, mission_id) … order by score desc, completed_at asc`, plus an `attempts` count | — |
+| `best_runs` (view) | `distinct on (player_id, mission_id) … order by score desc, completed_at asc`, plus an `attempts` count. **`security_invoker`, and revoked from `anon` and `authenticated`** since 0003 — it was neither, and served the answer key to anyone with the anon key (§12 item 20) | — |
 
 **There is deliberately no `total_xp` column**, no stored rank and no stored streak. The runs are the
 evidence; every figure is derived from them.
@@ -2286,6 +2385,14 @@ the score must be the one you actually earned". So grading cannot live there.
 Verified empirically, with a real session: a player POSTing directly to `mission_runs`,
 `player_achievements` or `player_active_days` gets **403** on all three, and PATCHing their own
 `players.claimed_at` gets **403** because it is not in the column grant.
+
+**RLS on a table says nothing about a view over it** — the lesson of §12 item 20, and the one gap in
+this model that was open from the first migration until 2026-07-29. `best_runs` ran as its owner and
+was granted to `anon` by default, so the answer key was readable from the open internet while every
+sentence above remained true of the tables. The house rule is now written into `0001_init.sql` beside
+the policies: **every view over an RLS-protected table sets `security_invoker = true` and grants
+nothing to `anon` or `authenticated`.** `e2e/view-privileges.spec.ts` (§15.6) checks it from outside
+the database, which is the only vantage point from which this class of bug is visible at all.
 
 ### 16.3 The endpoints
 
@@ -2504,6 +2611,22 @@ is written and the test runs **signed out** — silently, against endpoints that
 presents as a missing element, which looks like a UI bug and is not one. The fixture is now
 `{ auto: true }` and throws if the session cookie is not in the context afterwards, so a spec cannot
 accidentally run anonymously.
+
+---
+
+*Updated 2026-07-29 — the **`best_runs` lock**. A Postgres view does not enforce the RLS of the
+tables beneath it unless it is declared `security_invoker`, and Supabase grants `SELECT` on public
+relations to `anon` by default — so `public.best_runs` handed every player's runs, **including the
+`root_cause_id` / `evidence_ids` / `fix_id` answer key**, to anyone with the anon key that ships in
+the client bundle, with no session. The tables themselves held: `mission_runs` and `players` both
+returned `[]` to the same caller. It leaked to `authenticated` too, which is why
+`0003_lock_best_runs.sql` sets `security_invoker` **and** revokes from both roles — two guards,
+because `create or replace view` silently drops the setting. `service_role` has `bypassrls`, so
+`ledgerFor()` and `standings()` are unaffected, verified by re-running the suite and the Playwright
+specs rather than by reasoning. The alarm is `e2e/view-privileges.spec.ts`, proven to fail by the
+vulnerability itself rather than by a mutation, and the house rule for future views is written beside
+the RLS block in `0001_init.sql`. 571 tests across 22 files, 30 Playwright specs; all six gates
+green. See §12 item 20, §15.6, §16.2.*
 
 ---
 

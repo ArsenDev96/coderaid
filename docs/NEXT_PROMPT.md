@@ -1,4 +1,4 @@
-# CodeRaid — close the `best_runs` leak, then grow the content
+# CodeRaid — close the `/api/runs` oracle, then grow the content
 
 Project: **`c:\Users\DoC\Desktop\sis`** (Windows; the repo is `ArsenDev96/coderaid`). Next.js 14 App
 Router, TypeScript strict, Tailwind, Supabase. A Node.js backend-debugging simulator: 14 playable
@@ -10,9 +10,15 @@ server architecture (§16.7 is new), §17 the verification replay, §12 the real
 
 ## Where things stand
 
-`main` carries everything. The profile pass is merged (PR #3); there is no unmerged branch and no
-pending working-tree work. The suite is **571 tests across 22 files** plus **27 Playwright specs**,
-and all six gates are green.
+`main` carries the profile pass (merged as PR #3). Branch `real-verification-replay` carries the
+docs catch-up and the `best_runs` lock. The suite is **571 tests across 22 files** plus **30
+Playwright specs**, and all six gates are green.
+
+**`supabase/migrations/` is not applied automatically.** There is no linked Supabase CLI project and
+no database password in `.env.local` — only the URL, the anon key and the service-role key, none of
+which can run DDL. Migrations are applied by hand in the Supabase dashboard's SQL editor. Check that
+a migration in the tree is actually live before trusting a spec that depends on it; running
+`e2e/view-privileges.spec.ts` is the fastest way to confirm 0003 is in place.
 
 ### Done in the profile pass (2026-07-29) — do not re-plan these
 
@@ -38,48 +44,50 @@ break or reorder the leaderboard row beside it. It is not a word list and there 
 Whether CodeRaid needs moderation, and of what kind, is a product decision. **Ask before building
 it.**
 
-## Do this first — `best_runs` bypasses RLS
+### Done in the `best_runs` lock (2026-07-29) — do not re-plan this
 
-A Postgres view over an RLS-protected table does **not** enforce that RLS unless it is declared
-`security_invoker`, and Supabase's default privileges grant `SELECT` on public relations to `anon`.
-`public.best_runs` is such a view. Proven with the anon key that ships in the client bundle, no
-session:
+**§12 item 20, the most serious defect found on this project, is closed.** `public.best_runs` is a
+view over an RLS-protected table, and a Postgres view does not enforce that RLS unless declared
+`security_invoker`. Supabase grants `SELECT` on public relations to `anon` by default, so the view
+served every player's runs — **including `root_cause_id`, `evidence_ids` and `fix_id`, the answer
+key** — to anyone with the anon key that ships in the client bundle, no session. The tables held
+(`mission_runs` and `players` both returned `[]`); only the view was open, and it was open to
+`authenticated` as well.
 
-```
-GET /rest/v1/mission_runs -> []          RLS holds
-GET /rest/v1/players      -> []          RLS holds
-GET /rest/v1/best_runs    -> every row   RLS bypassed
-```
+`0003_lock_best_runs.sql` sets `security_invoker` **and** revokes from both roles — two guards,
+because `create or replace view` silently drops the setting. The alarm is
+`e2e/view-privileges.spec.ts` (§15.6), which was proven to fail by the vulnerability itself rather
+than by a mutation. The house rule for future views is written beside the RLS block in
+`0001_init.sql`. Read §12 item 20 before adding any view.
 
-Each row carries `root_cause_id`, `evidence_ids`, `fix_id`, `score` and `resolved` — **the answer
-key**, plus every player's run detail, to the open internet. It defeats the point of
-`lib/server/answers.ts` and `tests/bundle-secrecy.test.ts`, which guard the bundle while the database
-API is wide open, and it contradicts the privacy boundary `app/api/leaderboard/route.ts` documents.
-It leaks to `authenticated` as well as `anon`, so the revoke must name both.
+## Do this first — `/api/runs` is an enumerable answer oracle
 
-```sql
--- supabase/migrations/0003_lock_best_runs.sql
-alter view public.best_runs set (security_invoker = true);
-revoke all on public.best_runs from anon, authenticated;
-```
+**§12 item 19.** The remaining hole in the trust model, and the same shape of mistake as item 20:
+each individual guard is sound and the composition is not. Three properties combine:
 
-`service_role` has `bypassrls`, so `ledgerFor()` and `standings()` are unaffected — **prove that
-rather than assuming it.** Run the suite and the Playwright specs after applying it.
+- **No server-side stage gating.** `StageGate` is client-side, so a submission is accepted whether or
+  not the player ever opened the investigation.
+- **No rate limit.** Nothing bounds how many submissions a player may make.
+- **Best-run-wins makes a wrong guess free.** A worse replay is recorded and changes nothing, so a
+  wrong answer costs only a row in `mission_runs`.
 
-Then add the guard that would have caught it: a test hitting `/rest/v1/best_runs` with the anon key
-and asserting `[]`. Without it this is a fix with no alarm behind it. **Mutate it and watch it go
-red.** And make `security_invoker = true` the documented house rule for any future view, next to the
-RLS comment block in `0001_init.sql`.
+And the response carries the full breakdown — root cause 45, evidence 25, fix 30 — so each attempt
+says *which part* was right. A caller can separate the three answers instead of searching their
+product, and reach 100 by enumeration. §16.3 argues that grading at the commit point avoids an
+oracle; it removed the *free* oracle, not the oracle.
+
+**Cheapest fix: return the full breakdown only when a run improves on the player's best.** The score
+still comes back, so the results screen works and an honest replay sees its gain; a run that beat
+nothing gets the score and no component split. That removes the signal the search needs without a
+rate limit, a stage-state table, or anything else the server would have to keep. `POST /api/runs`
+already reads the ledger before the insert (to measure `creditBetween`), so it knows whether the run
+improved anything without an extra round trip.
+
+Whatever you do here, **add the guard first and prove it fails** — assert that a non-improving run's
+response carries no per-component breakdown, and watch it go red against today's handler.
 
 ## Also open
 
-- **§12 item 19 — `/api/runs` is an enumerable answer oracle.** New, recorded 2026-07-29. No
-  server-side stage gating (`StageGate` is client-side), no rate limit, and best-run-wins makes a
-  wrong guess free — while the response carries the full breakdown, so each attempt says *which*
-  of the three answers was right and they can be searched separately. §16.3's argument that grading
-  at the commit point avoids an oracle is only half right. **Cheapest fix: return the full breakdown
-  only when a run improves on the player's best** — the score still comes back, so the results screen
-  works and an honest replay sees its gain.
 - **§12 item 7 — there is no server-side reset.** Runs are append-only, so "Reset Progress" cannot
   erase earned XP; the copy already says what it actually does. Whether an account should be able to
   wipe its own history, and whether that is coherent with an append-only ledger, remains undecided.

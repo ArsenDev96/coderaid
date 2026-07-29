@@ -172,3 +172,36 @@ export async function selectRows<T = Record<string, unknown>>(
   }
   return (await response.json()) as T[];
 }
+
+/** What a read of the REST API returned, without deciding whether it is a bug. */
+export type AnonRead = {
+  status: number;
+  /** Rows returned, or `null` when the response was not a row set at all. */
+  rows: Record<string, unknown>[] | null;
+};
+
+/**
+ * Reads a relation with the **anon key and no session** — the exact posture of
+ * anyone who opened devtools on the landing page, since that key ships in the
+ * client bundle by design.
+ *
+ * Deliberately reports the status rather than throwing on one: "permission
+ * denied" and "no rows" are both correct answers here and a caller asserting
+ * *no rows came back* should not have to care which it got. A caller asserting
+ * the opposite — that RLS is doing its job on a table — wants the 200 and the
+ * empty array, and can check both.
+ */
+export async function readAsAnon(
+  relation: string,
+  query = "select=*",
+): Promise<AnonRead> {
+  const response = await authFetch(`/rest/v1/${relation}?${query}`);
+  let rows: Record<string, unknown>[] | null = null;
+  try {
+    const body: unknown = await response.json();
+    if (Array.isArray(body)) rows = body as Record<string, unknown>[];
+  } catch {
+    // A non-JSON body is not a row set, which `rows: null` already says.
+  }
+  return { status: response.status, rows };
+}
