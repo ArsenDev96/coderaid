@@ -1,6 +1,7 @@
 import "server-only";
 
 import { achievementSources, getAchievements, unlockedIds } from "@/lib/achievements";
+import type { ServerProfile } from "@/lib/profile-client";
 import { EMPTY_LEDGER, type Ledger, type MissionRecord } from "@/lib/progress";
 import { createAdminClient } from "@/lib/supabase/admin";
 
@@ -138,24 +139,48 @@ export async function syncAchievements(
 }
 
 /**
- * Whether this player has already imported a pre-account local ledger.
+ * The two things about a player that aren't derived from runs: whether they
+ * have already imported a pre-account ledger, and who they say they are.
  *
- * Sent with the ledger so the browser knows whether to offer the claim at all.
- * It is only ever a prompt: the endpoint re-checks, and a partial unique index
- * makes the answer binding regardless of what the client believes.
+ * Read together because both travel with the ledger and both live in the same
+ * row — the profile costs one wider `select` rather than a second round trip.
+ *
+ * **Why the profile is here at all.** It is the server's copy of the player's
+ * identity, and it has to reach the browser for the ledger to be self-contained
+ * on a device that has never seen this player's `localStorage`. Before the
+ * profile was persisted, a new device showed the default name while the
+ * leaderboard showed the real one.
+ *
+ * `claimed` fails closed. If the column is missing because the migration hasn't
+ * been applied, or the read simply failed, the honest answer is "don't offer an
+ * import" — offering one that cannot succeed is worse than not offering it. The
+ * profile fails to `null` in the same case, which the client reads as "keep
+ * what you have" rather than as a blank name.
  */
-export async function hasClaimed(playerId: string): Promise<boolean> {
+export async function playerRecord(
+  playerId: string,
+): Promise<{ claimed: boolean; profile: ServerProfile | null }> {
   const { data, error } = await createAdminClient()
     .from("players")
-    .select("claimed_at")
+    .select(
+      "claimed_at,display_name,avatar_id,slogan,path_id,experience_id,onboarding_completed",
+    )
     .eq("id", playerId)
     .single();
 
-  // Fail closed. If the column is missing because the migration hasn't been
-  // applied, or the read simply failed, the honest answer is "don't offer an
-  // import" — offering one that cannot succeed is worse than not offering it.
-  if (error || !data) return true;
-  return Boolean(data.claimed_at);
+  if (error || !data) return { claimed: true, profile: null };
+
+  return {
+    claimed: Boolean(data.claimed_at),
+    profile: {
+      name: data.display_name as string,
+      avatarId: (data.avatar_id as string | null) ?? null,
+      slogan: (data.slogan as string | null) ?? null,
+      pathId: (data.path_id as string | null) ?? null,
+      experienceId: (data.experience_id as string | null) ?? null,
+      completed: data.onboarding_completed === true,
+    },
+  };
 }
 
 /** The zero ledger, for callers that need a valid one without a round trip. */

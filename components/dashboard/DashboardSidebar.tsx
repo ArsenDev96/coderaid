@@ -53,13 +53,7 @@ export function DashboardSidebar({
                 ? "border border-violet-400/40 bg-violet-500/[0.12] text-white shadow-neon"
                 : "border border-transparent text-slate-400 hover:bg-white/5 hover:text-white"
             }`;
-            const inner = (
-              <>
-                <Icon className="h-[1.15rem] w-[1.15rem] shrink-0" strokeWidth={1.9} />
-                {item.label}
-              </>
-            );
-            return item.href ? (
+            return (
               <Link
                 key={item.label}
                 href={item.href}
@@ -67,12 +61,9 @@ export function DashboardSidebar({
                 aria-current={isActive ? "page" : undefined}
                 className={className}
               >
-                {inner}
+                <Icon className="h-[1.15rem] w-[1.15rem] shrink-0" strokeWidth={1.9} />
+                {item.label}
               </Link>
-            ) : (
-              <button key={item.label} type="button" className={className}>
-                {inner}
-              </button>
             );
           })}
         </nav>

@@ -1,3 +1,4 @@
+import { coerceProfile, type ServerProfile } from "./profile-client";
 import { coerceLedger, type Ledger } from "./progress";
 
 /**
@@ -21,6 +22,11 @@ export type LedgerResult =
       ledger: Ledger;
       /** Whether a pre-account local ledger has already been imported. */
       claimed: boolean;
+      /**
+       * The player's identity as the server holds it, or null if the read
+       * failed. Null means "keep what you have" — it is not a blank name.
+       */
+      profile: ServerProfile | null;
     }
   | { status: "unauthenticated" }
   | { status: "failed" };
@@ -29,13 +35,19 @@ async function readLedger(response: Response): Promise<LedgerResult> {
   if (response.status === 401) return { status: "unauthenticated" };
   if (!response.ok) return { status: "failed" };
   try {
-    const { ledger, claimed } = (await response.json()) as {
+    const { ledger, claimed, profile } = (await response.json()) as {
       ledger: unknown;
       claimed?: boolean;
+      profile?: unknown;
     };
     // An absent flag reads as "already claimed", so a server that didn't answer
     // the question never causes the import prompt to appear speculatively.
-    return { status: "ok", ledger: coerceLedger(ledger), claimed: claimed !== false };
+    return {
+      status: "ok",
+      ledger: coerceLedger(ledger),
+      claimed: claimed !== false,
+      profile: coerceProfile(profile),
+    };
   } catch {
     return { status: "failed" };
   }
@@ -70,9 +82,17 @@ export async function claimLocalLedger(ledger: Ledger): Promise<LedgerResult> {
     if (response.status === 409) return await fetchLedger();
     if (!response.ok) return { status: "failed" };
 
-    const { ledger: fresh } = (await response.json()) as { ledger?: unknown };
+    const { ledger: fresh, profile } = (await response.json()) as {
+      ledger?: unknown;
+      profile?: unknown;
+    };
     return fresh
-      ? { status: "ok", ledger: coerceLedger(fresh), claimed: true }
+      ? {
+          status: "ok",
+          ledger: coerceLedger(fresh),
+          claimed: true,
+          profile: coerceProfile(profile),
+        }
       : await fetchLedger();
   } catch {
     return { status: "failed" };

@@ -1,9 +1,32 @@
 "use client";
 
+import { useState } from "react";
+import Link from "next/link";
 import { motion } from "framer-motion";
 import { AlertTriangle, ArrowRight, SquareDashedBottomCode } from "lucide-react";
 
-const TABS = ["Code", "Logs", "Metrics"];
+/**
+ * The landing page's playable-looking preview of the investigation stage.
+ *
+ * Everything in it is an excerpt of a **real mission** — `user-signup-latency-spike`,
+ * quoted from its own entry in `lib/investigation.ts` — and the CTA opens that
+ * mission. It used to be a mockup: three tabs that didn't switch and a primary
+ * button with no handler, styled exactly like the working CTA beside it in
+ * `HeroSection`. A preview of a product that doesn't do what the product does
+ * is a worse advert than a screenshot, because a screenshot doesn't invite the
+ * click.
+ *
+ * It stays hand-authored rather than importing the investigation config: this
+ * is marketing copy that happens to be true, and pulling the live catalogue in
+ * would put the whole mission content into the landing page's bundle to render
+ * eight lines of it.
+ */
+
+/** The mission this preview is an excerpt of. */
+const PREVIEW_MISSION_ID = "user-signup-latency-spike";
+
+const TABS = ["Code", "Logs", "Metrics"] as const;
+type Tab = (typeof TABS)[number];
 
 const CODE_LINES: string[] = [
   "router.post('/api/signup', async (req, res) => {",
@@ -23,6 +46,62 @@ const CLUES = [
   "Trace: send welcome email 2671ms",
   "Email awaited inside the request handler",
 ];
+
+/**
+ * The tail of the mission's own `auth-service` log window — the three lines
+ * that carry the `response-waits-for-email` evidence, which is the finding the
+ * clue rail beside it is already quoting.
+ */
+const LOG_LINES: { time: string; level: string; message: string }[] = [
+  { time: "10:41:20.302", level: "INFO", message: "Password hash completed in 154ms" },
+  { time: "10:41:20.338", level: "INFO", message: "User record inserted in 31ms" },
+  { time: "10:41:20.341", level: "INFO", message: "Sending welcome email" },
+  { time: "10:41:23.012", level: "INFO", message: "Welcome email sent in 2671ms" },
+  { time: "10:41:23.018", level: "INFO", message: "POST /api/signup completed in 2916ms" },
+];
+
+/**
+ * Four of the mission's six metric cards — the two that explain the slowdown
+ * and the two that rule out the obvious wrong answers, which is the shape of
+ * the actual reasoning rather than just the alarming numbers.
+ */
+const METRIC_CARDS: {
+  label: string;
+  value: string;
+  detail: string;
+  tone: "critical" | "warning" | "normal";
+}[] = [
+  {
+    label: "Signup API p95",
+    value: "3.2s",
+    detail: "Was 420ms before 4.2.0",
+    tone: "critical",
+  },
+  {
+    label: "Email provider",
+    value: "2.7s",
+    detail: "At the provider boundary",
+    tone: "warning",
+  },
+  {
+    label: "Database insert",
+    value: "31ms",
+    detail: "Unchanged across the spike",
+    tone: "normal",
+  },
+  {
+    label: "App CPU usage",
+    value: "38%",
+    detail: "Flat across the slowdown",
+    tone: "normal",
+  },
+];
+
+const TONE_CLASS: Record<"critical" | "warning" | "normal", string> = {
+  critical: "border-rose-500/30 bg-rose-500/[0.07] text-rose-300",
+  warning: "border-amber-400/30 bg-amber-500/[0.07] text-amber-300",
+  normal: "border-white/[0.08] bg-white/[0.02] text-slate-300",
+};
 
 // Jagged, upward-trending signup-latency series for the header sparkline.
 const SPARK_POINTS =
@@ -55,7 +134,62 @@ function highlight(line: string) {
     });
 }
 
+/** The left-hand panel for the selected tool tab. */
+function ToolPanel({ tab }: { tab: Tab }) {
+  if (tab === "Logs") {
+    return (
+      <div className="thin-scroll overflow-x-auto rounded-xl border border-white/[0.06] bg-base-950/70 p-3 font-mono text-[0.66rem] leading-[1.6]">
+        {LOG_LINES.map((line) => (
+          <div key={line.time} className="flex items-start gap-2.5 whitespace-nowrap">
+            <span className="shrink-0 select-none text-slate-600">{line.time}</span>
+            <span className="shrink-0 font-semibold text-emerald-400/80">
+              {line.level}
+            </span>
+            <span className="text-slate-300">{line.message}</span>
+          </div>
+        ))}
+      </div>
+    );
+  }
+
+  if (tab === "Metrics") {
+    return (
+      <div className="grid grid-cols-2 gap-2">
+        {METRIC_CARDS.map((card) => (
+          <div
+            key={card.label}
+            className={`rounded-xl border p-3 ${TONE_CLASS[card.tone]}`}
+          >
+            <div className="text-[0.58rem] font-semibold uppercase tracking-[0.14em] text-slate-500">
+              {card.label}
+            </div>
+            <div className="mt-1 text-lg font-bold leading-none">{card.value}</div>
+            <div className="mt-1.5 text-[0.62rem] leading-tight text-slate-500">
+              {card.detail}
+            </div>
+          </div>
+        ))}
+      </div>
+    );
+  }
+
+  return (
+    <div className="thin-scroll overflow-x-auto rounded-xl border border-white/[0.06] bg-base-950/70 p-3 font-mono text-[0.66rem] leading-[1.6] text-slate-300">
+      {CODE_LINES.map((line, i) => (
+        <div key={i} className="flex items-start gap-3">
+          <span className="w-4 shrink-0 select-none text-right text-slate-600">
+            {i + 1}
+          </span>
+          <span className="whitespace-pre">{highlight(line)}</span>
+        </div>
+      ))}
+    </div>
+  );
+}
+
 export function GamePreview() {
+  const [tab, setTab] = useState<Tab>("Code");
+
   return (
     <div className="relative w-full">
       <div className="pointer-events-none absolute -inset-6 -z-10 rounded-[2rem] bg-radial-glow opacity-70 blur-2xl" />
@@ -117,36 +251,40 @@ export function GamePreview() {
           </div>
         </div>
 
-        {/* Tabs */}
-        <div className="flex gap-6 border-b border-white/[0.06] px-5">
-          {TABS.map((tab, i) => (
-            <button
-              key={tab}
-              type="button"
-              className={`-mb-px border-b-2 pb-2.5 text-[0.68rem] font-semibold uppercase tracking-[0.14em] transition-colors ${
-                i === 0
-                  ? "border-violet-400 text-white"
-                  : "border-transparent text-slate-500 hover:text-slate-300"
-              }`}
-            >
-              {tab}
-            </button>
-          ))}
+        {/* Tabs — the same three tools the investigation stage opens with */}
+        <div role="tablist" aria-label="Investigation tools" className="flex gap-6 border-b border-white/[0.06] px-5">
+          {TABS.map((name) => {
+            const active = name === tab;
+            return (
+              <button
+                key={name}
+                type="button"
+                role="tab"
+                id={`preview-tab-${name.toLowerCase()}`}
+                aria-selected={active}
+                aria-controls="preview-tabpanel"
+                onClick={() => setTab(name)}
+                className={`-mb-px border-b-2 pb-2.5 text-[0.68rem] font-semibold uppercase tracking-[0.14em] transition-colors ${
+                  active
+                    ? "border-violet-400 text-white"
+                    : "border-transparent text-slate-500 hover:text-slate-300"
+                }`}
+              >
+                {name}
+              </button>
+            );
+          })}
         </div>
 
-        {/* Code + clues */}
+        {/* Selected tool + clues */}
         <div className="grid grid-cols-1 gap-0 lg:grid-cols-[1.7fr_1fr]">
-          <div className="min-w-0 border-b border-white/[0.06] p-4 lg:border-b-0 lg:border-r">
-            <div className="thin-scroll overflow-x-auto rounded-xl border border-white/[0.06] bg-base-950/70 p-3 font-mono text-[0.66rem] leading-[1.6] text-slate-300">
-              {CODE_LINES.map((line, i) => (
-                <div key={i} className="flex items-start gap-3">
-                  <span className="w-4 shrink-0 select-none text-right text-slate-600">
-                    {i + 1}
-                  </span>
-                  <span className="whitespace-pre">{highlight(line)}</span>
-                </div>
-              ))}
-            </div>
+          <div
+            id="preview-tabpanel"
+            role="tabpanel"
+            aria-labelledby={`preview-tab-${tab.toLowerCase()}`}
+            className="min-w-0 border-b border-white/[0.06] p-4 lg:border-b-0 lg:border-r"
+          >
+            <ToolPanel tab={tab} />
           </div>
 
           <div className="p-4">
@@ -167,15 +305,24 @@ export function GamePreview() {
           </div>
         </div>
 
-        {/* CTA */}
+        {/*
+          CTA — opens the mission this preview is quoting. It was a handler-less
+          <button> styled identically to the working "Start Your First Mission"
+          Link a few hundred pixels to its left, which made the most prominent
+          element on the landing page the one that did nothing.
+
+          It goes to the briefing rather than /start: missions play without an
+          account (the wall is at Run Verification), so this is the shortest
+          honest path from the advert into the actual product.
+        */}
         <div className="border-t border-white/[0.06] p-4">
-          <button
-            type="button"
+          <Link
+            href={`/missions/${PREVIEW_MISSION_ID}/briefing`}
             className="group flex w-full items-center justify-center gap-2 rounded-xl border border-violet-400/40 bg-gradient-to-r from-violet-600 to-electric-500 px-4 py-2.5 text-sm font-semibold text-white shadow-neon transition-transform hover:scale-[1.01]"
           >
             Start Investigation
             <ArrowRight className="h-4 w-4 transition-transform group-hover:translate-x-0.5" />
-          </button>
+          </Link>
         </div>
       </motion.div>
     </div>
