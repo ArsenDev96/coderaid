@@ -15,6 +15,7 @@ import {
   saveDraft,
   type ProfileDraft,
 } from "@/lib/onboarding";
+import { saveProfile } from "@/lib/profile-client";
 import { startDestination, storageNote } from "@/lib/start";
 
 /**
@@ -66,10 +67,28 @@ export function StartExperience() {
     [],
   );
 
+  /*
+    Finishing the wizard is the moment the profile becomes a fact about the
+    player rather than a form in progress, so it is where the whole draft goes
+    to the server — name, avatar, slogan, path and experience, the five of the
+    six granted columns the wizard actually collects, plus the completion flag.
+
+    Best-effort and deliberately not awaited into the UI: the success card and
+    the local save are what the player is waiting on, and a failed write leaves
+    them with a working local profile they can re-save from Settings. Signed
+    out, `saveProfile` returns null on the route's 401 and nothing changes —
+    which is the case that matters, since onboarding runs before sign-in for
+    most players.
+  */
   const onComplete = useCallback(() => {
+    // Derived from `draft` rather than inside a state updater, for the reason
+    // `useSettings` spells out: React may invoke an updater more than once, and
+    // a POST must happen once.
+    const completed = { ...draft, completed: true };
     setJustCompleted(true);
-    setDraft((d) => ({ ...d, completed: true }));
-  }, []);
+    setDraft(completed);
+    void saveProfile(completed);
+  }, [draft]);
 
   const destination = startDestination(
     {

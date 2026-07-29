@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { hasClaimed, ledgerFor, syncAchievements } from "@/lib/server/ledger";
+import { ledgerFor, playerRecord, syncAchievements } from "@/lib/server/ledger";
 import { parseLocalDate } from "@/lib/server/submission";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { currentUser } from "@/lib/supabase/server";
@@ -15,6 +15,12 @@ import { currentUser } from "@/lib/supabase/server";
  * different facts: the provider falls back to the local ledger on 401, and
  * would wrongly show zero if "no session" and "no progress" looked alike.
  *
+ * The player's own profile rides along with both verbs. It is not progress and
+ * nothing derives from it, but it lives in the same `players` row the claim
+ * flag is read from — so carrying it costs a wider `select` rather than a
+ * second round trip, and it is what makes the ledger self-contained on a device
+ * that has never seen this player's `localStorage`.
+ *
  * Neither verb lets the client state a number. The active day is the only
  * value that crosses, and `parseLocalDate` bounds it to ±1 day of the server's
  * own date, so the most a forged request can buy is a day it nearly had.
@@ -27,11 +33,15 @@ export async function GET() {
   }
 
   try {
-    const [ledger, claimed] = await Promise.all([
+    const [ledger, record] = await Promise.all([
       ledgerFor(user.id),
-      hasClaimed(user.id),
+      playerRecord(user.id),
     ]);
-    return NextResponse.json({ ledger, claimed });
+    return NextResponse.json({
+      ledger,
+      claimed: record.claimed,
+      profile: record.profile,
+    });
   } catch {
     return NextResponse.json({ error: "read_failed" }, { status: 500 });
   }
@@ -72,11 +82,15 @@ export async function POST(request: Request) {
 
     // Re-read so the response carries the achievement just stamped rather than
     // the state from immediately before it.
-    const [fresh, claimed] = await Promise.all([
+    const [fresh, record] = await Promise.all([
       ledgerFor(user.id),
-      hasClaimed(user.id),
+      playerRecord(user.id),
     ]);
-    return NextResponse.json({ ledger: fresh, claimed });
+    return NextResponse.json({
+      ledger: fresh,
+      claimed: record.claimed,
+      profile: record.profile,
+    });
   } catch {
     return NextResponse.json({ error: "write_failed" }, { status: 500 });
   }

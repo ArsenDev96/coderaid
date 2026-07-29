@@ -13,6 +13,7 @@ import {
 import { EMPTY_VIEW, type PlayerView } from "@/lib/availability";
 import { DEFAULT_PLAYER_NAME, playerFrom, type Player } from "@/lib/dashboard";
 import { fetchLedger, recordActivity } from "@/lib/ledger-client";
+import { avatarFor, type ServerProfile } from "@/lib/profile-client";
 import { AVATARS, loadDraft, type Avatar } from "@/lib/onboarding";
 import {
   EMPTY_LEDGER,
@@ -103,6 +104,26 @@ function readIdentity(): Identity {
   };
 }
 
+/**
+ * The identity a signed-in player has, which is the server's copy.
+ *
+ * This is what closes the gap the profile route opened: the leaderboard renders
+ * `players.display_name`, so the top bar and greeting must render the same
+ * string or the player sees one name and everyone else sees another. A device
+ * that has never seen this player's `localStorage` now gets their real name
+ * instead of "Operative".
+ *
+ * Falls back per field rather than wholesale: a column never written is null,
+ * and a null slogan should keep the local one rather than blank it.
+ */
+function identityFromProfile(profile: ServerProfile, local: Identity): Identity {
+  return {
+    name: profile.name.trim() || local.name,
+    slogan: profile.slogan || local.slogan,
+    avatar: profile.avatarId ? avatarFor(profile.avatarId) : local.avatar,
+  };
+}
+
 export function ProgressProvider({ children }: { children: ReactNode }) {
   const [ledger, setLedger] = useState<Ledger>(EMPTY_LEDGER);
   const [source, setSource] = useState<LedgerSource>("pending");
@@ -126,15 +147,23 @@ export function ProgressProvider({ children }: { children: ReactNode }) {
     setClaimable(Object.keys(local.missions).length > 0 ? local : null);
   }, []);
 
-  /** Everything that lives in `localStorage` and still legitimately does. */
-  const readLocalState = useCallback(() => {
+  /**
+   * Everything that lives in `localStorage` and still legitimately does.
+   *
+   * Returns the identity it read as well as setting it, so a server profile can
+   * be layered on top field by field — `setIdentity` is asynchronous, so the
+   * caller cannot read back what it just stored.
+   */
+  const readLocalState = useCallback((): Identity => {
     setStarted(startedMissionIds());
-    setIdentity(readIdentity());
+    const local = readIdentity();
+    setIdentity(local);
+    return local;
   }, []);
 
   const load = useCallback(async () => {
     const mine = ++generation.current;
-    readLocalState();
+    const local = readLocalState();
 
     // Opening the app is activity: it is what a streak actually measures. The
     // local date goes with it because streaks are counted in local days, and
@@ -145,6 +174,9 @@ export function ProgressProvider({ children }: { children: ReactNode }) {
     if (result.status === "ok") {
       setLedger(result.ledger);
       setSource("server");
+      // The server owns identity for a signed-in player: it is what the
+      // leaderboard renders, so the top bar must agree with it.
+      if (result.profile) setIdentity(identityFromProfile(result.profile, local));
       resolveClaimable(result.claimed);
     } else {
       // Signed out, or the server is unreachable. Either way the local ledger
@@ -159,12 +191,13 @@ export function ProgressProvider({ children }: { children: ReactNode }) {
 
   const refresh = useCallback(() => {
     const mine = ++generation.current;
-    readLocalState();
+    const local = readLocalState();
     void fetchLedger().then((result) => {
       if (mine !== generation.current) return;
       if (result.status === "ok") {
         setLedger(result.ledger);
         setSource("server");
+        if (result.profile) setIdentity(identityFromProfile(result.profile, local));
         resolveClaimable(result.claimed);
       } else if (result.status === "unauthenticated") {
         setLedger(loadLedger());

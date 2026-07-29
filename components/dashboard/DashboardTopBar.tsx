@@ -1,8 +1,9 @@
 "use client";
 
 import type { ReactNode } from "react";
-import { BarChart3, ChevronDown, Flame, Menu, Zap } from "lucide-react";
+import { BarChart3, Flame, Menu, Zap } from "lucide-react";
 import { useProgress } from "@/components/progress/ProgressProvider";
+import { AccountMenu } from "./AccountMenu";
 
 function StatPill({
   icon,
@@ -35,8 +36,8 @@ export function DashboardTopBar({
   onMenu?: () => void;
   left?: ReactNode;
 }) {
-  const { avatar, player } = useProgress();
-  const AvatarIcon = avatar.icon;
+  // The avatar moved into `AccountMenu` with the button it belongs to.
+  const { player } = useProgress();
 
   return (
     <header className="sticky top-0 z-30 border-b border-white/[0.06] bg-base-950/80 backdrop-blur-xl">
@@ -73,18 +74,7 @@ export function DashboardTopBar({
             tone="border border-violet-400/25 bg-violet-500/10"
           />
 
-          <button
-            type="button"
-            className="flex items-center gap-2 rounded-xl border border-white/10 bg-white/[0.03] p-1.5 transition-colors hover:border-white/20"
-            aria-label="Account menu"
-          >
-            <span
-              className={`grid h-9 w-9 place-items-center rounded-lg border border-violet-400/40 bg-gradient-to-br ${avatar.gradient}`}
-            >
-              <AvatarIcon className="h-5 w-5 text-white" strokeWidth={1.8} />
-            </span>
-            <ChevronDown className="h-4 w-4 text-slate-500" />
-          </button>
+          <AccountMenu />
         </div>
       </div>
     </header>

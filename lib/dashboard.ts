@@ -59,7 +59,14 @@ export const GREETING_SUBTITLE =
 
 /* ------------------------------ Navigation ------------------------------ */
 
-export type SidebarItem = { label: string; icon: LucideIcon; href?: string };
+/**
+ * `href` is required. It used to be optional, and `DashboardSidebar` rendered
+ * any item without one as a handler-less `<button>` — so adding an item and
+ * forgetting its route produced a silently inert nav entry rather than an
+ * error. Every item has always had one; making it required deletes both the
+ * dead branch and the trap.
+ */
+export type SidebarItem = { label: string; icon: LucideIcon; href: string };
 
 export const SIDEBAR_ITEMS: SidebarItem[] = [
   { label: "Dashboard", icon: Home, href: "/dashboard" },

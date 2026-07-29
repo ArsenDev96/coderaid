@@ -269,7 +269,13 @@ function IdentityStep({
         </div>
         {!nameOk && (
           <p className="mt-2 text-xs text-slate-500">
-            Pick any handle — it&apos;s saved locally in your browser.
+            {/*
+              Was "it's saved locally in your browser", which stopped being the
+              whole truth when the profile started reaching the server. The
+              wizard is a controlled component and has no auth state to branch
+              on, so this says the thing that is true either way.
+            */}
+            Pick any handle — you can change it any time in Settings.
           </p>
         )}
       </div>
