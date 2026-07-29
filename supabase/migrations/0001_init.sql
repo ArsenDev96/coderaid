@@ -102,6 +102,30 @@ comment on view public.best_runs is
   'Best run per player per mission — the rows the ledger is summed from.';
 
 /* --------------------------------- RLS ---------------------------------- */
+--
+-- HOUSE RULE FOR VIEWS — read this before adding another one.
+--
+-- Enabling RLS on a table does NOT protect a view over that table. A view's
+-- queries run as the view's OWNER unless it is declared `security_invoker`, so
+-- by default a view is a hole straight through every policy below it. Supabase
+-- then grants SELECT on new public relations to `anon` and `authenticated`,
+-- which means the hole is reachable with the anon key that ships in the client
+-- bundle.
+--
+-- `best_runs` above was created without it and leaked every player's runs —
+-- including `root_cause_id`, `evidence_ids` and `fix_id`, which is the answer
+-- key `lib/server/answers.ts` exists to keep out of the browser. Fixed in
+-- 0003_lock_best_runs.sql; that file records what was measured.
+--
+-- So: **every view over an RLS-protected table sets `security_invoker = true`
+-- at creation, and grants nothing to `anon` or `authenticated` unless its rows
+-- are genuinely public.** Both, not either — `create or replace view` silently
+-- drops the setting, and the revoke is what survives that.
+--
+--   create view public.thing with (security_invoker = true) as select ...;
+--   revoke all on public.thing from anon, authenticated;
+--
+-- `e2e/view-privileges.spec.ts` enforces this from outside the database.
 
 alter table public.players            enable row level security;
 alter table public.mission_runs       enable row level security;

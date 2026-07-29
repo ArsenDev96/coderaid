@@ -1,7 +1,7 @@
 # CodeRaid — Current State of the Codebase
 
 > **Purpose of this document.** A complete, self-contained snapshot of what exists in the CodeRaid
-> repository as of 2026-07-21. It is written to be handed to a planning model (ChatGPT) that has
+> repository as of 2026-07-29. It is written to be handed to a planning model (ChatGPT) that has
 > **no access to the code**, so it can plan next steps without re-deriving anything. Everything
 > below is verified against the source, not aspirational.
 >
@@ -133,8 +133,8 @@
 >   missions they had never opened. The type no longer allows the field and `validate:missions`
 >   fails a catalogue that reintroduces it.
 >
-> §12 item 17 — the profile never reaching the server — is the one audit item left open, deliberately:
-> wiring it changes what other players see.
+> §12 item 17 — the profile never reaching the server — was the one audit item left open at the time.
+> It was closed on 2026-07-29; see the profile pass below.
 >
 > **New in the onboarding-completion pass (2026-07-22).** `/start` is now one route with three
 > states rather than a wizard that turns into a permanent "You''re all set" card. The completion
@@ -162,9 +162,31 @@
 >   silently restored collected evidence; the workspace now says so, with the real count, and offers
 >   a confirmed Restart. "Run It Again" was a plain link to the briefing, so a replay inherited the
 >   previous attempt's evidence, diagnosis, fix and running clock — it now clears all eight of the
->   mission's local slots first (§6 → Stage 2 and Stage 6, §16.7).
+>   mission's local slots first (§6 → Stage 2 and Stage 6, and the sweep table in §12).
 >
-> The suite is **546 tests across 21 files**, plus 27 Playwright specs. All six gates green:
+> **New in the profile pass (2026-07-29).** §12 item 17 is closed: **the profile now reaches the
+> server.** `POST /api/profile` writes the six granted columns of `players`, Settings and onboarding
+> both call it, and the ledger response carries the stored profile back so a device that has never
+> seen this player's `localStorage` still renders their real name. It is the **only route in the app
+> that uses the user-scoped Supabase client rather than the service-role one**, and §16.7 explains
+> why that is the safer choice here specifically. Three decoration defects went with it: the landing
+> page's preview tabs now switch and its CTA opens the mission it quotes, and the top bar's account
+> menu opens. What is **not** solved is display-name moderation — `sanitizeDisplayName` is a
+> rendering guard, not a word list (§12 item 17).
+>
+> **New in the view-privileges fix (2026-07-29) — the most serious defect found on this project.**
+> `best_runs` is a view over an RLS-protected table, and **a Postgres view does not enforce the RLS
+> underneath it** unless declared `security_invoker`. Supabase grants `SELECT` on public relations to
+> `anon` by default, so the view served **every player's runs — including `root_cause_id`,
+> `evidence_ids` and `fix_id`, the answer key — to anyone holding the anon key that ships in the
+> client bundle**, with no session. `mission_runs` and `players` returned `[]` throughout; only the
+> view was open. It leaked to `authenticated` as well, so `0003_lock_best_runs.sql` both sets
+> `security_invoker` and revokes the grant from both roles. `service_role` has `bypassrls`, so the
+> ledger and the leaderboard are unaffected — verified, not assumed. The house rule now lives beside
+> the RLS block in `0001_init.sql`, and `e2e/view-privileges.spec.ts` is the alarm (§12 item 20,
+> §15.6).
+>
+> The suite is **571 tests across 22 files**, plus **30 Playwright specs**. All six gates green:
 > `typecheck`, `lint`, `test`, `validate:missions`, `build`, `playwright`.
 
 ---
@@ -203,10 +225,10 @@ The README (`README.md`) has been rewritten to match this positioning and is no 
 | Icons | `lucide-react` |
 | Animation | `framer-motion` (reduced-motion aware) |
 | Fonts | `next/font/google` — Inter (`--font-inter`), JetBrains Mono (`--font-jetbrains`) |
-| Backend | **Supabase** — Postgres + GitHub OAuth. Four route handlers under `app/api/`; no server actions |
+| Backend | **Supabase** — Postgres + GitHub OAuth. Five route handlers under `app/api/`; no server actions |
 | Auth | `@supabase/ssr` 0.12 + `@supabase/supabase-js` 2 — GitHub OAuth only, cookie sessions |
-| Tests | **Vitest 2** — `tests/`, 21 files, 546 tests, Node environment, `@/*` alias |
-| Browser smoke | **Playwright 1.61** — `e2e/`, 27 Chromium tests against the production build: 14 signed-out, 13 authenticated (§15.5, §17.4) |
+| Tests | **Vitest 2** — `tests/`, 22 files, 571 tests, Node environment, `@/*` alias |
+| Browser smoke | **Playwright 1.61** — `e2e/`, 30 Chromium tests against the production build: 14 signed-out, 13 authenticated (§15.5, §17.4), 3 database-privilege checks that use no browser at all (§15.6) |
 | Lint | **ESLint 8 + `eslint-config-next`**, committed `.eslintrc.json` extending `next/core-web-vitals` |
 | Content validation | `tsx scripts/validate-missions.ts` over `lib/mission-validation.ts` |
 
@@ -222,16 +244,24 @@ and `SUPABASE_SERVICE_ROLE_KEY`. The service-role key is read only inside `lib/s
 which begins with `import "server-only"`, so no import path can pull it toward the browser bundle.
 It must never be given a `NEXT_PUBLIC_` prefix.
 
-### Verified command results (re-run 2026-07-28, after the investigation-state pass)
+### Verified command results (re-run 2026-07-29, after the profile pass)
 
 | Command | Result |
 | --- | --- |
 | `npm run typecheck` | **passes clean**, no errors |
 | `npm run lint` | **runs non-interactively** — "No ESLint warnings or errors" |
-| `npm run test` | **546 passed** across 21 files |
+| `npm run test` | **571 passed** across 22 files |
 | `npm run validate:missions` | **0 errors, 0 warnings** — 20 missions checked, 14 fully playable |
-| `npm run build` | **succeeds**, "Compiled successfully" |
+| `npm run build` | **succeeds**, "Compiled successfully" — see the stale-`.next` note below |
 | `npx playwright test` | **27 passed** (Chromium, against the production build) |
+
+**A stale `.next` can fail the build itself, not just the secrecy test.** On 2026-07-29 the first
+`npm run build` of the pass died with `ENOENT` inside `loadComponentsImpl` and
+`Failed to collect page data for /leaderboards` — nothing to do with the source, which had just
+typechecked and linted clean. The immediate re-run succeeded with no change. The existing warning
+about `.next` (§15.1) is about `bundle-secrecy` reporting phantom leaks; this is the same root cause
+wearing a different face. **Treat a build error that names a route you did not touch as a stale
+artifact until a clean rebuild says otherwise.**
 
 All 27 Playwright tests **ran** rather than skipping, which is the thing to check: the thirteen
 authenticated ones skip themselves without the Supabase keys, and a run where they skip reports the
@@ -271,6 +301,8 @@ app/
   api/ledger/route.ts        GET the derived ledger · POST an active day
   api/claim/route.ts         One-time import of a pre-account local ledger
   api/leaderboard/route.ts   Real standings, signed-in players only
+  api/profile/route.ts       The player's own six profile columns — the ONLY route that runs as
+                             the user rather than as service-role (§16.7)
   dashboard/                 Player home
   missions/                  Mission browser
   missions/map/              Mission map (chapter rail + details panel)
@@ -286,7 +318,8 @@ components/
   progress/                  ProgressProvider — fetches the server ledger, useProgress();
                              ClaimProgressBanner (phase-4 import offer)
   auth/                      SignInCard
-  dashboard/                 DashboardShell, DashboardSidebar, DashboardTopBar, DashboardGreeting,
+  dashboard/                 DashboardShell, DashboardSidebar, DashboardTopBar, AccountMenu,
+                             DashboardGreeting,
                              NextAction, DailyRaid, CareerProgress, RecommendedMissions,
                              SkillsSummary, usePlayer
   onboarding/                StartExperience (owns the draft + the three states),
@@ -307,6 +340,9 @@ lib/
                              server module depends on the public contract, not the reverse
   grade-submission.ts        Client: submit a run, cache the returned grade + credit
   ledger-client.ts           Client: fetch the ledger, record an active day, claim a local one
+  profile-client.ts          Client: the ServerProfile wire shape, saveProfile(), coerceProfile(),
+                             draftFromProfile() — declared here so lib/server/profile.ts depends
+                             on the public contract, not the reverse
   run.ts                     Per-mission run telemetry: timing, stages completed, hints used
   skills.ts                  CANONICAL Node.js skill taxonomy
   stage-access.ts            Pure stage-prerequisite rules (what StageGate enforces)
@@ -325,7 +361,10 @@ lib/server/                  ALL of these begin with `import "server-only"`
   answers.ts                 THE SECRET: every mission's correct root cause, evidence and fix
   submission.ts              Parses untrusted submissions; bounds lists, clamps duration,
                              validates the player's local date to ±1 day
-  ledger.ts                  Derives the Ledger from Postgres; stamps achievements
+  ledger.ts                  Derives the Ledger from Postgres; stamps achievements;
+                             playerRecord() reads the claim flag and the profile together
+  profile.ts                 Bounds a profile update to the six granted columns;
+                             sanitizeDisplayName() strips what a name may not render
   claim.ts                   Validates a pre-account ledger; re-derives every XP figure
   standings.ts               Derives the leaderboard from best_runs + players
 
@@ -335,6 +374,7 @@ lib/supabase/                env.ts · client.ts (browser) · server.ts (session
 supabase/migrations/
   0001_init.sql              Tables, best_runs view, RLS, handle_new_user trigger
   0002_claim_local_progress.sql  players.claimed_at, mission_runs.source, claim uniqueness
+  0003_lock_best_runs.sql    security_invoker + revoke on best_runs — the view bypassed RLS
 
 scripts/
   validate-missions.ts       CLI wrapper: grouped output, non-zero exit on errors
@@ -343,14 +383,16 @@ scripts/
 tests/                       Vitest — pure domain logic + end-to-end mission flows
   grading  progress  availability  verification  skills  achievements  dashboard  start
   leaderboards  mission-validation  settings  mission-flow
-  bundle-secrecy  ledger-derivation  claim  stale-verdict
+  bundle-secrecy  ledger-derivation  claim  stale-verdict  profile
   investigation-restore-and-replay   which localStorage slots each reset clears and keeps
   stubs/server-only.ts       Aliased by vitest.config.ts so server modules import in Node
 
 e2e/                         Playwright — mission-flow.spec.ts + onboarding.spec.ts +
                              investigation-state.spec.ts (signed out),
-                             authenticated.spec.ts (session-backed, §15.5)
-  support/                   session.ts (mint a session), fixtures.ts (player
+                             authenticated.spec.ts (session-backed, §15.5),
+                             view-privileges.spec.ts (no browser, no session — what the
+                             anon key can read straight from the database API, §15.6)
+  support/                   session.ts (mint a session, readAsAnon), fixtures.ts (player
                              lifecycle), mission.ts (play a mission well or badly)
 .eslintrc.json               next/core-web-vitals
 vitest.config.ts             Node environment, @/* alias, `server-only` → tests/stubs
@@ -1172,7 +1214,10 @@ the same mission, so the wizard, the dashboard and the mission map all point a n
 place. A test asserts the two agree. **All three suggestions are now fully authored** — `beginner` →
 `event-loop-overload`, `junior` → `promise-all-cascade`, `mid` → `user-signup-latency-spike` — so
 none of them falls back, and `tests/chapter-two.test.ts` pins each one against its catalogue entry.
-Persists to `coderaid:profile`.
+Persists to `coderaid:profile`, and — since 2026-07-29 — to `players` as well for a signed-in
+player, via `saveProfile()` → `POST /api/profile`. The local write is not conditional on the remote
+one succeeding: a signed-out player and a server hiccup produce the same behaviour the wizard had
+before the route existed, which is why onboarding still works before there is an account.
 
 #### The completion state (rebuilt 2026-07-22)
 
@@ -1236,7 +1281,10 @@ unchanged.
 ### Settings — `/settings`
 
 - **Profile** — name + avatar, written into `coderaid:profile` while preserving onboarding fields;
-  explicit Save button with a transient confirmation.
+  explicit Save button with a transient confirmation. **Since 2026-07-29 it also reaches the
+  server** for a signed-in player (`POST /api/profile`), so the leaderboard shows the name you just
+  chose rather than the one GitHub supplied. The confirmation reflects what actually happened —
+  saving locally and saving everywhere are different outcomes and are not reported as the same one.
 - **Experience** — auto-saving, and as of 2026-07-21 it holds **exactly two preferences, both of
   which something reads**: `codeEditorTheme` (5 options) and `showLineNumbers`, consumed by both
   code surfaces via `lib/code-theme.ts` (below). Three controls were **removed** in that pass
@@ -1292,7 +1340,7 @@ that is exactly why a mission can be played without an account.
 
 | Key | Written by | Shape |
 | --- | --- | --- |
-| `coderaid:profile` | onboarding, settings profile | `{ name, avatarId, slogan, pathId, experienceId, step, completed }` |
+| `coderaid:profile` | onboarding, settings profile | `{ name, avatarId, slogan, pathId, experienceId, step, completed }`. **Since 2026-07-29 this is no longer the only copy for a signed-in player** — everything except `step` is mirrored to `players` through `POST /api/profile`. It stays the whole truth signed out, which is what lets onboarding run before there is an account to attach it to |
 | `coderaid:user-settings` | settings experience | `{ codeEditorTheme, showLineNumbers }` — stored values from a previous shape are dropped by the loader |
 | `coderaid:player:progress` | **nothing, any more** | The pre-migration ledger. Read-only: shown to a signed-out player who earned it before accounts existed, and cleared once phase 4 imports it. No code path writes this key. |
 | `coderaid:{missionId}:grade` | verification | The grade **the server returned** — cached so the results screen renders the same verdict without a second round trip or a second run row |
@@ -1307,6 +1355,16 @@ that is exactly why a mission can be played without an account.
 `MissionRecord` is `{ missionId, completedAt, completedOn, score, xpEarned, durationMs, hintsUsed,
 resolved, attempts }` — still the ledger's wire shape, now produced by `lib/server/ledger.ts` from
 `best_runs` rather than written by the browser.
+
+**The ledger response carries a third field as of 2026-07-29.** `GET` and `POST /api/ledger` both
+answer `{ ledger, claimed, profile }`, where `profile` is `ServerProfile`
+(`{ name, avatarId, slogan, pathId, experienceId, completed }`) or `null`. `hasClaimed()` became
+`playerRecord()` for this: the claim flag and the profile live in the same `players` row, so reading
+them together costs one wider `select` rather than a second round trip. Both halves **fail closed in
+the same direction** — a failed read answers `claimed: true` (never offer an import that cannot
+succeed) and `profile: null`, which `ProgressProvider` reads as *keep what you have* rather than as a
+blank name. That distinction matters: `null` and `{ name: "" }` would otherwise both wipe the local
+draft, and only one of them is a fact.
 
 Two invariants are enforced on read (`coerceLedger`), not trusted — and they apply to the **server's
 response** as much as to stored JSON, because both are values this tick did not construct:
@@ -1395,6 +1453,21 @@ and next-mission links, derived from which stage configs exist) — plus, new in
   finished an incident, ranked by runs this server graded.
 - **Auth.** GitHub OAuth, real. Missions play free; the wall is at Run Verification, because that is
   where a score starts being recorded.
+- **The profile is persisted** (new 2026-07-29). Settings and the onboarding wizard both `POST
+  /api/profile`, which writes the six columns `0001_init.sql` grants. Renaming yourself in Settings
+  now changes what the leaderboard shows other people, and the ledger response carries the stored
+  profile back so the top bar and the leaderboard cannot disagree about your name (§12 item 17,
+  §16.7).
+- **The landing page's preview is a working preview** (new 2026-07-29). Its three tabs — Code, Logs,
+  Metrics — switch, and its CTA opens `user-signup-latency-spike`, the mission every line in it is
+  quoted from. It was three tabs that did not switch and a primary button with no handler, styled
+  exactly like the working CTA beside it.
+- **The top bar's account menu opens** (new 2026-07-29). Settings, Achievements, and then either Log
+  out (a form POSTing to `/auth/sign-out`, matching the sidebar) or Sign in — because missions play
+  without an account, so offering a signed-out visitor "Log out" would be one piece of theatre
+  swapped for another. It closes on outside `pointerdown` and on Escape. It was a
+  `<button aria-label="Account menu">` with a chevron and no handler, which is the worst shape
+  decoration can take: the label *announced* a menu that could not be opened.
 
 **Mocked or static:**
 - All logs, metrics, traces, code, DB stats and chart series are hand-authored literals. They are
@@ -1428,10 +1501,15 @@ and next-mission links, derived from which stage configs exist) — plus, new in
 - **Objectives no longer carry a `done` flag.** Six of the eighty said `true`, and the mission
   browser rendered those as completed checkmarks for players who had never opened the mission
   (§12 item 18).
-- **Profile edits never leave the browser.** Settings and onboarding write `coderaid:profile` in
-  `localStorage`; `players.display_name` is only ever written once, by the sign-up trigger, and it
-  is what the leaderboard shows (§12 item 17). **This is the one item from the decoration audit
-  still open**, and deliberately so — it is a feature gap whose fix changes what other players see.
+- ~~**Profile edits never leave the browser.**~~ **False since 2026-07-29** — moved to the real list
+  above. Settings and onboarding now `POST /api/profile`, and `players.display_name` is no longer
+  written once by the sign-up trigger and never again (§12 item 17).
+- **Display names are not moderated.** `sanitizeDisplayName` strips control characters, zero-width
+  characters and bidi overrides — a rendering guard, so one player's name cannot break or reorder
+  the row beside it — and bounds the length. It is **not** a word list and there is no review queue,
+  so a determined player can still pick a rude handle that everyone on the leaderboard sees. This is
+  the part of item 17 that is still open; half a filter implemented here would read as protection
+  that is not there.
 
 ---
 
@@ -1624,8 +1702,28 @@ the original code.
 ### Found in the decoration audit, 2026-07-22 — items 13–16 and 18 fixed 2026-07-22
 
 A deliberate sweep for anything still ornamental now that grading, the ledger and the leaderboard
-are real. One of the five was a live defect rather than debt. **Five of the six are now closed;
-item 17 is a product decision and stays open.**
+are real. One of the five was a live defect rather than debt. **All six are now closed** — items
+13–16 and 18 on 2026-07-22, and item 17 on 2026-07-29. What remains of item 17 is the
+display-name **moderation** question, which is a product decision rather than an unwritten feature.
+
+Two more ornaments were found and fixed alongside item 17, because the profile pass touched the same
+surfaces:
+
+- **The landing page's preview was a mockup.** Three tabs (Code / Logs / Metrics) that did not
+  switch, and a primary button with no handler styled exactly like the working CTA beside it in
+  `HeroSection`. The tabs now switch and the CTA opens `user-signup-latency-spike`, the mission every
+  line in the preview is quoted from. The content stays hand-authored rather than importing
+  `lib/investigation.ts`: it is marketing copy that happens to be true, and pulling the live
+  catalogue in would put a whole mission's content into the landing page's bundle to render eight
+  lines of it. A preview of a product that does not do what the product does is a worse advert than a
+  screenshot, because a screenshot does not invite the click.
+- **The top bar's account menu could not be opened.** It was a `<button aria-label="Account menu">`
+  with a chevron and no handler, on every page inside `DashboardShell` — the worst shape decoration
+  can take, because the label announced a menu to a screen reader and the chevron promised a dropdown
+  to everyone else. `AccountMenu` now opens Settings, Achievements and either Log out or Sign in,
+  closing on outside `pointerdown` (not `click`, so the menu is gone before whatever is underneath
+  reacts) and on Escape. The last item follows `useProgress().authenticated`, which is true exactly
+  when the ledger came from the server.
 
 13. ~~**"Log out" does not log out.**~~ **Fixed.** `DashboardSidebar` rendered it as
     `<Link href="/">`, which navigated to the landing page and **left the session intact** —
@@ -1679,14 +1777,42 @@ item 17 is a product decision and stays open.**
     initialization` at prerender time, on pages that never mention the dashboard. The first attempt
     did exactly this and `npm run build` caught it.
 
-17. **The profile never reaches the server.** `players` carries `display_name`, `avatar_id`,
-    `slogan`, `path_id`, `experience_id` and `onboarding_completed`, and `0001_init.sql` grants
-    `UPDATE` on exactly those six columns to `authenticated` — the one thing a player is allowed to
-    write. **Nothing ever writes any of them.** Settings and onboarding persist to
-    `coderaid:profile` in `localStorage`, while the leaderboard renders the GitHub-derived
-    `display_name` written once by the `handle_new_user` trigger. So changing your name in Settings
-    leaves everyone else seeing the old one. This is a feature gap rather than clutter: the schema
-    and the RLS grant were built for it and the client was never connected.
+17. ~~**The profile never reaches the server.**~~ **Closed 2026-07-29.** `players` carries
+    `display_name`, `avatar_id`, `slogan`, `path_id`, `experience_id` and `onboarding_completed`,
+    and `0001_init.sql` grants `UPDATE` on exactly those six columns to `authenticated` — the one
+    thing a player is allowed to write. **Nothing ever wrote any of them.** Settings and onboarding
+    persisted to `coderaid:profile` in `localStorage`, while the leaderboard rendered the
+    GitHub-derived `display_name` written once by the `handle_new_user` trigger, so changing your
+    name in Settings left everyone else seeing the old one. The schema and the grant were built for
+    this and the client was never connected.
+
+    **What was built.** `POST /api/profile` (`app/api/profile/route.ts`) with `lib/server/profile.ts`
+    parsing the update and `lib/profile-client.ts` holding the wire shape both halves import.
+    `ProfileSection` and `OnboardingWizard` call `saveProfile()`; `StartExperience` carries the
+    completion through. The read path closes the loop: `playerRecord()` returns the profile with the
+    claim flag, `/api/ledger` carries it on both verbs, and `ProgressProvider` layers it over the
+    local draft **field by field** — a column never written is null, and a null slogan keeps the
+    local one rather than blanking it. So a device that has never seen this player's `localStorage`
+    now shows their real name instead of "Operative".
+
+    **This is the only route that runs as the signed-in user rather than as service-role**, and the
+    reasoning is §16.7. In short: the column grant means Postgres refuses `claimed_at` and every
+    scored table *even if this handler is wrong*, which is not true of the admin client.
+
+    `tests/profile.test.ts` covers the parser and the client contract. Note it and
+    `lib/server/profile.ts` both write invisible code points as **numeric ranges, never literals** —
+    an escaped character class is a line nobody can proofread, and a literal one silently loses its
+    contents to the next tool that touches the file.
+
+    **Still open, and deliberately: display-name moderation.** `sanitizeDisplayName` is a *rendering*
+    guard. It strips C0/C1 controls (newline and tab break the leaderboard row), zero-width
+    characters and joiners (two different names can otherwise render identically, so anyone can
+    appear to be anyone), and bidi overrides and isolates (which reorder the text *around* them, so
+    one player's name can visually rewrite the column beside it) — then normalises whitespace and
+    truncates. Everything else survives, including the whole of Unicode's letters: a name in
+    Armenian, Japanese or emoji is a real name. There is **no word list and no review queue**, and
+    adding half of one would read as protection that is not there. Whether CodeRaid needs
+    moderation, and of what kind, is a product decision with a person attached to it.
 
 18. ~~**80 dead `done` flags in the catalogue.**~~ **Deleted — and they were not dead.** The audit
     recorded these as harmless on the grounds that `MissionObjectives` takes `steps: string[]` and
@@ -1710,6 +1836,96 @@ item 17 is a product decision and stays open.**
     **Deliberately not on this list:** `DAILY_RAID`. It carries no XP figure and no route and says
     outright that daily challenges "aren't playable yet" — it advertises an idea and admits it,
     which is the honest version of the same situation.
+
+### Found 2026-07-29 — open
+
+19. **`POST /api/runs` is an enumerable answer oracle.** §16.3 argues that grading at the commit
+    point avoids one, and that argument is only half right. It is true that there is no endpoint
+    which answers "does fix X resolve?" *without recording anything* — but recording turns out not to
+    be a cost. Three properties combine:
+
+    - **No server-side stage gating.** `StageGate` is client-side (§11), so a submission is accepted
+      regardless of whether the player ever opened the investigation.
+    - **No rate limit.** Nothing bounds how many submissions a player may make, per mission or at all.
+    - **Best-run-wins makes a wrong guess free.** A worse replay is recorded and changes nothing, so
+      the only price of a wrong answer is a row in `mission_runs`.
+
+    And the response carries the full breakdown — root cause 45, evidence 25, fix 30 — so each
+    attempt says *which part* was right. A caller can therefore separate the three answers rather
+    than searching their product, and arrive at a perfect score by enumeration.
+
+    **The cheapest fix is to return the full breakdown only when a run improves on the player's
+    best.** The score still comes back, so the results screen works and an honest replay sees its
+    gain; a run that beat nothing gets the score and no component split, which removes the signal the
+    search needs without adding a rate limit, a stage-state table or anything else the server would
+    have to keep. Not implemented — recorded here because §16.3 currently reads as though this were
+    already handled.
+
+20. **`best_runs` bypassed RLS and served the answer key to the open internet.** Found and fixed
+    2026-07-29 — the most serious defect found on this project so far.
+
+    **The mechanism.** A Postgres view does not enforce the RLS of the tables underneath it. Unless
+    the view is declared `security_invoker`, its queries run as the view's **owner** — here, the
+    superuser that ran `0001_init.sql` — so every policy on `mission_runs` was bypassed. Supabase
+    then grants `SELECT` on new public relations to `anon` and `authenticated` by default, which
+    made the bypass reachable with the anon key **that ships in the client bundle**. Nothing was
+    misconfigured in the sense of a wrong line; the view was simply created the ordinary way, and
+    the ordinary way is open.
+
+    **Measured, with the anon key and no session at all:**
+
+    ```
+    GET /rest/v1/mission_runs -> []          RLS holds
+    GET /rest/v1/players      -> []          RLS holds
+    GET /rest/v1/best_runs    -> every row   RLS bypassed
+    ```
+
+    **What that exposed.** `best_runs` is `mission_runs.*` plus an attempts count, so every row
+    carried `root_cause_id`, `evidence_ids` and `fix_id` — **the answer key** — for every mission any
+    player had completed, alongside their scores, telemetry and completion dates. This is precisely
+    what `lib/server/answers.ts` puts behind `server-only` and what `tests/bundle-secrecy.test.ts`
+    greps the real build to keep out. Both were guarding the front door while the database API held
+    the back one open. It also contradicted the privacy boundary `app/api/leaderboard/route.ts`
+    documents — that the rows name other people and therefore require a session.
+
+    **It leaked to `authenticated` too, not only to `anon`.** Checked with a real minted session:
+    `mission_runs` returned 0 rows while `best_runs` returned every row in the table. A fix that
+    revoked only `anon` would have left any account able to read the answer key, which is why the
+    revoke names both roles. This is the kind of thing that is only ever found by running it.
+
+    **The fix** (`supabase/migrations/0003_lock_best_runs.sql`) is two statements, and both are
+    load-bearing for different failure modes:
+
+    ```sql
+    alter view public.best_runs set (security_invoker = true);
+    revoke all on public.best_runs from anon, authenticated;
+    ```
+
+    `security_invoker` makes the view return the right *rows*; the revoke makes it unqueryable by
+    either role at all. Two guards rather than one because **`create or replace view` silently drops
+    the `security_invoker` setting** — a future migration that rewrites the view loses half the fix
+    without saying so, and the revoke is what still stands.
+
+    **Measured again after applying it**, same two callers:
+
+    ```
+    anon key, no session:   GET /rest/v1/best_runs -> 401  42501 permission denied for view best_runs
+    real signed-in session: GET /rest/v1/best_runs -> 403  42501 permission denied for view best_runs
+                            GET /rest/v1/mission_runs -> 200 []   (unchanged, RLS as before)
+    ```
+
+    **`service_role` has `bypassrls` and is unaffected**, so `ledgerFor()` and `standings()` keep
+    working — verified rather than assumed. All **30 Playwright specs pass** after the migration,
+    including `ranks the player on the leaderboard without leaking anything`, which is `standings()`
+    reading this very view through the admin client. That spec is the one that would have caught an
+    over-broad revoke, and it is why "revoke and re-run the leaderboard spec" is the order to do this
+    in rather than the reverse.
+
+    **The alarm** is `e2e/view-privileges.spec.ts` (§15.6), and it was proven to fail by the
+    vulnerability itself rather than by a mutation. **The house rule** — every view over an
+    RLS-protected table sets `security_invoker = true` and grants nothing to `anon` or
+    `authenticated` — is written into the RLS comment block of `0001_init.sql`, where the next
+    person adding a view will be looking.
 
 ---
 
@@ -1896,7 +2112,7 @@ the claim and the leaderboard are all behind authentication, so none of them is 
 They were verified against the live database by hand (§16.6). Closing that gap — §12 item 2 — is
 what would make this section's claim true again rather than mostly true.
 
-### 15.1 The test suite — `tests/`, Vitest, 523 tests across 20 files
+### 15.1 The test suite — `tests/`, Vitest, 571 tests across 22 files
 
 Node environment, no DOM, no component testing library. `vitest.config.ts` re-declares the `@/*`
 alias so tests import modules exactly the way the app does, **and aliases `server-only` to
@@ -1927,6 +2143,7 @@ item 2.
 | `mission-flows-all.test.ts` | The same four flows plus a content contract, run against **every** playable mission via `describe.each(PLAYABLE_MISSION_IDS)` — see below |
 | `chapter-three.test.ts` | Chapter 3 and the close of the MVP: the four missions are authored and available, the chapter reaches `complete` only when all four are, the Chapter 2 → Chapter 3 walk and the stop after `slow-api-incident`, `playableSummary()` deriving 14/0/14, the validator reporting zero warnings, `n-plus-one-carnage` staying non-playable — plus one content-correctness block per incident: a forced `global.gc()` and a bigger heap must not resolve a retained-reference leak, more workers must not resolve a queue backlog, a bigger pool must not resolve a connection leak, and an unrestricted `Promise.all()` must not resolve an N+1. Ends with a documented progression-and-achievement attainability audit |
 | `chapter-two.test.ts` | Chapter 2 specifically: the five missions are authored and available, the chapter reaches `complete` only when all five are, the Chapter 1 → Chapter 2 walk and the stop at the content cliff, no Chapter 3 mission recommended while Chapter 2 is unfinished, all three onboarding suggestions playable without fallback, and one content-correctness block per mission — the JWT single-flight requirement and the fixes that must *not* resolve, the liveness/readiness split, the ordering of the shutdown drain sequence asserted against the code example, and the atomic rate-limit requirement including the in-memory mutex being insufficient |
+| `profile.test.ts` | **New 2026-07-29.** `sanitizeDisplayName` leaving ordinary names, non-Latin scripts and emoji alone while stripping newlines/tabs, zero-width characters, bidi overrides, and reducing a name of nothing but those to empty; `parseProfileUpdate` mapping the client's vocabulary onto the six granted columns, **refusing a column it was never granted**, dropping catalogue ids that do not exist, ignoring fields with no column, truncating *after* sanitising, dropping an empty name, only ever setting `onboarding_completed` true, and returning null rather than issuing an empty `SET`; `coerceProfile` treating null columns as absent rather than as empty strings; `draftFromProfile` preferring the server per field, keeping the wizard `step` the server has no column for, and never un-completing onboarding. **The invisible code points are written as numeric escapes, never as literals** — the same rule `lib/server/profile.ts` follows, and for the same reason: a literal one vanishes the next time a tool touches the file |
 | `helpers/mission-run.ts` | Not a test: the shared harness (`installStorage`, `play`, `collectResults`, `stageProgress`) all three flow suites drive |
 
 `mission-flow.test.ts` is the one worth knowing about. It drives the same functions the stage
@@ -2116,6 +2333,35 @@ moment of blank. This is consistency protection for the front end, **not securit
 migration it no longer needs to be. Skipping straight to verification submits an empty diagnosis,
 which the server grades as zero.
 
+### 15.6 Database privileges — `e2e/view-privileges.spec.ts` (new 2026-07-29)
+
+Three specs that use **no browser and no session**, added with the `best_runs` fix (§12 item 20).
+They ask the only question that matters about the database API: *what can a stranger holding the
+anon key read?* — which is everyone, since that key ships in the client bundle by design.
+
+| Spec | Asserts |
+| --- | --- |
+| `best_runs hands nothing to an anonymous caller` | Either no row set at all (401/403 — the `revoke`) or an empty one (200 — `security_invoker` with no rows of your own). **Both are correct and they are different fixes**, so the spec accepts either and fails only if rows come back |
+| `no answer-key column reaches an anonymous caller` | `root_cause_id`, `evidence_ids` and `fix_id` appear on nothing returned. Named explicitly, because the failure being guarded against is not "rows leaked" but *these fields* leaked — an empty result passes the row-count check by accident of the moment, and this one states the stakes |
+| `RLS still holds on the tables underneath` | `mission_runs`, `players` and `player_achievements` each answer **200 with `[]`**. The control: if all three specs go red the project is unreachable or the key is wrong; if only the first two do, the view has lost its protection again |
+
+`readAsAnon()` in `e2e/support/session.ts` reports the status instead of throwing on one, because
+"permission denied" and "no rows" are both right answers here and a caller asserting *nothing came
+back* should not have to care which it got.
+
+**These live in `e2e/` rather than `tests/` deliberately.** §15.1 records that nothing in the Vitest
+suite talks to Supabase, and that property is what makes the unit suite runnable with no credentials
+and no network. This is a fact about the live database's privileges, not about any module.
+
+**Proven to fail, and not by a mutation.** Run against production before `0003_lock_best_runs.sql`
+was applied, the first two went red on real leaked rows — including a `root_cause_id` — while the
+third passed. That is the strongest form of the house rule "when you add a guard, prove it can fail":
+the guard's first run reproduced the vulnerability it exists to catch.
+
+The usual caveat applies with more force than elsewhere: like the authenticated specs, these
+`skip` themselves without credentials, and **a skipped run is the same colour as a passing one**.
+For this guard that means the alarm is silent exactly when nobody is watching. Confirm they ran.
+
 ---
 
 ## 16. The server-authoritative architecture (new 2026-07-21)
@@ -2131,7 +2377,7 @@ was worth.**
 | `mission_runs` | **Append-only.** Every graded run: score, XP, resolved, per-skill award, what they submitted, telemetry, `completed_on`, and `source` (`played` \| `claimed`) | Route handlers only |
 | `player_active_days` | `(player_id, day)`. Opening the app is activity, which is what a streak measures — so it is not derivable from runs alone | Route handlers only |
 | `player_achievements` | `(player_id, achievement_id, unlocked_at)`, stamped on the crossing | Route handlers only |
-| `best_runs` (view) | `distinct on (player_id, mission_id) … order by score desc, completed_at asc`, plus an `attempts` count | — |
+| `best_runs` (view) | `distinct on (player_id, mission_id) … order by score desc, completed_at asc`, plus an `attempts` count. **`security_invoker`, and revoked from `anon` and `authenticated`** since 0003 — it was neither, and served the answer key to anyone with the anon key (§12 item 20) | — |
 
 **There is deliberately no `total_xp` column**, no stored rank and no stored streak. The runs are the
 evidence; every figure is derived from them.
@@ -2151,21 +2397,40 @@ Verified empirically, with a real session: a player POSTing directly to `mission
 `player_achievements` or `player_active_days` gets **403** on all three, and PATCHing their own
 `players.claimed_at` gets **403** because it is not in the column grant.
 
+**RLS on a table says nothing about a view over it** — the lesson of §12 item 20, and the one gap in
+this model that was open from the first migration until 2026-07-29. `best_runs` ran as its owner and
+was granted to `anon` by default, so the answer key was readable from the open internet while every
+sentence above remained true of the tables. The house rule is now written into `0001_init.sql` beside
+the policies: **every view over an RLS-protected table sets `security_invoker = true` and grants
+nothing to `anon` or `authenticated`.** `e2e/view-privileges.spec.ts` (§15.6) checks it from outside
+the database, which is the only vantage point from which this class of bug is visible at all.
+
 ### 16.3 The endpoints
 
 | Route | Does | Notes |
 | --- | --- | --- |
 | `POST /api/runs` | **The trust boundary.** Auth → parse → grade → insert → stamp achievements → return `{ grade, ledger, credit }` | Called when the player clicks **Run Verification** |
-| `GET /api/ledger` | The derived ledger + whether a claim is available | 401 signed out, never an empty ledger — those are different facts |
+| `GET /api/ledger` | The derived ledger, whether a claim is available, and the player's profile | 401 signed out, never an empty ledger — those are different facts |
 | `POST /api/ledger` | Records the player's local date as an active day, then reads | One request, because that is what the provider needs on mount |
 | `POST /api/claim` | One-time import of a pre-account ledger | §16.4 |
 | `GET /api/leaderboard` | Real standings | 401 signed out — the rows name other people |
+| `POST /api/profile` | Writes the six granted `players` columns | **The only route on this list that does not hold the service-role key** — §16.7 |
+
+Every route above holds the service-role key and bypasses RLS, **except `POST /api/profile`**. That
+is not an oversight; it is the one place where running as the user is strictly safer, and §16.7 says
+why.
 
 **Why grading happens at verification, not on the results screen.** Running verification is the
 commit point: diagnosis and fix are both locked. Grading later would mean the results screen could
 be refreshed to re-grade, and — worse — the obvious alternative, a "does fix X resolve the root
 cause?" endpoint that recorded nothing, would be an **answer oracle anyone could enumerate**. The
 run is recorded at the same moment its verdict is revealed.
+
+**This argument is only half right, and §12 item 19 records the other half.** Recording a run is not
+a cost: there is no rate limit, no server-side stage gating, and best-run-wins means a wrong guess
+changes nothing. The full breakdown in the response then says which of the three answers was right,
+so they can be searched separately. Grading at the commit point removed the *free* oracle, not the
+oracle.
 
 **What the client still owns, and why it is safe.** `hintsUsed` is client-reported telemetry and can
 be under-reported; that is inherent to telemetry the client owns, and is why the *answer*, not the
@@ -2225,6 +2490,42 @@ rather than resting on one manual pass. What they confirmed:
   second attempt;
 - the leaderboard ranks two real players correctly by period, marks `isCurrentUser` per requester,
   exposes no email or answer data, and 401s when signed out.
+
+### 16.7 `POST /api/profile` — the one route that runs as the user (new 2026-07-29)
+
+Every other route handler holds the service-role key, because grading and progression must not be
+assertable from a browser. **The profile is the opposite case**, and it is the only place in the app
+where the *weaker* client is the safer one.
+
+`0001_init.sql` revokes blanket `UPDATE` on `players` and grants it back on exactly six columns —
+`display_name`, `avatar_id`, `slogan`, `path_id`, `experience_id`, `onboarding_completed`. Running
+the update as the signed-in user means **Postgres enforces both halves**: RLS decides the row is
+theirs, and the column grant decides which values they may set.
+
+State the consequence plainly, because it is the whole argument:
+
+> If this handler had a bug that let a request name any column, the database would still refuse to
+> write `claimed_at` or anything in `mission_runs`. **With the admin client it would not.**
+
+That grant had been written since the first migration and nothing had ever used it — the columns
+were granted and no code path wrote them (§12 item 17). This route is what finally exercises it.
+
+`.eq("id", user.id)` in the handler is belt-and-braces; RLS already restricts the row. It is there so
+the query says what it means without the reader having to hold the policy in their head.
+
+**Verified against the live project on 2026-07-29**, with a real minted session rather than by
+reasoning about the grant:
+
+| Attempted as the signed-in player | Result |
+| --- | --- |
+| `PATCH players.claimed_at` | **403**, `42501 permission denied for table players` — not in the column grant |
+| `PATCH players.display_name` | **204** — the grant works, which is the other half of the proof |
+| `INSERT mission_runs` | **403**, `42501 new row violates row-level security policy` |
+| `SELECT mission_runs` | **0 rows** — RLS holds on the table |
+
+Nothing here is scored, so there is no ledger to re-derive and no achievement threshold to re-check.
+The read path is separate and still service-role: `playerRecord()` in `lib/server/ledger.ts` returns
+the profile alongside the claim flag on `/api/ledger` (§9).
 
 ---
 
@@ -2321,6 +2622,38 @@ is written and the test runs **signed out** — silently, against endpoints that
 presents as a missing element, which looks like a UI bug and is not one. The fixture is now
 `{ auto: true }` and throws if the session cookie is not in the context afterwards, so a spec cannot
 accidentally run anonymously.
+
+---
+
+*Updated 2026-07-29 — the **`best_runs` lock**. A Postgres view does not enforce the RLS of the
+tables beneath it unless it is declared `security_invoker`, and Supabase grants `SELECT` on public
+relations to `anon` by default — so `public.best_runs` handed every player's runs, **including the
+`root_cause_id` / `evidence_ids` / `fix_id` answer key**, to anyone with the anon key that ships in
+the client bundle, with no session. The tables themselves held: `mission_runs` and `players` both
+returned `[]` to the same caller. It leaked to `authenticated` too, which is why
+`0003_lock_best_runs.sql` sets `security_invoker` **and** revokes from both roles — two guards,
+because `create or replace view` silently drops the setting. `service_role` has `bypassrls`, so
+`ledgerFor()` and `standings()` are unaffected, verified by re-running the suite and the Playwright
+specs rather than by reasoning. The alarm is `e2e/view-privileges.spec.ts`, proven to fail by the
+vulnerability itself rather than by a mutation, and the house rule for future views is written beside
+the RLS block in `0001_init.sql`. 571 tests across 22 files, 30 Playwright specs; all six gates
+green. See §12 item 20, §15.6, §16.2.*
+
+---
+
+*Updated 2026-07-29 — the **profile pass**, which closes the last open item of the decoration audit
+(§12 item 17). The profile now reaches the server: `POST /api/profile` writes the six columns
+`0001_init.sql` has granted since the first migration and nothing had ever used, Settings and
+onboarding both call it, and `/api/ledger` carries the stored profile back — so renaming yourself
+changes what the leaderboard shows other people, and a device that has never seen this player's
+`localStorage` shows their real name instead of "Operative". It is the **only route in the app that
+runs as the signed-in user rather than as service-role**, because the column grant makes Postgres
+refuse `claimed_at` and every scored table even if the handler is wrong — verified against the live
+project, not assumed (§16.7). `hasClaimed()` became `playerRecord()` so the claim flag and the
+profile come back in one read. Three ornaments went with it: the landing page's preview tabs now
+switch and its CTA opens the mission it quotes, and the top bar's account menu opens. **Still open:
+display-name moderation** — `sanitizeDisplayName` is a rendering guard, not a word list. 571 tests
+across 22 files, 27 Playwright specs; all six gates green.*
 
 ---
 
