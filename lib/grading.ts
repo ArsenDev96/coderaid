@@ -55,25 +55,56 @@ export type ScoreBreakdownEntry = {
   correct: boolean;
 };
 
+/**
+ * A graded run.
+ *
+ * Split into two halves on purpose, and the split is a security boundary rather
+ * than a formatting choice (§12 item 19).
+ *
+ * **Always present:** the score, whether the incident was resolved, and the run
+ * telemetry. `resolved` in particular can never be withheld — the verification
+ * stage renders its entire report from it, so a player who applied a fix has to
+ * be told whether it worked. That is the game.
+ *
+ * **`detailed` half:** which *component* of the answer was right. This is what
+ * turns the endpoint into a separable oracle: given `rootCauseCorrect` alone, a
+ * caller can find the root cause in one attempt per candidate instead of
+ * searching the product of all three answers. It is disclosed only when a run
+ * improves on the player's best, which is exactly when a player has earned the
+ * feedback and an enumerator has not.
+ *
+ * Absent rather than falsified. A withheld field is `undefined`, never `false` —
+ * rendering "✗ Root cause" for something the server declined to say would be a
+ * false statement about the player's answer, which is worse than saying nothing.
+ */
 export type MissionGrade = {
   missionId: string;
   /** 0–100. */
   score: number;
   /** Whether the applied fix actually resolves the diagnosed root cause. */
   resolved: boolean;
-  rootCauseCorrect: boolean;
-  fixCorrect: boolean;
-  /** Correctly cited evidence out of the evidence that supports the cause. */
-  evidenceHits: number;
-  evidenceTotal: number;
-  /** Irrelevant evidence the player cited. Costs precision, not correctness. */
-  evidenceMisses: number;
   hintsUsed: number;
   durationMs: number;
   stepsCompleted: number;
   totalSteps: number;
   xpEarned: number;
-  breakdown: ScoreBreakdownEntry[];
+
+  /**
+   * Whether the per-component detail below is disclosed. Explicit rather than
+   * inferred from a missing field, so the UI can explain the absence instead of
+   * rendering a gap, and so a serialisation bug cannot masquerade as a policy.
+   */
+  detailed: boolean;
+
+  /* -- Disclosed only when `detailed` is true. See lib/server/grade-disclosure.ts. -- */
+  rootCauseCorrect?: boolean;
+  fixCorrect?: boolean;
+  /** Correctly cited evidence out of the evidence that supports the cause. */
+  evidenceHits?: number;
+  evidenceTotal?: number;
+  /** Irrelevant evidence the player cited. Costs precision, not correctness. */
+  evidenceMisses?: number;
+  breakdown?: ScoreBreakdownEntry[];
 };
 
 /**
@@ -222,20 +253,24 @@ export function gradeMission({
     });
   }
 
+  // Always fully detailed. Grading is not where disclosure is decided — this
+  // module has no idea who is asking or what they have scored before. The route
+  // holds that context and applies `disclosedGrade()` to the result.
   return {
     missionId: mission.id,
     score,
     resolved,
-    rootCauseCorrect,
-    fixCorrect,
-    evidenceHits: evidence.hits,
-    evidenceTotal: correctEvidenceIds.length,
-    evidenceMisses: evidence.misses,
     hintsUsed,
     durationMs,
     stepsCompleted,
     totalSteps: MISSION_FLOW.length,
     xpEarned,
+    detailed: true,
+    rootCauseCorrect,
+    fixCorrect,
+    evidenceHits: evidence.hits,
+    evidenceTotal: correctEvidenceIds.length,
+    evidenceMisses: evidence.misses,
     breakdown,
   };
 }

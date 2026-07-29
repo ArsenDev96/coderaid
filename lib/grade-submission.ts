@@ -187,7 +187,11 @@ export function loadCachedGrade(missionId: string): CachedGrade | null {
       !Array.isArray(parsed?.evidenceIds) ||
       typeof grade?.score !== "number" ||
       typeof grade?.resolved !== "boolean" ||
-      !Array.isArray(grade?.breakdown)
+      // `breakdown` is deliberately NOT required. The server withholds it on a
+      // run that did not beat the player's best (§12 item 19), so demanding it
+      // here would discard a perfectly valid cached grade and re-render the
+      // results screen as ungraded — turning a security measure into a bug.
+      (grade.breakdown !== undefined && !Array.isArray(grade.breakdown))
     ) {
       return null;
     }

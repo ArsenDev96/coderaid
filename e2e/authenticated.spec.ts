@@ -140,6 +140,53 @@ test.describe("the authenticated path", () => {
     expect(runs[1].score).toBeLessThan(100);
   });
 
+  test("withholds the component breakdown from a run that beat nothing", async ({
+    page,
+  }) => {
+    // §12 item 19. The endpoint grades and records every submission, and that
+    // was argued to be enough to stop it being an answer oracle. It is not:
+    // nothing rate-limits it and a wrong guess is free, so what matters is how
+    // much each response gives away. `rootCauseCorrect` and the evidence counts
+    // name WHICH component was right, which is what lets the three answers be
+    // searched one at a time instead of as a product.
+
+    // A first run has nothing to beat, so it is fully disclosed — the honest
+    // player still gets their working shown.
+    await playToVerification(page, "perfect");
+    const first = await runVerification(page);
+
+    expect(first.grade.detailed).toBe(true);
+    expect(first.grade).toHaveProperty("rootCauseCorrect");
+    expect(first.grade).toHaveProperty("breakdown");
+
+    // Now a worse attempt. It is still graded, still recorded, and still tells
+    // the player what they scored and whether the incident resolved — but the
+    // per-component detail is gone.
+    await resetMissionState(page, MISSION);
+    await playToVerification(page, "poor");
+    const replay = await runVerification(page);
+
+    expect(replay.grade.detailed).toBe(false);
+    expect(typeof replay.grade.score).toBe("number");
+    expect(typeof replay.grade.resolved).toBe("boolean");
+
+    // Absent, not falsified. A `false` would answer the enumerator's question
+    // just as well as a `true` does.
+    for (const field of [
+      "rootCauseCorrect",
+      "fixCorrect",
+      "evidenceHits",
+      "evidenceTotal",
+      "evidenceMisses",
+      "breakdown",
+    ]) {
+      expect(
+        Object.prototype.hasOwnProperty.call(replay.grade, field),
+        `${field} reached a caller whose run beat nothing`,
+      ).toBe(false);
+    }
+  });
+
   test("starts a genuinely fresh attempt from Run It Again", async ({
     page,
     player,

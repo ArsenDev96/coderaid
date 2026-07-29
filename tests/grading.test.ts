@@ -154,7 +154,7 @@ describe("gradeMission", () => {
   it("still credits a resolving fix when the diagnosis was wrong", () => {
     const result = grade({ rootCauseId: "wrong" });
     expect(result.resolved).toBe(true);
-    expect(result.breakdown.find((b) => b.id === "fix")?.points).toBe(
+    expect(result.breakdown?.find((b) => b.id === "fix")?.points).toBe(
       SCORE_WEIGHTS.fix,
     );
   });
@@ -175,7 +175,7 @@ describe("gradeMission", () => {
     const result = grade({ hints: ["diagnosis"] });
     expect(result.hintsUsed).toBe(1);
     expect(result.score).toBe(100 - HINT_PENALTY);
-    expect(result.breakdown.find((b) => b.id === "hints")?.points).toBe(
+    expect(result.breakdown?.find((b) => b.id === "hints")?.points).toBe(
       -HINT_PENALTY,
     );
   });

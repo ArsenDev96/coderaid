@@ -142,8 +142,30 @@ export function ResultsHeader({
 /**
  * How the score was arrived at. Showing the working is the difference between
  * a number the player is handed and one they can learn from.
+ *
+ * The server withholds the working on a run that did not beat the player's best
+ * (§12 item 19) — those per-component ticks are exactly what let someone find
+ * the three answers one at a time. When it does, say so and say why, rather than
+ * rendering an empty panel: a missing explanation reads as a bug, and a player
+ * who scored worse on a replay has done nothing wrong.
  */
 export function ScoreBreakdown({ grade }: { grade: MissionGrade }) {
+  if (!grade.detailed || !grade.breakdown) {
+    return (
+      <section className="rounded-2xl border border-white/[0.06] bg-white/[0.02] p-5 sm:p-6">
+        <h3 className="flex items-center gap-2 text-sm font-semibold text-white sm:text-base">
+          <Star className="h-4 w-4 text-amber-300" strokeWidth={2.2} />
+          How this was scored
+        </h3>
+        <p className="mt-3 text-sm leading-relaxed text-slate-400">
+          This attempt didn&apos;t beat your best run, so the per-step breakdown
+          stays hidden — it would give away which part of the answer was right.
+          Beat your best score and the full working comes back.
+        </p>
+      </section>
+    );
+  }
+
   return (
     <section className="rounded-2xl border border-white/[0.06] bg-white/[0.02] p-5 sm:p-6">
       <h3 className="flex items-center gap-2 text-sm font-semibold text-white sm:text-base">
