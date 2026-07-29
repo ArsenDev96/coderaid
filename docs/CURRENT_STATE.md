@@ -186,7 +186,18 @@
 > the RLS block in `0001_init.sql`, and `e2e/view-privileges.spec.ts` is the alarm (§12 item 20,
 > §15.6).
 >
-> The suite is **571 tests across 22 files**, plus **30 Playwright specs**. All six gates green:
+> **New in the grade-disclosure pass (2026-07-29).** §12 item 19 is **narrowed, not closed.**
+> `POST /api/runs` had no rate limit and no server-side stage gating, and best-run-wins makes a wrong
+> guess free — so the full breakdown in every response, which names *which component* was right, let
+> the three answers be searched one at a time instead of as a product. The component detail is now
+> disclosed only when a run improves on the player's best; the run is still graded and recorded in
+> full, so nothing about progression changes. Withheld fields are **absent, never falsified**. What
+> remains open, and is stated in the module itself: `resolved` must always be sent because the
+> verification stage renders from it, so the fix answer still leaks one bit per attempt, and the
+> score is partly decomposable arithmetic. **The real closure is a rate limit** — a product decision
+> about how often a player may replay, left open deliberately (§12 item 19, §16.3).
+>
+> The suite is **581 tests across 23 files**, plus **31 Playwright specs**. All six gates green:
 > `typecheck`, `lint`, `test`, `validate:missions`, `build`, `playwright`.
 
 ---
@@ -227,8 +238,8 @@ The README (`README.md`) has been rewritten to match this positioning and is no 
 | Fonts | `next/font/google` — Inter (`--font-inter`), JetBrains Mono (`--font-jetbrains`) |
 | Backend | **Supabase** — Postgres + GitHub OAuth. Five route handlers under `app/api/`; no server actions |
 | Auth | `@supabase/ssr` 0.12 + `@supabase/supabase-js` 2 — GitHub OAuth only, cookie sessions |
-| Tests | **Vitest 2** — `tests/`, 22 files, 571 tests, Node environment, `@/*` alias |
-| Browser smoke | **Playwright 1.61** — `e2e/`, 30 Chromium tests against the production build: 14 signed-out, 13 authenticated (§15.5, §17.4), 3 database-privilege checks that use no browser at all (§15.6) |
+| Tests | **Vitest 2** — `tests/`, 23 files, 581 tests, Node environment, `@/*` alias |
+| Browser smoke | **Playwright 1.61** — `e2e/`, 31 Chromium tests against the production build: 14 signed-out, 14 authenticated (§15.5, §17.4), 3 database-privilege checks that use no browser at all (§15.6) |
 | Lint | **ESLint 8 + `eslint-config-next`**, committed `.eslintrc.json` extending `next/core-web-vitals` |
 | Content validation | `tsx scripts/validate-missions.ts` over `lib/mission-validation.ts` |
 
@@ -250,10 +261,18 @@ It must never be given a `NEXT_PUBLIC_` prefix.
 | --- | --- |
 | `npm run typecheck` | **passes clean**, no errors |
 | `npm run lint` | **runs non-interactively** — "No ESLint warnings or errors" |
-| `npm run test` | **571 passed** across 22 files |
+| `npm run test` | **581 passed** across 23 files |
 | `npm run validate:missions` | **0 errors, 0 warnings** — 20 missions checked, 14 fully playable |
 | `npm run build` | **succeeds**, "Compiled successfully" — see the stale-`.next` note below |
-| `npx playwright test` | **27 passed** (Chromium, against the production build) |
+| `npx playwright test` | **31 passed** (Chromium, against the production build) |
+
+**A dev server poisons `bundle-secrecy`.** If anyone has run `npm run dev`, `.next/static/webpack/`
+holds unminified `hot-update.js` files, and unminified output keeps local variable names.
+`correctEvidenceIds` is a local in `lib/grading.ts`, so it surfaces as a leak in a file `next build`
+never produced — seen on 2026-07-29, with seven reported "leaks", all phantom. `rm -rf .next &&
+npm run build` clears it. **Read the reported paths before believing the failure:** `hot-update` in
+a path means dev artifacts. This is the third documented face of the stale-`.next` trap and the most
+convincing-looking one, because the test is right that those strings are in `.next`.
 
 **A stale `.next` can fail the build itself, not just the secrecy test.** On 2026-07-29 the first
 `npm run build` of the pass died with `ENOENT` inside `loadComponentsImpl` and
@@ -263,7 +282,7 @@ about `.next` (§15.1) is about `bundle-secrecy` reporting phantom leaks; this i
 wearing a different face. **Treat a build error that names a route you did not touch as a stale
 artifact until a clean rebuild says otherwise.**
 
-All 27 Playwright tests **ran** rather than skipping, which is the thing to check: the thirteen
+All 31 Playwright tests **ran** rather than skipping, which is the thing to check: the fourteen
 authenticated ones skip themselves without the Supabase keys, and a run where they skip reports the
 same green as a run where they pass. The GitHub Actions secrets were set on 2026-07-22, so CI can
 now run them too — but confirm they executed in the job log before trusting it (§12 item 2).
@@ -363,6 +382,8 @@ lib/server/                  ALL of these begin with `import "server-only"`
                              validates the player's local date to ±1 day
   ledger.ts                  Derives the Ledger from Postgres; stamps achievements;
                              playerRecord() reads the claim flag and the profile together
+  grade-disclosure.ts        How much of a grade the response may carry — the component
+                             detail only when the run beat the player's best (§12 item 19)
   profile.ts                 Bounds a profile update to the six granted columns;
                              sanitizeDisplayName() strips what a name may not render
   claim.ts                   Validates a pre-account ledger; re-derives every XP figure
@@ -1839,7 +1860,8 @@ surfaces:
 
 ### Found 2026-07-29 — open
 
-19. **`POST /api/runs` is an enumerable answer oracle.** §16.3 argues that grading at the commit
+19. **`POST /api/runs` is an enumerable answer oracle.** **Narrowed 2026-07-29, not closed** — see
+    the end of this item for exactly what remains. §16.3 argues that grading at the commit
     point avoids one, and that argument is only half right. It is true that there is no endpoint
     which answers "does fix X resolve?" *without recording anything* — but recording turns out not to
     be a cost. Three properties combine:
@@ -1854,12 +1876,42 @@ surfaces:
     attempt says *which part* was right. A caller can therefore separate the three answers rather
     than searching their product, and arrive at a perfect score by enumeration.
 
-    **The cheapest fix is to return the full breakdown only when a run improves on the player's
-    best.** The score still comes back, so the results screen works and an honest replay sees its
-    gain; a run that beat nothing gets the score and no component split, which removes the signal the
-    search needs without adding a rate limit, a stage-state table or anything else the server would
-    have to keep. Not implemented — recorded here because §16.3 currently reads as though this were
-    already handled.
+    **Implemented 2026-07-29: the component breakdown is disclosed only when a run improves on the
+    player's best.** `lib/server/grade-disclosure.ts` holds the policy, `POST /api/runs` applies it
+    to the response only — the run is still graded and recorded in full, so the ledger, achievements
+    and `best_runs` are untouched. The decision costs no extra round trip: the route already reads
+    the ledger before the insert to measure `creditBetween`, and "did this beat their best" is the
+    same question.
+
+    `MissionGrade` is now split into an always-present half (score, `resolved`, telemetry, XP) and a
+    `detailed` half (`rootCauseCorrect`, `fixCorrect`, the evidence counts, `breakdown`). Withheld
+    fields are **absent, never falsified** — `rootCauseCorrect: false` would answer the enumerator's
+    question exactly as well as `true` does, and it would also be a false statement about the
+    player's answer. An explicit `detailed: boolean` rides along so the results screen can say *why*
+    the working is missing rather than rendering an empty panel, and so a serialisation bug cannot
+    masquerade as policy. Strictly-greater, so resubmitting your own best answer buys nothing back.
+
+    **What this does NOT do, stated plainly so the next reader does not over-trust it:**
+
+    - **`resolved` is always disclosed**, because `resolveVerification()` renders the entire
+      verification report from it. So the *fix* answer still leaks one bit per attempt and can be
+      found in one attempt per candidate. That is inherent — telling a player whether their fix
+      worked is the game, not a defect.
+    - **The score is partly decomposable arithmetic.** The weights are public (45/25/30, −5 per
+      hint) and the player knows their own hint count, so some scores identify their components
+      uniquely: a 30 can only be a correct fix and nothing else.
+
+    So the change removes the *separable* root-cause and evidence signal — the part that collapses
+    the search from a product to a sum — and leaves the rest. **The real closure is a rate limit**,
+    which `mission_runs` already holds the data for. That is the remaining half of this item, left
+    open deliberately: how often a player may legitimately replay is a product decision, not an
+    engineering one.
+
+    Guarded at two layers, both proven to fail. `tests/grade-disclosure.test.ts` (10 tests) pins the
+    policy and goes red when the redaction is removed; a spec in `e2e/authenticated.spec.ts` asserts
+    what actually crosses the wire — a UI assertion would pass equally against a server that sent the
+    answer and a client that declined to render it. `runVerification()` now returns the parsed
+    response body for exactly that reason.
 
 20. **`best_runs` bypassed RLS and served the answer key to the open internet.** Found and fixed
     2026-07-29 — the most serious defect found on this project so far.
@@ -2112,7 +2164,7 @@ the claim and the leaderboard are all behind authentication, so none of them is 
 They were verified against the live database by hand (§16.6). Closing that gap — §12 item 2 — is
 what would make this section's claim true again rather than mostly true.
 
-### 15.1 The test suite — `tests/`, Vitest, 571 tests across 22 files
+### 15.1 The test suite — `tests/`, Vitest, 581 tests across 23 files
 
 Node environment, no DOM, no component testing library. `vitest.config.ts` re-declares the `@/*`
 alias so tests import modules exactly the way the app does, **and aliases `server-only` to
@@ -2143,6 +2195,7 @@ item 2.
 | `mission-flows-all.test.ts` | The same four flows plus a content contract, run against **every** playable mission via `describe.each(PLAYABLE_MISSION_IDS)` — see below |
 | `chapter-three.test.ts` | Chapter 3 and the close of the MVP: the four missions are authored and available, the chapter reaches `complete` only when all four are, the Chapter 2 → Chapter 3 walk and the stop after `slow-api-incident`, `playableSummary()` deriving 14/0/14, the validator reporting zero warnings, `n-plus-one-carnage` staying non-playable — plus one content-correctness block per incident: a forced `global.gc()` and a bigger heap must not resolve a retained-reference leak, more workers must not resolve a queue backlog, a bigger pool must not resolve a connection leak, and an unrestricted `Promise.all()` must not resolve an N+1. Ends with a documented progression-and-achievement attainability audit |
 | `chapter-two.test.ts` | Chapter 2 specifically: the five missions are authored and available, the chapter reaches `complete` only when all five are, the Chapter 1 → Chapter 2 walk and the stop at the content cliff, no Chapter 3 mission recommended while Chapter 2 is unfinished, all three onboarding suggestions playable without fallback, and one content-correctness block per mission — the JWT single-flight requirement and the fixes that must *not* resolve, the liveness/readiness split, the ordering of the shutdown drain sequence asserted against the code example, and the atomic rate-limit requirement including the in-memory mutex being insufficient |
+| `grade-disclosure.test.ts` | **New 2026-07-29.** How much of a grade `POST /api/runs` may say out loud (§12 item 19). `improvesOnBest` treating a first run as an improvement, requiring *strictly* greater (a tie is not one — resubmitting your own best answer must not buy the detail back), and reading the record for the right mission; `disclosedGrade` disclosing everything on a first run and a genuine improvement, **withholding every component field otherwise — asserted by key absence, not falsiness**, because `rootCauseCorrect: false` answers an enumerator's question exactly as well as `true`; still reporting score, verdict, XP and duration; and not mutating the grade it was given, since the route inserts the run from the same object it responds with |
 | `profile.test.ts` | **New 2026-07-29.** `sanitizeDisplayName` leaving ordinary names, non-Latin scripts and emoji alone while stripping newlines/tabs, zero-width characters, bidi overrides, and reducing a name of nothing but those to empty; `parseProfileUpdate` mapping the client's vocabulary onto the six granted columns, **refusing a column it was never granted**, dropping catalogue ids that do not exist, ignoring fields with no column, truncating *after* sanitising, dropping an empty name, only ever setting `onboarding_completed` true, and returning null rather than issuing an empty `SET`; `coerceProfile` treating null columns as absent rather than as empty strings; `draftFromProfile` preferring the server per field, keeping the wizard `step` the server has no column for, and never un-completing onboarding. **The invisible code points are written as numeric escapes, never as literals** — the same rule `lib/server/profile.ts` follows, and for the same reason: a literal one vanishes the next time a tool touches the file |
 | `helpers/mission-run.ts` | Not a test: the shared harness (`installStorage`, `play`, `collectResults`, `stageProgress`) all three flow suites drive |
 
@@ -2428,9 +2481,16 @@ run is recorded at the same moment its verdict is revealed.
 
 **This argument is only half right, and §12 item 19 records the other half.** Recording a run is not
 a cost: there is no rate limit, no server-side stage gating, and best-run-wins means a wrong guess
-changes nothing. The full breakdown in the response then says which of the three answers was right,
-so they can be searched separately. Grading at the commit point removed the *free* oracle, not the
+changes nothing. The full breakdown in the response then said which of the three answers was right,
+so they could be searched separately. Grading at the commit point removed the *free* oracle, not the
 oracle.
+
+**Narrowed 2026-07-29.** The per-component detail is now disclosed only when a run improves on the
+player's best (`lib/server/grade-disclosure.ts`), which collapses the separable search back into a
+combined one. The run is still graded and recorded in full — this is a rule about the *response*, not
+about the grade. `resolved` is still always sent, because the verification stage cannot render
+without it, so the fix answer still leaks one bit per attempt; the closure for that is a rate limit,
+and it is the open half of §12 item 19.
 
 **What the client still owns, and why it is safe.** `hintsUsed` is client-reported telemetry and can
 be under-reported; that is inherent to telemetry the client owns, and is why the *answer*, not the
@@ -2622,6 +2682,21 @@ is written and the test runs **signed out** — silently, against endpoints that
 presents as a missing element, which looks like a UI bug and is not one. The fixture is now
 `{ auto: true }` and throws if the session cookie is not in the context afterwards, so a spec cannot
 accidentally run anonymously.
+
+---
+
+*Updated 2026-07-29 — the **grade-disclosure pass**, which narrows §12 item 19. `POST /api/runs` now
+sends the per-component breakdown only when a run improves on the player's best; the run is still
+graded and recorded in full, so the ledger, achievements and `best_runs` are untouched. The policy is
+`lib/server/grade-disclosure.ts`, applied to the response only, and it costs no extra round trip
+because the route already reads the ledger before the insert to measure `creditBetween`. `MissionGrade`
+splits into an always-present half and a `detailed` half; withheld fields are absent rather than
+falsified, and an explicit `detailed` flag lets the results screen explain the gap instead of
+rendering an empty panel. **Deliberately not claimed as closed:** `resolved` must always be sent, so
+the fix answer still leaks one bit per attempt, and the public weights make some scores decomposable.
+The closure is a rate limit, which is a product decision and stays open. Both guards proven to fail —
+`tests/grade-disclosure.test.ts` under a mutated policy, and the e2e spec under a route that sends the
+raw grade. 581 tests across 23 files, 31 Playwright specs; all six gates green.*
 
 ---
 

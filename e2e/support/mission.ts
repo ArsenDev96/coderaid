@@ -111,11 +111,22 @@ export async function playToVerification(
   await expect(page).toHaveURL(new RegExp(`/missions/${MISSION}/verification$`));
 }
 
-/** Runs verification and waits for the graded response to land. */
-export async function runVerification(page: Page): Promise<void> {
+/**
+ * Runs verification and waits for the graded response to land.
+ *
+ * Returns the parsed body so a caller can assert on **what the server actually
+ * sent**, rather than on what the screen made of it. That distinction matters
+ * for the disclosure rule (§12 item 19): the question is what crosses the wire,
+ * and a UI assertion would pass just as well against a server that sent the
+ * answer and a client that chose not to render it.
+ */
+export async function runVerification(
+  page: Page,
+): Promise<{ grade: Record<string, unknown> }> {
   const graded = page.waitForResponse(
     (r) => r.url().includes("/api/runs") && r.request().method() === "POST",
   );
   await page.getByRole("button", { name: "Run Verification" }).click();
-  await graded;
+  const response = await graded;
+  return (await response.json()) as { grade: Record<string, unknown> };
 }

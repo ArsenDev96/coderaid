@@ -1,4 +1,4 @@
-# CodeRaid — close the `/api/runs` oracle, then grow the content
+# CodeRaid — decide the rate limit, then grow the content
 
 Project: **`c:\Users\DoC\Desktop\sis`** (Windows; the repo is `ArsenDev96/coderaid`). Next.js 14 App
 Router, TypeScript strict, Tailwind, Supabase. A Node.js backend-debugging simulator: 14 playable
@@ -11,7 +11,7 @@ server architecture (§16.7 is new), §17 the verification replay, §12 the real
 ## Where things stand
 
 `main` carries the profile pass (merged as PR #3). Branch `real-verification-replay` carries the
-docs catch-up and the `best_runs` lock. The suite is **571 tests across 22 files** plus **30
+docs catch-up, the `best_runs` lock and the grade-disclosure pass. The suite is **581 tests across 23 files** plus **31
 Playwright specs**, and all six gates are green.
 
 **`supabase/migrations/` is not applied automatically.** There is no linked Supabase CLI project and
@@ -60,31 +60,40 @@ because `create or replace view` silently drops the setting. The alarm is
 than by a mutation. The house rule for future views is written beside the RLS block in
 `0001_init.sql`. Read §12 item 20 before adding any view.
 
-## Do this first — `/api/runs` is an enumerable answer oracle
+### Done in the grade-disclosure pass (2026-07-29) — do not re-plan this
 
-**§12 item 19.** The remaining hole in the trust model, and the same shape of mistake as item 20:
-each individual guard is sound and the composition is not. Three properties combine:
+**§12 item 19 is narrowed, not closed.** `POST /api/runs` now sends the per-component breakdown
+only when a run improves on the player’s best (`lib/server/grade-disclosure.ts`). The run is still
+graded and recorded in full, so progression is untouched; this is a rule about the response. Withheld
+fields are absent rather than falsified, and an explicit `detailed` flag lets the results screen
+explain the gap. It costs no extra round trip — the route already reads the ledger pre-insert for
+`creditBetween`, and “did this beat their best” is the same question.
 
-- **No server-side stage gating.** `StageGate` is client-side, so a submission is accepted whether or
-  not the player ever opened the investigation.
-- **No rate limit.** Nothing bounds how many submissions a player may make.
-- **Best-run-wins makes a wrong guess free.** A worse replay is recorded and changes nothing, so a
-  wrong answer costs only a row in `mission_runs`.
+## Do this first — decide the rate limit on `/api/runs`
 
-And the response carries the full breakdown — root cause 45, evidence 25, fix 30 — so each attempt
-says *which part* was right. A caller can separate the three answers instead of searching their
-product, and reach 100 by enumeration. §16.3 argues that grading at the commit point avoids an
-oracle; it removed the *free* oracle, not the oracle.
+**The open half of §12 item 19, and it needs a product decision before it needs code.**
 
-**Cheapest fix: return the full breakdown only when a run improves on the player's best.** The score
-still comes back, so the results screen works and an honest replay sees its gain; a run that beat
-nothing gets the score and no component split. That removes the signal the search needs without a
-rate limit, a stage-state table, or anything else the server would have to keep. `POST /api/runs`
-already reads the ledger before the insert (to measure `creditBetween`), so it knows whether the run
-improved anything without an extra round trip.
+The disclosure rule removed the *separable* signal. What it could not remove:
 
-Whatever you do here, **add the guard first and prove it fails** — assert that a non-improving run's
-response carries no per-component breakdown, and watch it go red against today's handler.
+- **`resolved` is always sent**, because `resolveVerification()` renders the whole verification
+  report from it. So the fix answer still leaks one bit per attempt — findable in one attempt per
+  candidate fix. Telling a player whether their fix worked is the game, so this cannot be fixed by
+  withholding more.
+- **The score is partly decomposable arithmetic.** Weights are public (45/25/30, −5 per hint) and
+  the player knows their own hint count, so some scores identify their components uniquely — a 30
+  can only be a correct fix and nothing else.
+
+**A rate limit is what actually closes it**, and `mission_runs` already holds the data: the route
+reads the ledger before every insert, so counting recent attempts for this player and mission is
+nearly free. What it needs from you is the policy, not the plumbing:
+
+- How many attempts per mission per hour is a *legitimate* replay pattern? A player genuinely
+  practising will replay; the limit must not punish them.
+- What happens on the limit — 429, or accept-and-record-but-disclose-nothing? The second keeps the
+  append-only history honest and is harder to detect from outside.
+- Does the limit apply per mission or per account?
+
+**Ask before building it.** Then add the guard first and prove it fails, as usual.
 
 ## Also open
 
@@ -112,9 +121,15 @@ response carries no per-component breakdown, and watch it go red against today's
   when it is absent. Two silent traps, in opposite directions:
   - a **stale** `.next` reports phantom leaks — delete and rebuild before believing a failure;
   - **no** `.next` makes it skip entirely, which is how it did nothing in CI for weeks.
-  A third face of the same problem, seen 2026-07-29: a stale `.next` can fail **the build itself**
-  with `ENOENT` naming a route you never touched. An immediate re-run fixed it with no source
-  change. Treat that shape of error as a stale artifact until a clean rebuild says otherwise.
+  Two more faces of the same problem, both seen 2026-07-29:
+  - a stale `.next` can fail **the build itself** with `ENOENT` naming a route you never touched. An
+    immediate re-run fixed it with no source change.
+  - **if anyone has run `npm run dev`, `bundle-secrecy` reports leaks that are not there.** The dev
+    server writes unminified `hot-update.js` files into `.next/static/webpack/`, and unminified
+    output keeps local variable names — `correctEvidenceIds` is a local in `lib/grading.ts`, so it
+    surfaces as a "leak" in a file `next build` never produced. `rm -rf .next && npm run build` is
+    the fix. **Check the reported paths before believing the failure**: `hot-update` in a path means
+    dev artifacts, not a real leak.
 - **Verify empirically — run the thing, don't assert it works.** Every pass on this project has
   caught real problems that way, including the two documented under §12 item 16 and the fact that
   `best_runs` leaks to `authenticated` and not only to `anon`.

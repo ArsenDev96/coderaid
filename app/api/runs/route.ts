@@ -5,6 +5,7 @@ import { gradeMission, rewardFor } from "@/lib/grading";
 import { getMission } from "@/lib/missions";
 import { creditBetween } from "@/lib/progress";
 import { answersFor } from "@/lib/server/answers";
+import { disclosedGrade } from "@/lib/server/grade-disclosure";
 import { ledgerFor, syncAchievements } from "@/lib/server/ledger";
 import { parseSubmission } from "@/lib/server/submission";
 import { createAdminClient } from "@/lib/supabase/admin";
@@ -15,13 +16,19 @@ import { currentUser } from "@/lib/supabase/server";
  *
  * This is the trust boundary. The client sends what the player *chose*; the
  * answers, the grading and the write all happen here, so a score cannot be
- * asserted by the browser — only earned. The response carries the full
- * breakdown because the results screen renders it, and knowing the formula
- * afterwards reveals nothing about the next mission's answer.
+ * asserted by the browser — only earned.
  *
  * Runs are append-only: a replay inserts another row, and "best run wins" is a
  * query over them rather than a mutation, so a refresh cannot farm XP and a
  * worse replay cannot erase a better one.
+ *
+ * **How much of the grade comes back is a separate question from what it is**
+ * (§12 item 19). The run is always graded and recorded in full; the *response*
+ * carries the per-component detail only when the run improved on the player's
+ * best, because `rootCauseCorrect` and the evidence counts are what let the
+ * three answers be searched one at a time rather than as a product. See
+ * `lib/server/grade-disclosure.ts` for what that does and does not buy — it
+ * narrows the oracle, and the closure is a rate limit.
  */
 export async function POST(request: Request) {
   const user = await currentUser();
@@ -77,12 +84,22 @@ export async function POST(request: Request) {
   // Read the ledger before the insert so what the run earned can be *measured*
   // rather than predicted. A replay that didn't beat the previous attempt adds
   // nothing, and the diff says so without the client reimplementing the rule.
+  //
+  // It is also what decides disclosure, at no extra cost: "did this beat their
+  // best" is the same question `creditBetween` is already reading the ledger to
+  // answer, which is why §12 item 19's fix needs no new round trip and no new
+  // table.
   let before;
   try {
     before = await ledgerFor(user.id);
   } catch {
     return NextResponse.json({ error: "read_failed" }, { status: 500 });
   }
+
+  // Decided against the ledger as it was BEFORE the insert. Computed here, not
+  // after, because once this run is recorded it is the player's best and every
+  // run would look like an improvement on itself.
+  const response = disclosedGrade(grade, before);
 
   const { error } = await createAdminClient()
     .from("mission_runs")
@@ -120,14 +137,14 @@ export async function POST(request: Request) {
   } catch {
     // The run is recorded, which is the part that must not be lost. The player
     // still gets their grade; the ledger arrives on the next read.
-    return NextResponse.json({ grade });
+    return NextResponse.json({ grade: response });
   }
 
   // The grade for the screen the player is looking at, the ledger every other
   // view reads, and what this run actually added — so the results screen can
   // show real skill gains without recomputing anything.
   return NextResponse.json({
-    grade,
+    grade: response,
     ledger,
     credit: creditBetween(before, ledger, mission.id),
   });
