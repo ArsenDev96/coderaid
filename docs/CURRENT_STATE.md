@@ -1906,9 +1906,20 @@ surfaces:
     the `security_invoker` setting** — a future migration that rewrites the view loses half the fix
     without saying so, and the revoke is what still stands.
 
+    **Measured again after applying it**, same two callers:
+
+    ```
+    anon key, no session:   GET /rest/v1/best_runs -> 401  42501 permission denied for view best_runs
+    real signed-in session: GET /rest/v1/best_runs -> 403  42501 permission denied for view best_runs
+                            GET /rest/v1/mission_runs -> 200 []   (unchanged, RLS as before)
+    ```
+
     **`service_role` has `bypassrls` and is unaffected**, so `ledgerFor()` and `standings()` keep
-    working — but that was verified rather than assumed, by re-running the suite and the Playwright
-    specs after applying it.
+    working — verified rather than assumed. All **30 Playwright specs pass** after the migration,
+    including `ranks the player on the leaderboard without leaking anything`, which is `standings()`
+    reading this very view through the admin client. That spec is the one that would have caught an
+    over-broad revoke, and it is why "revoke and re-run the leaderboard spec" is the order to do this
+    in rather than the reverse.
 
     **The alarm** is `e2e/view-privileges.spec.ts` (§15.6), and it was proven to fail by the
     vulnerability itself rather than by a mutation. **The house rule** — every view over an
