@@ -1,27 +1,70 @@
 "use client";
 
 import { useEffect, useRef } from "react";
-import { RotateCcw, TriangleAlert, X } from "lucide-react";
+import { Loader2, RotateCcw, TriangleAlert, X } from "lucide-react";
 
 /**
- * Confirmation for the one destructive action on this page. Spells out what is
+ * Confirmation for the destructive actions on this page. Spells out what is
  * cleared *and* what is kept, so the choice is made with full information
  * rather than a generic "are you sure".
  *
- * What that is depends on where progress lives. Signed in, the ledger derives
- * from an append-only run history in Postgres, so a local sweep clears the
- * saved stage state and nothing else — the earned numbers stay. Saying
- * otherwise would be the one thing this dialog exists to prevent.
+ * **Three variants, because three different things are actually true.** This
+ * was a boolean until the server-side reset landed (§12 item 7), and a boolean
+ * could not express the case that now matters most: a signed-in player has two
+ * separate destructive actions available, and confusing them is exactly the
+ * mistake this dialog exists to prevent.
+ *
+ *   - `progress`    signed out — the ledger is local, so the sweep really does
+ *                   erase everything, XP included.
+ *   - `saved-state` signed in — clears the local stage state only. Earned
+ *                   numbers are derived from recorded runs and survive.
+ *   - `account`     signed in — starts the account over on the server. The runs
+ *                   are not deleted; a tombstone makes every derivation ignore
+ *                   them, which is why the copy says "no longer count" rather
+ *                   than "are deleted". Saying deleted would be a lie a player
+ *                   might rely on.
  */
+export type ResetVariant = "progress" | "saved-state" | "account";
+
+const TITLE: Record<ResetVariant, string> = {
+  progress: "Reset mission progress?",
+  "saved-state": "Clear saved mission state?",
+  account: "Start your account over?",
+};
+
+const CONFIRM_LABEL: Record<ResetVariant, string> = {
+  progress: "Reset Progress",
+  "saved-state": "Clear Saved State",
+  account: "Reset Everything",
+};
+
+const BODY: Record<ResetVariant, string> = {
+  progress:
+    "This clears your progress through every Node.js incident — investigations, diagnoses, fixes and the rewards they earned. It cannot be undone.",
+  "saved-state":
+    "This clears what you saved while working through each incident, so every mission starts again from its briefing. It cannot be undone.",
+  account:
+    "Your XP, level, rank, streak, skills and achievements all go back to zero, and every incident becomes unplayed. It cannot be undone.",
+};
+
 export function ResetProgressDialog({
   onConfirm,
   onClose,
-  authenticated,
+  variant,
+  busy = false,
+  error = false,
 }: {
   onConfirm: () => void;
   onClose: () => void;
-  /** True when progress is server-backed, which changes what a reset can do. */
-  authenticated: boolean;
+  variant: ResetVariant;
+  /** True while the server reset is in flight — the only variant that waits. */
+  busy?: boolean;
+  /**
+   * True when the last attempt failed. Rendered *here* rather than on the page
+   * behind: the dialog stays open on failure, so a message on the card would sit
+   * behind the backdrop where the player cannot read it.
+   */
+  error?: boolean;
 }) {
   const cancelRef = useRef<HTMLButtonElement>(null);
 
@@ -58,9 +101,7 @@ export function ResetProgressDialog({
               <TriangleAlert className="h-5 w-5" strokeWidth={2} />
             </span>
             <h2 id="reset-title" className="text-base font-bold text-white">
-              {authenticated
-                ? "Clear saved mission state?"
-                : "Reset mission progress?"}
+              {TITLE[variant]}
             </h2>
           </div>
           <button
@@ -74,13 +115,11 @@ export function ResetProgressDialog({
         </div>
 
         <div id="reset-body" className="mt-4 text-sm leading-relaxed text-slate-400">
-          {authenticated
-            ? "This clears what you saved while working through each incident, so every mission starts again from its briefing. It cannot be undone."
-            : "This clears your progress through every Node.js incident — investigations, diagnoses, fixes and the rewards they earned. It cannot be undone."}
+          {BODY[variant]}
         </div>
 
         <ul className="mt-4 space-y-1.5 rounded-xl border border-white/[0.06] bg-white/[0.02] p-3.5 text-xs">
-          {authenticated ? (
+          {variant === "saved-state" && (
             <>
               <li className="text-slate-300">
                 <span className="font-semibold text-white">Cleared:</span> your
@@ -99,7 +138,9 @@ export function ResetProgressDialog({
                 but changes nothing.
               </li>
             </>
-          ) : (
+          )}
+
+          {variant === "progress" && (
             <>
               <li className="text-slate-300">
                 <span className="font-semibold text-white">Cleared:</span> your
@@ -117,24 +158,63 @@ export function ResetProgressDialog({
               </li>
             </>
           )}
+
+          {variant === "account" && (
+            <>
+              <li className="text-slate-300">
+                <span className="font-semibold text-white">Reset to zero:</span>{" "}
+                XP, level, rank, streak, every skill, every achievement, and
+                your leaderboard position. Every incident becomes unplayed.
+              </li>
+              <li className="text-slate-300">
+                <span className="font-semibold text-white">Kept:</span> your
+                profile name, avatar and these settings — and your completed
+                runs stay recorded. They simply stop counting towards anything.
+              </li>
+              {/* Said out loud because a player might rely on it. The runs are
+                  tombstoned, not deleted, and calling that "deleted" would be a
+                  promise the schema does not keep. */}
+              <li className="text-slate-300">
+                <span className="font-semibold text-white">Not deleted:</span>{" "}
+                this is not an account deletion or a data erasure — your history
+                is kept, it just no longer counts towards your progress.
+              </li>
+            </>
+          )}
         </ul>
+
+        {error && (
+          <p
+            role="alert"
+            className="mt-4 rounded-xl border border-rose-400/30 bg-rose-500/[0.1] px-3.5 py-3 text-xs leading-relaxed text-rose-200"
+          >
+            The reset couldn&apos;t reach the server. Nothing was changed — try
+            again, or close this and come back in a moment.
+          </p>
+        )}
 
         <div className="mt-5 flex flex-col-reverse gap-3 sm:flex-row sm:justify-end">
           <button
             ref={cancelRef}
             type="button"
             onClick={onClose}
-            className="w-full rounded-xl border border-white/10 bg-white/[0.03] px-5 py-2.5 text-sm font-semibold text-slate-200 transition-colors hover:border-white/20 sm:w-auto"
+            disabled={busy}
+            className="w-full rounded-xl border border-white/10 bg-white/[0.03] px-5 py-2.5 text-sm font-semibold text-slate-200 transition-colors hover:border-white/20 disabled:opacity-60 sm:w-auto"
           >
             Cancel
           </button>
           <button
             type="button"
             onClick={onConfirm}
-            className="inline-flex w-full items-center justify-center gap-2 rounded-xl border border-rose-400/40 bg-rose-500/15 px-5 py-2.5 text-sm font-semibold text-rose-200 transition-colors hover:bg-rose-500/25 sm:w-auto"
+            disabled={busy}
+            className="inline-flex w-full items-center justify-center gap-2 rounded-xl border border-rose-400/40 bg-rose-500/15 px-5 py-2.5 text-sm font-semibold text-rose-200 transition-colors hover:bg-rose-500/25 disabled:cursor-not-allowed disabled:opacity-70 sm:w-auto"
           >
-            <RotateCcw className="h-4 w-4" strokeWidth={2.2} />
-            {authenticated ? "Clear Saved State" : "Reset Progress"}
+            {busy ? (
+              <Loader2 className="h-4 w-4 animate-spin" strokeWidth={2.2} />
+            ) : (
+              <RotateCcw className="h-4 w-4" strokeWidth={2.2} />
+            )}
+            {busy ? "Resetting…" : CONFIRM_LABEL[variant]}
           </button>
         </div>
       </div>

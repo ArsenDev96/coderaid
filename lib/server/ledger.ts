@@ -3,6 +3,7 @@ import "server-only";
 import { achievementSources, getAchievements, unlockedIds } from "@/lib/achievements";
 import type { ServerProfile } from "@/lib/profile-client";
 import { EMPTY_LEDGER, type Ledger, type MissionRecord } from "@/lib/progress";
+import { countsAfterReset, resetInstant } from "@/lib/reset";
 import { createAdminClient } from "@/lib/supabase/admin";
 
 /**
@@ -47,7 +48,7 @@ type BestRunRow = {
 export async function ledgerFor(playerId: string): Promise<Ledger> {
   const db = createAdminClient();
 
-  const [runs, days, achievements] = await Promise.all([
+  const [runs, days, achievements, reset] = await Promise.all([
     db
       .from("best_runs")
       .select(
@@ -59,6 +60,7 @@ export async function ledgerFor(playerId: string): Promise<Ledger> {
       .from("player_achievements")
       .select("achievement_id,unlocked_at")
       .eq("player_id", playerId),
+    db.from("players").select("reset_at").eq("id", playerId).single(),
   ]);
 
   // A failed read must not read as "this player has nothing" — that would look
@@ -66,6 +68,18 @@ export async function ledgerFor(playerId: string): Promise<Ledger> {
   if (runs.error || days.error || achievements.error) {
     throw new Error("ledger_read_failed");
   }
+
+  /*
+    The reset tombstone (§12 item 7, migration 0004). `best_runs` already
+    filters the runs, so XP, scores and skill totals need nothing here — this
+    covers the two sources the view does not reach.
+
+    A missing column or a failed read means `null`, which reads as "never
+    reset". That is the right way to fail: showing a player the progress they
+    earned is a smaller error than blanking it because one query went wrong,
+    and this exact read fails on a deploy where 0004 has not been applied yet.
+  */
+  const resetAt = resetInstant(reset.error ? null : reset.data?.reset_at);
 
   const missions: Record<string, MissionRecord> = {};
   const skillXp: Record<string, number> = {};
@@ -97,17 +111,26 @@ export async function ledgerFor(playerId: string): Promise<Ledger> {
     totalXp: Object.values(missions).reduce((sum, m) => sum + m.xpEarned, 0),
     skillXp,
     missions,
+    // Days before the reset are kept in the table but not counted: the streak
+    // is "how long have you been at this", and a player who started over has
+    // been at *this* since the reset. The visit history survives for analytics.
     activeDays: (days.data ?? [])
       .map((d) => d.day as string)
+      .filter((day) => countsAfterReset(day, resetAt))
       .sort(),
+    // The reset route deletes these outright, since an unlock time is a derived
+    // conclusion rather than evidence. The filter is belt and braces for a
+    // partially-applied reset — an achievement stamped before the tombstone
+    // must not survive it, or the page would show it unlocked while the ledger
+    // it derives from says it is not.
     achievements: Object.fromEntries(
-      (achievements.data ?? []).map((a) => [
-        a.achievement_id as string,
-        a.unlocked_at as string,
-      ]),
+      (achievements.data ?? [])
+        .filter((a) => countsAfterReset(a.unlocked_at as string, resetAt))
+        .map((a) => [a.achievement_id as string, a.unlocked_at as string]),
     ),
   };
 }
+
 
 /**
  * Stamps any achievement that has just become unlocked, server-side.

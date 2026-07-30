@@ -100,6 +100,31 @@ export async function claimLocalLedger(ledger: Ledger): Promise<LedgerResult> {
 }
 
 /**
+ * Starts the account over — the server half of Reset Progress (§12 item 7).
+ *
+ * The server stamps a tombstone and every derivation reads past it; nothing is
+ * deleted. This returns the resulting zero ledger so the caller can adopt it
+ * without a second round trip, and so the UI reflects what the database now
+ * holds rather than an assumed zero.
+ */
+export async function resetServerProgress(): Promise<LedgerResult> {
+  try {
+    const response = await fetch("/api/reset", { method: "POST" });
+    if (response.status === 401) return { status: "unauthenticated" };
+    if (!response.ok) return { status: "failed" };
+
+    const { ledger } = (await response.json()) as { ledger?: unknown };
+    // A reset with no ledger in the body still happened — the read-back failed,
+    // not the write. Fetching is more truthful than assuming EMPTY_LEDGER.
+    return ledger
+      ? { status: "ok", ledger: coerceLedger(ledger), claimed: true, profile: null }
+      : await fetchLedger();
+  } catch {
+    return { status: "failed" };
+  }
+}
+
+/**
  * Records that the player is here today and returns the resulting ledger.
  *
  * The local date is sent because the streak is counted in local days; the
