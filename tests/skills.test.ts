@@ -18,6 +18,7 @@ import {
   categoryAverage,
   getSkill,
   getSkillDef,
+  isPlannedSkill,
   levelLabel,
   masteryPct,
   radarData,
@@ -71,7 +72,12 @@ describe("a new player's skills", () => {
     expect(summary.overall).toBe(0);
     expect(summary.started).toBe(0);
     expect(summary.mastered).toBe(0);
-    expect(summary.total).toBe(SKILL_DEFS.length);
+    // Counted over the skills the catalogue can train, not every authored skill:
+    // `streams` and `validation` have no mission behind them, so including them
+    // made the denominator promise progress that cannot be earned. See
+    // `tests/reach.test.ts` for the whole rule.
+    expect(summary.total).toBe(SKILL_DEFS.filter((s) => !isPlannedSkill(s)).length);
+    expect(summary.total).toBeLessThan(SKILL_DEFS.length);
     expect(radarData(EMPTY_LEDGER).every((axis) => axis.value === 0)).toBe(true);
   });
 });

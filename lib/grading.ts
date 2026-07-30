@@ -37,6 +37,9 @@ export const SCORE_WEIGHTS = {
 /** Each hint opened costs this much of the final score. */
 export const HINT_PENALTY = 5;
 
+/** A flawless run — the top of the 0–100 range, named where it is relied on. */
+export const PERFECT_SCORE = 100;
+
 /** Fraction of the mission's XP awarded to its primary skill, at a full score. */
 const PRIMARY_SKILL_SHARE = 1;
 /** Fraction awarded to each other skill the mission exercises. */
@@ -293,13 +296,10 @@ export function missionSkillIds(mission: Mission): {
   return { primary, supporting };
 }
 
-/** Skill XP a graded run awards, keyed by stable skill id. */
-export function skillRewardFor(
-  mission: Mission,
-  grade: MissionGrade,
-): Record<string, number> {
+/** Skill XP a run at `score` awards, keyed by stable skill id. */
+function skillRewardAt(mission: Mission, score: number): Record<string, number> {
   const { primary, supporting } = missionSkillIds(mission);
-  const base = (mission.xp * grade.score) / 100;
+  const base = (mission.xp * score) / 100;
   const reward: Record<string, number> = {};
 
   if (primary) reward[primary] = Math.round(base * PRIMARY_SKILL_SHARE);
@@ -308,6 +308,25 @@ export function skillRewardFor(
     if (amount > 0) reward[id] = amount;
   }
   return reward;
+}
+
+/** Skill XP a graded run awards, keyed by stable skill id. */
+export function skillRewardFor(
+  mission: Mission,
+  grade: MissionGrade,
+): Record<string, number> {
+  return skillRewardAt(mission, grade.score);
+}
+
+/**
+ * The most skill XP this mission can ever award — a flawless run.
+ *
+ * Shares its arithmetic with `skillRewardFor` rather than restating it, because
+ * a reward ceiling that drifts from the live reward maths would silently
+ * mis-report which achievements the catalogue can reach (`lib/reach.ts`).
+ */
+export function perfectSkillRewardFor(mission: Mission): Record<string, number> {
+  return skillRewardAt(mission, PERFECT_SCORE);
 }
 
 /** The graded run, in the shape the progression ledger credits. */

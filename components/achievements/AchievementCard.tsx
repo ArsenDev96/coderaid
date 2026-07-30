@@ -6,6 +6,7 @@ import {
   formatUnlockDate,
   type Achievement,
 } from "@/lib/achievements";
+import { AvailabilityBadge } from "@/components/ui/AvailabilityBadge";
 import { AchievementBadge } from "./AchievementBadge";
 
 /**
@@ -16,12 +17,17 @@ import { AchievementBadge } from "./AchievementBadge";
 export function AchievementCard({ achievement }: { achievement: Achievement }) {
   const tone = TONE_STYLES[achievement.tone];
   const unlocked = achievement.unlocked;
+  const roadmap = achievement.roadmap;
   const pct = Math.round(completionRatio(achievement) * 100);
 
   return (
     <li
       className={`surface flex flex-col items-center p-5 text-center transition-colors ${
-        unlocked ? "border-white/[0.12]" : "hover:border-white/[0.14]"
+        unlocked
+          ? "border-white/[0.12]"
+          : roadmap
+            ? "opacity-70"
+            : "hover:border-white/[0.14]"
       }`}
     >
       <div className="relative">
@@ -38,8 +44,10 @@ export function AchievementCard({ achievement }: { achievement: Achievement }) {
         {achievement.description}
       </p>
 
-      {/* Progress — shown whenever there's more than one step to it */}
-      {achievement.target > 1 && (
+      {/* Progress — shown whenever there's more than one step to it, but never
+          for a roadmap goal: a part-filled bar toward something no play can
+          finish reads as "nearly there" when the truth is "not yet possible". */}
+      {achievement.target > 1 && !roadmap && (
         <div className="mt-3.5 w-full">
           <div className="h-1.5 w-full overflow-hidden rounded-full bg-white/[0.08]">
             <div
@@ -72,6 +80,19 @@ export function AchievementCard({ achievement }: { achievement: Achievement }) {
                 {formatUnlockDate(achievement.unlockedAt)}
               </div>
             )}
+          </>
+        ) : roadmap ? (
+          // Not locked — unfunded. The requirement is still shown, because it is
+          // what this will ask for, but there is no CTA: every route it could
+          // point at is one the player has already exhausted.
+          <>
+            <AvailabilityBadge status="coming-soon" />
+            <div className="mt-1.5 text-[0.65rem] text-slate-600">
+              {achievement.requirement}
+            </div>
+            <div className="mt-1.5 text-[0.65rem] text-slate-500">
+              Needs missions beyond the current catalogue.
+            </div>
           </>
         ) : (
           <>

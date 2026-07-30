@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import { ArrowRight, ShieldCheck, Star } from "lucide-react";
+import { AvailabilityBadge } from "@/components/ui/AvailabilityBadge";
 import { useProgress } from "@/components/progress/ProgressProvider";
 import { careerFor } from "@/lib/dashboard";
 
@@ -50,7 +51,18 @@ export function CareerProgress() {
             <span className="grid h-9 w-9 place-items-center rounded-xl border border-white/[0.08] bg-white/[0.03] text-slate-500">
               <Star className="h-4 w-4" />
             </span>
-            <span className="text-sm text-slate-400">{c.nextRank}</span>
+            <div className="min-w-0">
+              <div
+                className={`text-sm ${
+                  c.nextIsRoadmap ? "text-slate-500" : "text-slate-400"
+                }`}
+              >
+                {c.nextRank}
+              </div>
+              {/* The next rank exists but no amount of play reaches it yet, so
+                  it is named as roadmap rather than as this player's goal. */}
+              {c.nextIsRoadmap && <AvailabilityBadge status="coming-soon" />}
+            </div>
           </div>
         )}
       </div>
@@ -64,7 +76,9 @@ export function CareerProgress() {
           />
         </div>
         {!c.atTopRank && (
-          <div className="mt-2 text-xs text-slate-500">Next: {c.nextRank}</div>
+          <div className="mt-2 text-xs text-slate-500">
+            {c.nextIsRoadmap ? `Coming soon: ${c.nextRank}` : `Next: ${c.nextRank}`}
+          </div>
         )}
       </div>
 

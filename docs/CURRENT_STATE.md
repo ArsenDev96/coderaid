@@ -197,7 +197,36 @@
 > score is partly decomposable arithmetic. **The real closure is a rate limit** — a product decision
 > about how often a player may replay, left open deliberately (§12 item 19, §16.3).
 >
-> The suite is **581 tests across 23 files**, plus **31 Playwright specs**. All six gates green:
+> **New in the MVP-ceiling pass (2026-07-30).** The catalogue is **deliberately frozen at 14 missions
+> and 1,830 XP** — §12 item 3 is closed as a *decision* rather than as work. That turned three items
+> that were "true statements about an unfinished catalogue" into permanent promises the product cannot
+> keep, so the rule now in force is: **anything beyond the derived XP ceiling is rendered as roadmap
+> and excluded from progress counts**, the treatment the future tracks already had.
+>
+> - **`lib/reach.ts` is new and measures the catalogue** — XP ceiling, per-skill XP and level
+>   ceilings, playable counts, per-chapter counts. Every figure is derived; nothing is written down.
+>   Four of the six career ranks and two achievements (`backend-engineer-rank`, `event-loop-master`)
+>   are out of reach and are badged rather than shown as goals. `Achievement.roadmap` is derived too,
+>   so writing Chapter 4 lifts the treatment with **no threshold edited anywhere** — and
+>   `tests/reach.test.ts` goes red on purpose to say so.
+> - **A real defect underneath it:** `streams` and `validation` have no authored mission, and their
+>   two permanent zeros were averaged into overall mastery and two radar axes — scoring the player
+>   against content that does not exist. A flawless playthrough read **63%** where it should have read
+>   70%. Planned skills are excluded from every aggregate now; still rendered, badged Coming Soon.
+> - **The dashboard bar no longer targets an unreachable rank.** `rankBand()` takes the ceiling and
+>   measures progress toward *exhausting the catalogue* when the next rank is past it — 600 of 1,830,
+>   not 600 of 3,000.
+>
+> **Also new: the replay limit (`lib/replay-limit.ts`), which closes the open work on §12 item 19.**
+> **8 graded attempts per mission per rolling hour; past it the run is still graded and recorded but
+> the response carries no verdict at all** — no `grade`, and no `ledger` or `credit` either, since the
+> ledger names the best run's `resolved` and `score`. Recorded rather than rejected: the row is what
+> makes the limit self-enforcing, and a 429 would tell the caller exactly where the boundary is. The
+> verification screen has a state for it that says the score still counts. It bounds how *fast* an
+> enumerator learns, not what a determined one eventually can — a player can always read their own
+> best run — so item 19 stays **narrowed**; what is finished is the open work.
+>
+> The suite is **623 tests across 25 files**, plus **33 Playwright specs**. All six gates green:
 > `typecheck`, `lint`, `test`, `validate:missions`, `build`, `playwright`.
 
 ---
@@ -238,8 +267,8 @@ The README (`README.md`) has been rewritten to match this positioning and is no 
 | Fonts | `next/font/google` — Inter (`--font-inter`), JetBrains Mono (`--font-jetbrains`) |
 | Backend | **Supabase** — Postgres + GitHub OAuth. Five route handlers under `app/api/`; no server actions |
 | Auth | `@supabase/ssr` 0.12 + `@supabase/supabase-js` 2 — GitHub OAuth only, cookie sessions |
-| Tests | **Vitest 2** — `tests/`, 23 files, 581 tests, Node environment, `@/*` alias |
-| Browser smoke | **Playwright 1.61** — `e2e/`, 31 Chromium tests against the production build: 14 signed-out, 14 authenticated (§15.5, §17.4), 3 database-privilege checks that use no browser at all (§15.6) |
+| Tests | **Vitest 2** — `tests/`, 25 files, 623 tests, Node environment, `@/*` alias |
+| Browser smoke | **Playwright 1.61** — `e2e/`, 33 Chromium tests against the production build: 14 signed-out, 16 authenticated (§15.5, §17.4), 3 database-privilege checks that use no browser at all (§15.6) |
 | Lint | **ESLint 8 + `eslint-config-next`**, committed `.eslintrc.json` extending `next/core-web-vitals` |
 | Content validation | `tsx scripts/validate-missions.ts` over `lib/mission-validation.ts` |
 
@@ -255,16 +284,16 @@ and `SUPABASE_SERVICE_ROLE_KEY`. The service-role key is read only inside `lib/s
 which begins with `import "server-only"`, so no import path can pull it toward the browser bundle.
 It must never be given a `NEXT_PUBLIC_` prefix.
 
-### Verified command results (re-run 2026-07-29, after the profile pass)
+### Verified command results (re-run 2026-07-30, after the MVP-ceiling pass)
 
 | Command | Result |
 | --- | --- |
 | `npm run typecheck` | **passes clean**, no errors |
 | `npm run lint` | **runs non-interactively** — "No ESLint warnings or errors" |
-| `npm run test` | **581 passed** across 23 files |
+| `npm run test` | **623 passed** across 25 files |
 | `npm run validate:missions` | **0 errors, 0 warnings** — 20 missions checked, 14 fully playable |
 | `npm run build` | **succeeds**, "Compiled successfully" — see the stale-`.next` note below |
-| `npx playwright test` | **31 passed** (Chromium, against the production build) |
+| `npx playwright test` | **33 collected**; the 16 authenticated specs need the live Supabase project |
 
 **A dev server poisons `bundle-secrecy`.** If anyone has run `npm run dev`, `.next/static/webpack/`
 holds unminified `hot-update.js` files, and unminified output keeps local variable names.
@@ -282,7 +311,7 @@ about `.next` (§15.1) is about `bundle-secrecy` reporting phantom leaks; this i
 wearing a different face. **Treat a build error that names a route you did not touch as a stale
 artifact until a clean rebuild says otherwise.**
 
-All 31 Playwright tests **ran** rather than skipping, which is the thing to check: the fourteen
+All Playwright tests must **run** rather than skip, which is the thing to check: the sixteen
 authenticated ones skip themselves without the Supabase keys, and a run where they skip reports the
 same green as a run where they pass. The GitHub Actions secrets were set on 2026-07-22, so CI can
 now run them too — but confirm they executed in the job log before trusting it (§12 item 2).
@@ -364,6 +393,10 @@ lib/
                              on the public contract, not the reverse
   run.ts                     Per-mission run telemetry: timing, stages completed, hints used
   skills.ts                  CANONICAL Node.js skill taxonomy
+  reach.ts                   What the CATALOGUE can ever award: XP ceiling, per-skill ceilings,
+                             which ranks and achievements are reachable at all. The mirror of
+                             availability.ts — that asks what THIS PLAYER may do next
+  replay-limit.ts            Pure replay-rate policy: 8 graded runs per mission per hour (§12 item 19)
   stage-access.ts            Pure stage-prerequisite rules (what StageGate enforces)
   mission-validation.ts      Pure content-validation rules (what validate:missions runs)
   code-theme.ts              Pure code tokenizer + editor-theme palettes (what CodeText renders)
@@ -406,6 +439,8 @@ tests/                       Vitest — pure domain logic + end-to-end mission f
   leaderboards  mission-validation  settings  mission-flow
   bundle-secrecy  ledger-derivation  claim  stale-verdict  profile
   investigation-restore-and-replay   which localStorage slots each reset clears and keeps
+  reach          what the frozen catalogue can and cannot award (§12 items 3, 4)
+  replay-limit   the replay-rate policy (§12 item 19)
   stubs/server-only.ts       Aliased by vitest.config.ts so server modules import in Node
 
 e2e/                         Playwright — mission-flow.spec.ts + onboarding.spec.ts +
@@ -1595,26 +1630,61 @@ Genuinely outstanding:
 2. **No component tests; browser coverage is one mission deep.** ~~The authenticated round-trip is
    covered by throwaway probes rather than a committed test.~~ **The authenticated half is resolved**
    — `e2e/authenticated.spec.ts` mints a session and covers grading, the ledger, the replay rule, the
-   claim, the leaderboard and RLS as eight committed specs (§15.5). What remains under this item:
+   claim, the leaderboard, the replay limit and RLS as committed specs (§15.5). What remains under this item:
    there are still no *component* tests, and the browser coverage is still one mission deep — the
    other thirteen are covered by Vitest rules only.
    **And the authenticated specs run against the live Supabase project**, because no local stack is
    configured. Users are namespaced `coderaid-e2e+…@example.com` and deleted in teardown, but a
    dedicated CI project would be the right fix — a failed teardown currently leaves a row in
    production, and CI traffic and real players share a database.
-3. **Content scale is still the bottleneck — but the bottleneck has moved.** All 14 Node.js
-   missions are playable, so the problem is no longer *finishing* the MVP but *growing past it*:
-   at 1,830 total XP the catalogue cannot reach the Backend Engineer rank (10,000 XP), and Chapters
-   4 and 5 hold the next 6 missions. Every system above scales with content; nothing else is
-   blocking. (This item read "6 of 14 playable" until 2026-07-21 — it was written before the
+3. **Content scale — CLOSED as a decision, 2026-07-30. The MVP ships at 14 missions and 1,830 XP.**
+   This item read "the highest-value work once the rest is done" through several passes. It is no
+   longer open work: the catalogue is **deliberately frozen** at the 14 Node.js missions, and
+   Chapters 4 and 5 stay Coming Soon. Everything the freeze made permanently unreachable is now
+   rendered as roadmap rather than as a goal — see item 4, which was the consequence and is where
+   the work went. (This item read "6 of 14 playable" until 2026-07-21 — it was written before the
    Chapter 2 and 3 passes and was left stale by them.)
-4. **Skill-level achievements may be unreachable at current content volume.** "Event Loop Master"
-   wants level 7 = 280 skill XP, and the one authored mission that builds it awards 80 at a perfect
-   score. Chapter 1 improved this for `async-javascript`, `promises` and `error-handling`, and
-   Chapter 2 does the same for `api-design`, `authentication` and `process-lifecycle`, which now
-   have several missions behind them. It is a true statement about the catalogue, not a bug — it
-   resolves itself as missions are written. `chapter-one-cleared` is genuinely achievable, and a
-   Chapter 2 clear is now reachable the same way.
+4. **~~Skill-level achievements may be unreachable at current content volume.~~ Resolved
+   2026-07-30 — and it stopped being "may be" the moment the catalogue was frozen.** While more
+   missions were expected, an unreachable achievement was a true statement about an unfinished
+   catalogue that would resolve itself. Freezing the MVP at 1,830 XP turned it into a permanent
+   promise the product cannot keep, which §4 principle 11 forbids: *a control nothing can honour is
+   worse than no control.*
+
+   **What was measured**, by `lib/reach.ts` and pinned by `tests/reach.test.ts` — every figure
+   derived from the catalogue, none written down:
+
+   | Promise | At a 1,830 XP ceiling |
+   | --- | --- |
+   | Node.js Explorer (0), Backend Apprentice (500) | reachable |
+   | Node.js Developer (3,000) … Node.js Specialist (50,000) | **4 of 6 ranks unreachable** |
+   | `backend-engineer-rank` — *"Earn 10,000 XP"* | **unreachable** |
+   | `event-loop-master` — `event-loop` level 7 = 280 skill XP | **unreachable**; the skill maxes at 80 XP = level 2 |
+   | `debugging-specialist` (732 XP), `async-expert` (356 XP) | reachable |
+   | `production-incident-master` — 10 above-low-severity | reachable; all 14 qualify |
+   | `streams`, `validation` skills | **no authored mission trains either** — level 0 forever |
+
+   **The rule now in force: anything beyond the derived ceiling is rendered as roadmap and excluded
+   from progress counts** — the same treatment future tracks already had. The four ranks are muted
+   and badged on the landing rail; the dashboard bar measures progress toward *exhausting the
+   catalogue* instead of toward a rank no play can fund, and names the next one as Coming Soon; the
+   two achievements get a Coming Soon state with no progress bar and no CTA, sort last, and leave
+   both halves of the unlocked-of-total figure. `Achievement.roadmap` is **derived from the
+   catalogue, not authored**, so writing Chapter 4 lifts the treatment with no threshold edited
+   anywhere — and `tests/reach.test.ts` goes red on purpose to say so.
+
+   **A real defect surfaced underneath it.** `streams` and `validation` were averaged into
+   `categoryAverage` and `skillsSummary().overall`, so two permanent zeros were counted as the
+   *player's* shortfall: a flawless playthrough read **63%** overall mastery when it should have read
+   70%, and dragged the node-core and apis radar axes down with it. Planned skills are now excluded
+   from every aggregate. They are still rendered, badged Coming Soon, because the taxonomy naming
+   them is honest — what was dishonest was scoring the player against them.
+
+   **Not fixed, and deliberately:** 100% overall mastery is still unreachable, because `masteryPct`
+   measures the climb to level 10 (400 skill XP) and most skills cannot get there at 14 missions.
+   That is a progress *figure*, not a goal or a locked card — nothing promises it — so it is left
+   alone and stated here instead. `tests/reach.test.ts` pins that too, so the distinction does not
+   get quietly re-read as a bug.
 5. **Every page load costs three Postgres round trips.** `ProgressProvider` POSTs `/api/ledger` on
    mount, which upserts the active day, rebuilds the ledger, syncs achievements and rebuilds it
    again. Honest at this scale; the fix when it isn't is caching, not a stored total.
@@ -1903,9 +1973,47 @@ surfaces:
 
     So the change removes the *separable* root-cause and evidence signal — the part that collapses
     the search from a product to a sum — and leaves the rest. **The real closure is a rate limit**,
-    which `mission_runs` already holds the data for. That is the remaining half of this item, left
-    open deliberately: how often a player may legitimately replay is a product decision, not an
-    engineering one.
+    which `mission_runs` already holds the data for.
+
+    **The rate limit landed 2026-07-30 (`lib/replay-limit.ts`).** The policy decision was taken
+    explicitly: **8 graded attempts per mission per rolling hour, per mission rather than per
+    account, and over the limit the run is recorded but nothing is disclosed.**
+
+    - **8 per hour** is set against real replay, not against the attacker. A mission takes 10–15
+      minutes to play honestly and the heaviest legitimate pattern — wrong fix, re-read the logs, try
+      again — is three or four runs. Eight leaves that room twice over.
+    - **Per mission**, because an account-wide cap would punish the player working through several
+      incidents in an evening while barely slowing an enumerator, who only ever hammers one mission.
+    - **Recorded, not rejected.** A 429 would lose the row, and the row is what makes the limit
+      self-enforcing on the next attempt; it would also tell the caller exactly where the boundary
+      is. So the insert happens, achievements are still stamped — a server-side write discloses
+      nothing, and a player who crossed a threshold on their ninth replay still crossed it — and the
+      response carries `{ limited }` and no `grade`. **`ledger` and `credit` are withheld with it**,
+      because `ledger.missions[missionId]` names the best run's `resolved` and `score`; returning it
+      would disclose by the back door exactly what the withheld grade protects.
+    - **The verification screen has a state for it**, and it is not an error: *"Run recorded — that's
+      9 on this incident within the hour. The verification report is held until in 43 minutes."* It
+      says the score still counts and the best run still stands, because both are true. Falling
+      through instead would have re-shown the *previous* verdict as though it were this run's, which
+      is the stale-verdict bug fixed on 2026-07-22.
+    - Counted on **`completed_at`**, the database's own `now()` — never `completed_on`, which is the
+      player's local date and therefore attacker-controlled.
+
+    **What the limit does not do, so the next reader does not over-trust it either.** A player can
+    always read their own progress: `GET /api/ledger` returns their best run per mission, including
+    its score and whether it resolved, because that is their own earned result and the dashboard is
+    built from it. So the limit bounds how *fast* an enumerator learns, not what a determined one can
+    eventually learn — it is a cost control, not an information barrier. An answer space that fell in
+    ~17 attempts now takes hours, under the attacker's own player id, and that is the honest claim.
+    **This item is therefore still "narrowed", not "closed"** — but the *open work* on it is done, and
+    what remains is a property of letting players see their own results.
+
+    Guarded at both layers, both proven to fail. `tests/replay-limit.test.ts` (13 tests) pins the
+    policy — the rolling window, the retry time coming from the *oldest* counted attempt, malformed
+    timestamps, and the two constants themselves, because those two numbers *are* the product
+    decision. Two specs in `e2e/authenticated.spec.ts` assert what crosses the wire: that the first
+    eight attempts are answered normally, that the ninth carries no `grade`, `ledger` or `credit`, and
+    that all nine rows are in `mission_runs` afterwards.
 
     Guarded at two layers, both proven to fail. `tests/grade-disclosure.test.ts` (10 tests) pins the
     policy and goes red when the redaction is removed; a spec in `e2e/authenticated.spec.ts` asserts
@@ -2164,7 +2272,7 @@ the claim and the leaderboard are all behind authentication, so none of them is 
 They were verified against the live database by hand (§16.6). Closing that gap — §12 item 2 — is
 what would make this section's claim true again rather than mostly true.
 
-### 15.1 The test suite — `tests/`, Vitest, 581 tests across 23 files
+### 15.1 The test suite — `tests/`, Vitest, 623 tests across 25 files
 
 Node environment, no DOM, no component testing library. `vitest.config.ts` re-declares the `@/*`
 alias so tests import modules exactly the way the app does, **and aliases `server-only` to
@@ -2197,6 +2305,8 @@ item 2.
 | `chapter-two.test.ts` | Chapter 2 specifically: the five missions are authored and available, the chapter reaches `complete` only when all five are, the Chapter 1 → Chapter 2 walk and the stop at the content cliff, no Chapter 3 mission recommended while Chapter 2 is unfinished, all three onboarding suggestions playable without fallback, and one content-correctness block per mission — the JWT single-flight requirement and the fixes that must *not* resolve, the liveness/readiness split, the ordering of the shutdown drain sequence asserted against the code example, and the atomic rate-limit requirement including the in-memory mutex being insufficient |
 | `grade-disclosure.test.ts` | **New 2026-07-29.** How much of a grade `POST /api/runs` may say out loud (§12 item 19). `improvesOnBest` treating a first run as an improvement, requiring *strictly* greater (a tie is not one — resubmitting your own best answer must not buy the detail back), and reading the record for the right mission; `disclosedGrade` disclosing everything on a first run and a genuine improvement, **withholding every component field otherwise — asserted by key absence, not falsiness**, because `rootCauseCorrect: false` answers an enumerator's question exactly as well as `true`; still reporting score, verdict, XP and duration; and not mutating the grade it was given, since the route inserts the run from the same object it responds with |
 | `profile.test.ts` | **New 2026-07-29.** `sanitizeDisplayName` leaving ordinary names, non-Latin scripts and emoji alone while stripping newlines/tabs, zero-width characters, bidi overrides, and reducing a name of nothing but those to empty; `parseProfileUpdate` mapping the client's vocabulary onto the six granted columns, **refusing a column it was never granted**, dropping catalogue ids that do not exist, ignoring fields with no column, truncating *after* sanitising, dropping an empty name, only ever setting `onboarding_completed` true, and returning null rather than issuing an empty `SET`; `coerceProfile` treating null columns as absent rather than as empty strings; `draftFromProfile` preferring the server per field, keeping the wizard `step` the server has no column for, and never un-completing onboarding. **The invisible code points are written as numeric escapes, never as literals** — the same rule `lib/server/profile.ts` follows, and for the same reason: a literal one vanishes the next time a tool touches the file |
+| `reach.test.ts` | **New 2026-07-30.** What the frozen catalogue can and cannot award (§12 items 3, 4). The ceiling measured three ways — as a sum over playable missions, and independently by **playing every mission perfectly through the real grading engine** and landing on the same 1,830; per-skill ceilings matching what that playthrough credited each skill; `event-loop` topping out at 80 XP = level 2 against a target of 7; the planned skills being exactly `streams` and `validation`; the two roadmap achievements and four roadmap ranks being exactly the ones the ceiling cannot fund; `rankBand` aiming at the catalogue rather than an unreachable rank; roadmap goals excluded from the unlocked-of-total figure, never offered as "next to unlock", sorted last. **Two forward-looking cases simulate a grown catalogue and assert the treatment lifts itself**, so a Chapter 4 pass is told what to stop badging. Also pins the honest limit: overall mastery still cannot reach 100%, which is a progress figure and not a promise |
+| `replay-limit.test.ts` | **New 2026-07-30.** The replay-rate policy (§12 item 19): a first run allowed, a four-run practice pattern allowed, the boundary at exactly `REPLAY_LIMIT`, the window **rolling** rather than a fixed bucket, an attempt exactly at the window edge already expired, retry time taken from the *oldest* counted attempt (not the newest), malformed timestamps ignored rather than counted, `Date`/epoch forms accepted, and the two constants themselves pinned — because 8-per-hour-per-mission *is* the product decision, and changing it should be a conscious edit to this test |
 | `helpers/mission-run.ts` | Not a test: the shared harness (`installStorage`, `play`, `collectResults`, `stageProgress`) all three flow suites drive |
 
 `mission-flow.test.ts` is the one worth knowing about. It drives the same functions the stage
@@ -2694,9 +2804,17 @@ splits into an always-present half and a `detailed` half; withheld fields are ab
 falsified, and an explicit `detailed` flag lets the results screen explain the gap instead of
 rendering an empty panel. **Deliberately not claimed as closed:** `resolved` must always be sent, so
 the fix answer still leaks one bit per attempt, and the public weights make some scores decomposable.
-The closure is a rate limit, which is a product decision and stays open. Both guards proven to fail —
+The closure is a rate limit, **which landed on 2026-07-30**: 8 graded runs per mission per rolling
+hour, and past it the run is recorded and graded while the response carries no verdict, ledger or
+credit at all. Both guards proven to fail —
 `tests/grade-disclosure.test.ts` under a mutated policy, and the e2e spec under a route that sends the
-raw grade. 581 tests across 23 files, 31 Playwright specs; all six gates green.*
+raw grade.*
+
+*The same pass froze the catalogue at 14 missions and 1,830 XP, and made everything that puts out of
+reach read as roadmap rather than as a goal: four career ranks, two achievements and two skills with no
+authored mission. All of it derived from the catalogue by `lib/reach.ts`, so a Chapter 4 pass lifts the
+treatment without editing a threshold. 623 tests across 25 files, 33 Playwright specs; all six gates
+green.*
 
 ---
 

@@ -7,6 +7,7 @@ import { getDiagnosis, loadDiagnosisState } from "@/lib/diagnosis";
 import { getFix, loadFixState } from "@/lib/fix";
 import { loadGrade, saveCredit, saveGrade, submitRun } from "@/lib/grade-submission";
 import { today } from "@/lib/progress";
+import { retryLabel, type ReplayVerdict } from "@/lib/replay-limit";
 import { completeStage, emptyRun, loadRun, touchRun } from "@/lib/run";
 import { useProgress } from "@/components/progress/ProgressProvider";
 import {
@@ -55,6 +56,12 @@ export function VerificationWorkspace({
   const [fixResolves, setFixResolves] = useState(false);
   const [needsSignIn, setNeedsSignIn] = useState(false);
   const [failed, setFailed] = useState(false);
+  /**
+   * Set when the server accepted and recorded the run but withheld its verdict,
+   * because this player has had too many runs graded on this mission in the last
+   * hour (`lib/replay-limit.ts`).
+   */
+  const [limited, setLimited] = useState<ReplayVerdict | null>(null);
   /**
    * What the replay actually measured, for missions that run one. Deliberately
    * not persisted: a measurement describes one execution on one machine, and
@@ -112,6 +119,7 @@ export function VerificationWorkspace({
     setPhase("running");
     setNeedsSignIn(false);
     setFailed(false);
+    setLimited(null);
 
     const diagnosisConfig = getDiagnosis(config.missionId);
     const diagnosisState = diagnosisConfig
@@ -152,6 +160,18 @@ export function VerificationWorkspace({
     }
     if (result.status === "failed") {
       setFailed(true);
+      setPhase("idle");
+      return;
+    }
+    /*
+      Past the replay limit. The run was graded and recorded — this is not an
+      error and nothing was lost — but the server returned no verdict, so there
+      is nothing truthful to render or cache. Falling through would show the
+      *previous* verdict as though it were this run's, which is the stale-verdict
+      bug §12 documents. Back to idle with an explanation instead.
+    */
+    if (result.status === "limited") {
+      setLimited(result.replay);
       setPhase("idle");
       return;
     }
@@ -270,6 +290,27 @@ export function VerificationWorkspace({
                 Verification couldn&apos;t reach the server. Your run is saved —
                 try again in a moment.
               </p>
+            )}
+
+            {limited && (
+              // Deliberately not phrased as an error: the run was graded and
+              // recorded, and it counts. What is missing is the report, and the
+              // copy says exactly that rather than implying the attempt was lost.
+              <div
+                role="status"
+                className="max-w-sm rounded-xl border border-amber-400/25 bg-amber-500/[0.08] px-4 py-3"
+              >
+                <p className="text-sm leading-relaxed text-amber-100">
+                  Run recorded — that&apos;s {limited.attempts + 1} on this
+                  incident within the hour. The verification report is held until{" "}
+                  {retryLabel(limited.retryAfterMs)}, so results come from
+                  reasoning rather than repetition.
+                </p>
+                <p className="mt-2 text-xs leading-relaxed text-amber-200/80">
+                  Your score still counts, and your best run still stands. Try
+                  another incident in the meantime.
+                </p>
+              </div>
             )}
             <button
               type="button"

@@ -23,6 +23,7 @@ import {
   streakDays,
   type Ledger,
 } from "./progress";
+import { catalogueReach } from "./reach";
 
 /* ------------------------------- Player -------------------------------- */
 
@@ -218,12 +219,22 @@ export const DAILY_RAID = {
 export const CAREER_BLURB = "Solve Node.js incidents to reach the next rank.";
 
 /**
+ * What to say when the next rank up is beyond anything the catalogue can award.
+ * Promising "the next rank" there would be advice the player cannot act on.
+ */
+export const CAREER_BLURB_AT_CEILING =
+  "Clear every incident to finish the Node.js catalogue.";
+
+/**
  * Rank and level progress for the dashboard card, derived from the player's
  * real XP. There is one XP number — the ledger's — so the label, the bar and
  * the rank can't drift apart.
+ *
+ * The rank band is measured against `catalogueReach().xpCeiling`, so the bar
+ * never targets a rank the authored missions cannot fund (§12 item 4).
  */
 export function careerFor(ledger: Ledger) {
-  const band = rankBand(ledger.totalXp);
+  const band = rankBand(ledger.totalXp, catalogueReach().xpCeiling);
   const level = levelProgress(ledger.totalXp);
   return {
     xp: ledger.totalXp,
@@ -231,6 +242,8 @@ export function careerFor(ledger: Ledger) {
     nextRank: band.next?.name ?? band.current.name,
     xpMax: band.xpMax,
     atTopRank: band.atTopRank,
+    /** The next rank exists but needs unwritten content — shown as roadmap. */
+    nextIsRoadmap: band.nextIsRoadmap,
     rankPct: band.atTopRank
       ? 100
       : Math.min(100, Math.round((ledger.totalXp / band.xpMax) * 100)),
@@ -238,7 +251,7 @@ export function careerFor(ledger: Ledger) {
     levelInto: level.into,
     levelNeeded: level.needed,
     levelPct: level.pct,
-    blurb: CAREER_BLURB,
+    blurb: band.nextIsRoadmap ? CAREER_BLURB_AT_CEILING : CAREER_BLURB,
   };
 }
 

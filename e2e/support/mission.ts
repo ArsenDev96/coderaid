@@ -120,13 +120,70 @@ export async function playToVerification(
  * and a UI assertion would pass just as well against a server that sent the
  * answer and a client that chose not to render it.
  */
-export async function runVerification(
-  page: Page,
-): Promise<{ grade: Record<string, unknown> }> {
+export async function runVerification(page: Page): Promise<RunResponse> {
   const graded = page.waitForResponse(
     (r) => r.url().includes("/api/runs") && r.request().method() === "POST",
   );
   await page.getByRole("button", { name: "Run Verification" }).click();
   const response = await graded;
-  return (await response.json()) as { grade: Record<string, unknown> };
+  return (await response.json()) as RunResponse;
+}
+
+/**
+ * The body `POST /api/runs` sends back. `grade` is absent on a run past the
+ * replay limit and `limited` is absent on every other run, which is the shape
+ * the withholding depends on — so both are optional here rather than asserted.
+ */
+export type RunResponse = {
+  grade?: Record<string, unknown>;
+  ledger?: Record<string, unknown>;
+  credit?: Record<string, unknown>;
+  limited?: { limited: boolean; attempts: number; limit: number };
+};
+
+/**
+ * The grade from a response that must have carried one. Fails loudly rather than
+ * letting an unexpectedly withheld verdict read as a passing assertion on
+ * `undefined`.
+ */
+export function gradeOf(response: RunResponse): Record<string, unknown> {
+  expect(response.limited, "the server withheld a verdict unexpectedly").toBeUndefined();
+  expect(response.grade, "the response carried no grade").toBeTruthy();
+  return response.grade as Record<string, unknown>;
+}
+
+/**
+ * Submits a run straight to the API with an already-authenticated page context,
+ * skipping the six-stage UI.
+ *
+ * Used only to reach the replay limit, which needs nine submissions: driving the
+ * whole flow nine times would take minutes and would test the stage components
+ * over again rather than the limit. The payload is a deliberately *wrong* guess
+ * — the enumeration pattern the limit exists to slow down.
+ */
+export async function submitRunDirectly(
+  page: Page,
+  missionId: string,
+): Promise<RunResponse> {
+  return page.evaluate(async (id) => {
+    const response = await fetch("/api/runs", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        missionId: id,
+        rootCauseId: "definitely-not-the-answer",
+        evidenceIds: [],
+        fixId: "definitely-not-the-answer",
+        fixApplied: true,
+        telemetry: {
+          startedAt: Date.now() - 60_000,
+          lastActiveAt: Date.now(),
+          stagesCompleted: [],
+          hintsUsed: [],
+        },
+        completedOn: new Date().toISOString().slice(0, 10),
+      }),
+    });
+    return response.json();
+  }, missionId);
 }

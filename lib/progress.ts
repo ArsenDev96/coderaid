@@ -299,17 +299,47 @@ export function levelProgress(totalXp: number) {
  * The rank band a total XP figure falls into, plus the rank above it. Derived
  * from `CAREER_RANKS.minXp` so the displayed rank, the XP ceiling and the
  * progress bar can never drift from the published thresholds.
+ *
+ * `ceiling` is the most XP the authored catalogue can award — `catalogueReach()`
+ * in `lib/reach.ts`, which callers pass in rather than this module importing it
+ * (`lib/reach.ts` reads `lib/availability.ts`, which reads this module, so the
+ * dependency has to point this way). It defaults to unbounded, which is the
+ * honest default for a pure maths module: with no ceiling supplied, every
+ * authored rank is treated as attainable.
+ *
+ * When the next rank sits beyond the ceiling, the bar measures progress toward
+ * **exhausting the catalogue** instead of toward a rank no play can reach. A
+ * player at 600 of a possible 1,830 XP is 33% of the way through everything
+ * written, which is a true and useful figure; 600/3,000 toward Node.js
+ * Developer is neither.
  */
-export function rankBand(totalXp: number) {
+export function rankBand(totalXp: number, ceiling = Number.POSITIVE_INFINITY) {
   const ranks = [...CAREER_RANKS].sort((a, b) => a.minXp - b.minXp);
   const current = ranks.filter((r) => totalXp >= r.minXp).at(-1) ?? ranks[0];
   const next = ranks.find((r) => r.minXp > current.minXp);
+  const inReach = next !== undefined && next.minXp <= ceiling;
+
+  // Where the progress bar's 100% sits. A reachable rank above is the goal; a
+  // roadmap one is replaced by the catalogue ceiling; with neither (the top of
+  // the ladder, or no ceiling supplied) there is nothing left to climb and the
+  // bar holds full.
+  const xpMax = inReach
+    ? next.minXp
+    : Number.isFinite(ceiling)
+      ? Math.max(current.minXp, ceiling)
+      : current.minXp;
+
   return {
     current,
     next,
-    // At the top rank there is no ceiling left to climb — hold the bar full.
-    xpMax: next?.minXp ?? current.minXp,
-    atTopRank: !next,
+    /**
+     * True when a rank above this one exists but needs content the catalogue
+     * does not have. The UI names it as roadmap, not as the player's next goal.
+     */
+    nextIsRoadmap: next !== undefined && !inReach,
+    xpMax,
+    /** No rank above this one exists at all — the top of the authored ladder. */
+    atTopRank: next === undefined,
   };
 }
 

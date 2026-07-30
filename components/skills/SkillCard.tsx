@@ -1,5 +1,6 @@
 "use client";
 
+import { AvailabilityBadge } from "@/components/ui/AvailabilityBadge";
 import { levelLabel, strengthFor, STRENGTH_BADGE, type Skill } from "@/lib/skills";
 
 export function SkillCard({
@@ -16,6 +17,9 @@ export function SkillCard({
   // A skill with no level and no XP has genuinely not been started yet — say so
   // rather than showing an empty bar next to a "Learning" badge.
   const notStarted = skill.level === 0 && skill.currentXp === 0;
+  // A *planned* skill's zero is not the player's: no authored mission trains it,
+  // so "Not Started" would read as their omission rather than the catalogue's.
+  const planned = skill.planned;
 
   return (
     <button
@@ -31,7 +35,7 @@ export function SkillCard({
       <div className="flex items-start gap-3">
         <span
           className={`grid h-11 w-11 shrink-0 place-items-center rounded-xl border ${skill.accent} ${
-            notStarted ? "opacity-50" : ""
+            notStarted || planned ? "opacity-50" : ""
           }`}
         >
           <Icon className="h-5 w-5" strokeWidth={1.9} />
@@ -45,36 +49,47 @@ export function SkillCard({
             {skill.name}
           </h3>
           <p className="mt-0.5 text-xs text-slate-500">
-            {notStarted ? "Not Started" : levelLabel(skill.level)}
+            {planned
+              ? "No incident written yet"
+              : notStarted
+                ? "Not Started"
+                : levelLabel(skill.level)}
           </p>
         </div>
       </div>
 
-      <div className="mt-4 flex items-center gap-3">
-        <span className="h-1.5 min-w-0 flex-1 overflow-hidden rounded-full bg-white/[0.08]">
+      {/* No bar for a planned skill: there is no progress to be at 0% of. */}
+      {!planned && (
+        <div className="mt-4 flex items-center gap-3">
+          <span className="h-1.5 min-w-0 flex-1 overflow-hidden rounded-full bg-white/[0.08]">
+            <span
+              className="block h-full rounded-full bg-gradient-to-r from-violet-500 to-electric-400"
+              style={{ width: `${notStarted ? 0 : skill.progress}%` }}
+            />
+          </span>
           <span
-            className="block h-full rounded-full bg-gradient-to-r from-violet-500 to-electric-400"
-            style={{ width: `${notStarted ? 0 : skill.progress}%` }}
-          />
-        </span>
+            className={`shrink-0 text-xs font-semibold ${
+              notStarted ? "text-slate-500" : "text-slate-300"
+            }`}
+          >
+            {notStarted ? 0 : skill.progress}%
+          </span>
+        </div>
+      )}
+
+      {planned ? (
+        <AvailabilityBadge status="coming-soon" className="mt-3 w-fit" />
+      ) : (
         <span
-          className={`shrink-0 text-xs font-semibold ${
-            notStarted ? "text-slate-500" : "text-slate-300"
+          className={`mt-3 inline-flex w-fit rounded-md border px-2 py-0.5 text-[0.62rem] font-semibold ${
+            notStarted
+              ? "border-white/10 bg-white/[0.03] text-slate-400"
+              : STRENGTH_BADGE[strength]
           }`}
         >
-          {notStarted ? 0 : skill.progress}%
+          {notStarted ? "Not Started" : strength}
         </span>
-      </div>
-
-      <span
-        className={`mt-3 inline-flex w-fit rounded-md border px-2 py-0.5 text-[0.62rem] font-semibold ${
-          notStarted
-            ? "border-white/10 bg-white/[0.03] text-slate-400"
-            : STRENGTH_BADGE[strength]
-        }`}
-      >
-        {notStarted ? "Not Started" : strength}
-      </span>
+      )}
     </button>
   );
 }

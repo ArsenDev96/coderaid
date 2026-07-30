@@ -1,18 +1,22 @@
-# CodeRaid — decide the rate limit, then grow the content
+# CodeRaid — the MVP is scope-complete; decide the reset, then harden
 
-Project: **`c:\Users\DoC\Desktop\sis`** (Windows; the repo is `ArsenDev96/coderaid`). Next.js 14 App
-Router, TypeScript strict, Tailwind, Supabase. A Node.js backend-debugging simulator: 14 playable
-missions, 6 stages each (Briefing → Investigation → Diagnosis → Fix → Verification → Complete).
+Project: **`d:\coderaid`** on this machine (there is also a checkout at
+`c:\Users\DoC\Desktop\sis` — both are real, do not "fix" either path). The repo is
+`ArsenDev96/coderaid`. Next.js 14 App Router, TypeScript strict, Tailwind, Supabase. A Node.js
+backend-debugging simulator: 14 playable missions, 6 stages each (Briefing → Investigation →
+Diagnosis → Fix → Verification → Complete).
 
-Read `docs/CURRENT_STATE.md` first. It was updated 2026-07-29 and is **accurate** — §16 is the
-server architecture (§16.7 is new), §17 the verification replay, §12 the real debt. Trust it, and
-**keep it that way: if you change behaviour, change the doc in the same pass.**
+Read `docs/CURRENT_STATE.md` first. It was updated 2026-07-30 and is **accurate** — §16 is the
+server architecture, §17 the verification replay, §12 the real debt. Trust it, and **keep it that
+way: if you change behaviour, change the doc in the same pass.**
 
 ## Where things stand
 
-`main` carries the profile pass (merged as PR #3). Branch `real-verification-replay` carries the
-docs catch-up, the `best_runs` lock and the grade-disclosure pass. The suite is **581 tests across 23 files** plus **31
-Playwright specs**, and all six gates are green.
+**The MVP is scope-complete.** The catalogue is deliberately frozen at **14 missions and 1,830 XP** —
+§12 item 3 is closed as a *decision*, not as work. Chapters 4 and 5 stay Coming Soon. Do not plan
+content growth unless the product owner reopens it.
+
+The suite is **623 tests across 25 files** plus **33 Playwright specs**, and all six gates are green.
 
 **`supabase/migrations/` is not applied automatically.** There is no linked Supabase CLI project and
 no database password in `.env.local` — only the URL, the anon key and the service-role key, none of
@@ -20,98 +24,86 @@ which can run DDL. Migrations are applied by hand in the Supabase dashboard's SQ
 a migration in the tree is actually live before trusting a spec that depends on it; running
 `e2e/view-privileges.spec.ts` is the fastest way to confirm 0003 is in place.
 
-### Done in the profile pass (2026-07-29) — do not re-plan these
+### Done in the MVP-ceiling pass (2026-07-30) — do not re-plan these
 
-**§12 item 17 is closed: the profile reaches the server.**
+Freezing the catalogue turned three "true statements about an unfinished catalogue" into permanent
+promises the product cannot keep, which §4 principle 11 forbids. The rule now in force is **anything
+beyond the derived XP ceiling is rendered as roadmap and excluded from progress counts.**
 
-- `POST /api/profile` writes the six columns `0001_init.sql` has granted to `authenticated` since
-  the first migration and which nothing had ever used. `lib/server/profile.ts` bounds the update;
-  `lib/profile-client.ts` holds the wire shape both halves import.
-- **It is the only route in the app that runs as the signed-in user rather than as service-role.**
-  That is deliberate and is the interesting part — see §16.7. The column grant means Postgres
-  refuses `claimed_at` and every scored table *even if the handler is wrong*; with the admin client
-  it would not.
-- The read path closes the loop: `hasClaimed()` became `playerRecord()`, `/api/ledger` answers
-  `{ ledger, claimed, profile }` on both verbs, and `ProgressProvider` layers the server profile
-  over the local draft field by field. A device that has never seen this player's `localStorage`
-  now shows their real name instead of "Operative".
-- Three ornaments went with it: the landing page's preview tabs switch and its CTA opens
-  `user-signup-latency-spike`; the top bar's account menu opens.
+- **`lib/reach.ts` is new** and measures the catalogue: XP ceiling, per-skill XP and level ceilings,
+  playable and per-chapter counts. Every figure derived, nothing written down.
+- **Four of six career ranks** (Node.js Developer and up) and **two achievements**
+  (`backend-engineer-rank` at 10,000 XP, `event-loop-master` at skill level 7 against a ceiling of 2)
+  are out of reach and now render as roadmap: muted, badged Coming Soon, no progress bar, no CTA,
+  sorted last, and **excluded from both halves of the unlocked-of-total figure**.
+- **`Achievement.roadmap` is derived, not authored.** Writing Chapter 4 lifts the treatment with no
+  threshold edited anywhere, and `tests/reach.test.ts` has two forward-looking cases that **go red on
+  purpose** to tell that pass what to stop badging.
+- **A real defect went with it.** `streams` and `validation` have no authored mission, and their two
+  permanent zeros were averaged into `skillsSummary().overall` and two radar axes — scoring the player
+  against content that does not exist. A flawless playthrough read **63%** where it should have read
+  70%. Planned skills are excluded from every aggregate now; still rendered, badged Coming Soon.
+- **`rankBand()` takes a ceiling.** When the next rank is beyond it, the dashboard bar measures
+  progress toward *exhausting the catalogue* — 600 of 1,830, not 600 of 3,000.
+- **Left alone deliberately:** 100% overall mastery is still unreachable, because `masteryPct`
+  measures the climb to level 10 and most skills cannot get there at 14 missions. It is a progress
+  figure, not a goal or a locked card, so nothing promises it. Pinned by a test so it does not get
+  re-read as a bug.
 
-**Still open from item 17: display-name moderation.** `sanitizeDisplayName` is a *rendering* guard —
-it strips control characters, zero-width characters and bidi overrides so one player's name cannot
-break or reorder the leaderboard row beside it. It is not a word list and there is no review queue.
-Whether CodeRaid needs moderation, and of what kind, is a product decision. **Ask before building
-it.**
+### Done in the replay-limit pass (2026-07-30) — do not re-plan this
 
-### Done in the `best_runs` lock (2026-07-29) — do not re-plan this
+**The open work on §12 item 19 is finished.** `lib/replay-limit.ts`: **8 graded attempts per mission
+per rolling hour, per mission rather than per account.** Past the limit the run is **still graded and
+recorded**, and the response carries `{ limited }` with **no `grade`, no `ledger` and no `credit`** —
+the ledger names the best run's `resolved` and `score`, so returning it would disclose by the back
+door exactly what the withheld grade protects. Recorded rather than rejected because the row is what
+makes the limit self-enforcing, and a 429 would tell the caller where the boundary is. Counted on
+`completed_at` (the database's `now()`), never on the attacker-controlled `completed_on`. The
+verification screen has a non-error state for it that says the score still counts.
 
-**§12 item 20, the most serious defect found on this project, is closed.** `public.best_runs` is a
-view over an RLS-protected table, and a Postgres view does not enforce that RLS unless declared
-`security_invoker`. Supabase grants `SELECT` on public relations to `anon` by default, so the view
-served every player's runs — **including `root_cause_id`, `evidence_ids` and `fix_id`, the answer
-key** — to anyone with the anon key that ships in the client bundle, no session. The tables held
-(`mission_runs` and `players` both returned `[]`); only the view was open, and it was open to
-`authenticated` as well.
+**Item 19 is still labelled "narrowed", not "closed", and that is correct.** A player can always read
+their own best run through `GET /api/ledger` — that is their earned result and the dashboard is built
+from it — so the limit bounds how *fast* an enumerator learns, not what a determined one eventually
+can. It is a cost control. Don't "finish" it without a product decision about what players may see of
+their own history.
 
-`0003_lock_best_runs.sql` sets `security_invoker` **and** revokes from both roles — two guards,
-because `create or replace view` silently drops the setting. The alarm is
-`e2e/view-privileges.spec.ts` (§15.6), which was proven to fail by the vulnerability itself rather
-than by a mutation. The house rule for future views is written beside the RLS block in
-`0001_init.sql`. Read §12 item 20 before adding any view.
+## Do this first — decide the server-side reset (§12 item 7)
 
-### Done in the grade-disclosure pass (2026-07-29) — do not re-plan this
+The last undecided item on the list, and like the rate limit it needs a decision before it needs code.
 
-**§12 item 19 is narrowed, not closed.** `POST /api/runs` now sends the per-component breakdown
-only when a run improves on the player’s best (`lib/server/grade-disclosure.ts`). The run is still
-graded and recorded in full, so progression is untouched; this is a rule about the response. Withheld
-fields are absent rather than falsified, and an explicit `detailed` flag lets the results screen
-explain the gap. It costs no extra round trip — the route already reads the ledger pre-insert for
-`creditBetween`, and “did this beat their best” is the same question.
+Runs are append-only, so "Reset Progress" cannot erase earned XP for a signed-in player; the copy
+already says what it actually does. What is undecided:
 
-## Do this first — decide the rate limit on `/api/runs`
+- Should an account be able to wipe its own history at all?
+- If yes, is that a **delete** (which breaks the append-only guarantee that makes best-run-wins a
+  query rather than a mutation, and makes the replay limit self-enforcing) or a **tombstone** — a
+  `reset_at` on `players` that every derivation reads past?
+- What happens to achievements already stamped, and to the leaderboard row?
 
-**The open half of §12 item 19, and it needs a product decision before it needs code.**
-
-The disclosure rule removed the *separable* signal. What it could not remove:
-
-- **`resolved` is always sent**, because `resolveVerification()` renders the whole verification
-  report from it. So the fix answer still leaks one bit per attempt — findable in one attempt per
-  candidate fix. Telling a player whether their fix worked is the game, so this cannot be fixed by
-  withholding more.
-- **The score is partly decomposable arithmetic.** Weights are public (45/25/30, −5 per hint) and
-  the player knows their own hint count, so some scores identify their components uniquely — a 30
-  can only be a correct fix and nothing else.
-
-**A rate limit is what actually closes it**, and `mission_runs` already holds the data: the route
-reads the ledger before every insert, so counting recent attempts for this player and mission is
-nearly free. What it needs from you is the policy, not the plumbing:
-
-- How many attempts per mission per hour is a *legitimate* replay pattern? A player genuinely
-  practising will replay; the limit must not punish them.
-- What happens on the limit — 429, or accept-and-record-but-disclose-nothing? The second keeps the
-  append-only history honest and is harder to detect from outside.
-- Does the limit apply per mission or per account?
-
-**Ask before building it.** Then add the guard first and prove it fails, as usual.
+The tombstone is the shape that keeps every existing invariant, and it is worth saying so when you
+raise it. **Ask before building it.**
 
 ## Also open
 
-- **§12 item 7 — there is no server-side reset.** Runs are append-only, so "Reset Progress" cannot
-  erase earned XP; the copy already says what it actually does. Whether an account should be able to
-  wipe its own history, and whether that is coherent with an append-only ledger, remains undecided.
-- **Content scale is the product bottleneck** (§12 item 3): the whole catalogue is worth 1,830 XP
-  against a 10,000 XP Backend Engineer rank. **This is the highest-value work once the above is
-  done.** Chapters 4 and 5 hold the next 6 missions; every system already built scales with content.
+- **Display-name moderation** — the residue of §12 item 17. `sanitizeDisplayName` is a *rendering*
+  guard: it strips control characters, zero-width characters and bidi overrides so one player's name
+  cannot break or reorder the leaderboard row beside it. It is not a word list and there is no review
+  queue. Whether CodeRaid needs moderation, and of what kind, is a product decision. **Ask first.**
 - **A dedicated CI Supabase project** (§12 item 2). The e2e specs write to the live project, so every
-  push to `main` creates and deletes real users in production.
+  push to `main` creates and deletes real users in production. This is now the largest piece of
+  infrastructure debt. Note the replay-limit specs each insert 9 rows per run.
+- **No component tests; browser coverage is one mission deep** (rest of §12 item 2).
+- **Next 16 migration** (§12 item 12) — 1 high + 1 moderate production advisory, unfixable in the
+  14.x line. Every remaining advisory needs a feature CodeRaid does not use (no `middleware.ts`, no
+  `next/image`, no i18n, no rewrites, no server actions), so this is low urgency but genuinely open.
+  **Re-measure with `npm audit --omit=dev`** rather than trusting the headline count.
 - 13 of 14 missions still use the 1,400ms timer. §17 names the three honest candidates for a real
   replay: `promise-all-cascade`, `async-map-trap`, `overlapping-scheduler-runs`. Most of the
   catalogue cannot have one honestly, and faking it would be the same theatre in a better costume.
 - CI builds twice per run; `/api/ledger` costs 3 Postgres round trips; the leaderboard reads all of
-  `best_runs`. All still "honest at this scale".
-- No component tests; browser coverage is one mission deep. `/demo` is still a `PlaceholderPage`,
-  still linked from the landing page.
+  `best_runs`; `POST /api/runs` now costs one more read for the attempt count. All still "honest at
+  this scale".
+- `/demo` is still a `PlaceholderPage`, still linked from the landing page.
 
 ## How to work
 
@@ -131,10 +123,15 @@ nearly free. What it needs from you is the policy, not the plumbing:
     the fix. **Check the reported paths before believing the failure**: `hot-update` in a path means
     dev artifacts, not a real leak.
 - **Verify empirically — run the thing, don't assert it works.** Every pass on this project has
-  caught real problems that way, including the two documented under §12 item 16 and the fact that
-  `best_runs` leaks to `authenticated` and not only to `anon`.
+  caught real problems that way, including the 63%-mastery defect above, which was found by asserting
+  what a *flawless* playthrough should score and watching the number come back wrong.
 - **When you add a guard, prove it can fail.** Mutate the thing it protects, watch it go red, revert.
-  Several checks in this repo have at some point done nothing while reporting success.
+  Several checks in this repo have at some point done nothing while reporting success — including, in
+  the ceiling pass, a first draft of `reach.test.ts` that passed against a mutated `categoryAverage`
+  because it never covered the radar.
+- **Prefer deriving a figure to authoring one, and prefer a test that re-derives it independently.**
+  `tests/reach.test.ts` checks the 1,830 ceiling twice: once as a sum over missions, once by playing
+  every mission perfectly through the real grading engine. The second is what makes it evidence.
 - **Never print secrets.** `.env.local` holds `NEXT_PUBLIC_SUPABASE_URL`,
   `NEXT_PUBLIC_SUPABASE_ANON_KEY` and `SUPABASE_SERVICE_ROLE_KEY` — read variable NAMES, never
   values.
@@ -145,10 +142,10 @@ nearly free. What it needs from you is the policy, not the plumbing:
 - **The e2e specs write to the live Supabase project**; there is no local stack. Users are
   namespaced `coderaid-e2e+…@example.com` and torn down in the fixture. A dedicated CI project is
   the right fix and is recorded under §12 item 2.
-- CI has the three GitHub Actions secrets, so the thirteen authenticated specs can run. **Confirm in
-  the job log that they *ran* rather than skipped** — `hasCredentials()` skips them silently, and a
-  skipped run is the same colour as a passing one. Repository secrets are not exposed to **fork**
-  pull requests, so those still skip by design.
+- CI has the three GitHub Actions secrets, so the authenticated specs can run. **Confirm in the job
+  log that they *ran* rather than skipped** — `hasCredentials()` skips them silently, and a skipped
+  run is the same colour as a passing one. Repository secrets are not exposed to **fork** pull
+  requests, so those still skip by design.
 - If `node_modules` looks incomplete (missing vitest/eslint/tsx/`@supabase/*`), run `npm install`.
   Restore `package-lock.json` afterwards if npm only churns line endings.
 - **Flag design decisions rather than making them silently**, especially anything that changes

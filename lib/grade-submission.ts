@@ -7,6 +7,7 @@ import {
   type SubmissionRef,
 } from "./mission-storage";
 import { coerceLedger, NO_CREDIT, type Ledger, type RunCredit } from "./progress";
+import type { ReplayVerdict } from "./replay-limit";
 import type { RunTelemetry } from "./run";
 
 /**
@@ -34,6 +35,13 @@ export type SubmitResult =
       ledger: Ledger | null;
       credit: RunCredit;
     }
+  /**
+   * Past the replay limit. The run **was** graded and recorded — this is not a
+   * rejection — but the server deliberately said nothing about the outcome, so
+   * there is no verdict to show or cache and the screen has to say so
+   * (`lib/replay-limit.ts`).
+   */
+  | { status: "limited"; replay: ReplayVerdict }
   | { status: "unauthenticated" }
   | { status: "failed" };
 
@@ -64,11 +72,15 @@ export async function submitRun(body: RunSubmissionBody): Promise<SubmitResult> 
   if (!response.ok) return { status: "failed" };
 
   try {
-    const { grade, ledger, credit } = (await response.json()) as {
-      grade: MissionGrade;
+    const { grade, ledger, credit, limited } = (await response.json()) as {
+      grade?: MissionGrade;
       ledger?: unknown;
       credit?: RunCredit;
+      limited?: ReplayVerdict;
     };
+    // Checked before `grade`, because a limited response carries no grade by
+    // design and must not be read as a transport failure.
+    if (limited?.limited) return { status: "limited", replay: limited };
     if (!grade) return { status: "failed" };
     return {
       status: "graded",

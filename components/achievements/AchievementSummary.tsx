@@ -44,6 +44,13 @@ export function AchievementSummary({
               style={{ width: `${summary.pct}%` }}
             />
           </div>
+          {/* The denominator counts only what the catalogue can award, so this
+              says where the rest went rather than leaving the total looking short. */}
+          {summary.roadmap > 0 && (
+            <div className="mt-1.5 text-[0.65rem] text-slate-500">
+              +{summary.roadmap} coming with future chapters
+            </div>
+          )}
         </div>
       </div>
 

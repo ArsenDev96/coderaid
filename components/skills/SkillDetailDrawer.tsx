@@ -90,21 +90,33 @@ export function SkillDetailDrawer({
           </p>
         </div>
 
-        {/* Progress to next level */}
-        <div className="mt-5 rounded-xl border border-white/[0.06] bg-white/[0.02] p-4">
-          <div className="flex items-center justify-between gap-3 text-sm">
-            <span className="text-slate-400">Progress to next level</span>
-            <span className="font-mono text-slate-300">
-              {skill.currentXp} / {skill.nextLevelXp} XP
-            </span>
+        {/* Progress to next level — or, for a planned skill, why there is none.
+            A "0 / 40 XP" bar here would invite the player to go earn XP that no
+            authored mission can award. */}
+        {skill.planned ? (
+          <div className="mt-5 rounded-xl border border-white/[0.06] bg-white/[0.02] p-4">
+            <AvailabilityBadge status="coming-soon" />
+            <p className="mt-2 text-sm leading-relaxed text-slate-400">
+              No incident in the current catalogue trains this skill yet, so it
+              has no level to earn. It arrives with the chapter that covers it.
+            </p>
           </div>
-          <div className="mt-2 h-2 w-full overflow-hidden rounded-full bg-white/[0.08]">
-            <div
-              className="h-full rounded-full bg-gradient-to-r from-violet-500 to-electric-400"
-              style={{ width: `${skill.progress}%` }}
-            />
+        ) : (
+          <div className="mt-5 rounded-xl border border-white/[0.06] bg-white/[0.02] p-4">
+            <div className="flex items-center justify-between gap-3 text-sm">
+              <span className="text-slate-400">Progress to next level</span>
+              <span className="font-mono text-slate-300">
+                {skill.currentXp} / {skill.nextLevelXp} XP
+              </span>
+            </div>
+            <div className="mt-2 h-2 w-full overflow-hidden rounded-full bg-white/[0.08]">
+              <div
+                className="h-full rounded-full bg-gradient-to-r from-violet-500 to-electric-400"
+                style={{ width: `${skill.progress}%` }}
+              />
+            </div>
           </div>
-        </div>
+        )}
 
         {/* Recently completed related missions */}
         <div className="mt-5">

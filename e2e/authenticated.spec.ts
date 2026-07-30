@@ -1,10 +1,13 @@
 import { test as base } from "@playwright/test";
+import { REPLAY_LIMIT } from "../lib/replay-limit";
 import { expect, hasCredentials, test } from "./support/fixtures";
 import {
   MISSION,
+  gradeOf,
   playToVerification,
   resetMissionState,
   runVerification,
+  submitRunDirectly,
 } from "./support/mission";
 import { selectRows } from "./support/session";
 
@@ -153,22 +156,22 @@ test.describe("the authenticated path", () => {
     // A first run has nothing to beat, so it is fully disclosed — the honest
     // player still gets their working shown.
     await playToVerification(page, "perfect");
-    const first = await runVerification(page);
+    const first = gradeOf(await runVerification(page));
 
-    expect(first.grade.detailed).toBe(true);
-    expect(first.grade).toHaveProperty("rootCauseCorrect");
-    expect(first.grade).toHaveProperty("breakdown");
+    expect(first.detailed).toBe(true);
+    expect(first).toHaveProperty("rootCauseCorrect");
+    expect(first).toHaveProperty("breakdown");
 
     // Now a worse attempt. It is still graded, still recorded, and still tells
     // the player what they scored and whether the incident resolved — but the
     // per-component detail is gone.
     await resetMissionState(page, MISSION);
     await playToVerification(page, "poor");
-    const replay = await runVerification(page);
+    const replay = gradeOf(await runVerification(page));
 
-    expect(replay.grade.detailed).toBe(false);
-    expect(typeof replay.grade.score).toBe("number");
-    expect(typeof replay.grade.resolved).toBe("boolean");
+    expect(replay.detailed).toBe(false);
+    expect(typeof replay.score).toBe("number");
+    expect(typeof replay.resolved).toBe("boolean");
 
     // Absent, not falsified. A `false` would answer the enumerator's question
     // just as well as a `true` does.
@@ -181,10 +184,71 @@ test.describe("the authenticated path", () => {
       "breakdown",
     ]) {
       expect(
-        Object.prototype.hasOwnProperty.call(replay.grade, field),
+        Object.prototype.hasOwnProperty.call(replay, field),
         `${field} reached a caller whose run beat nothing`,
       ).toBe(false);
     }
+  });
+
+  test("stops disclosing anything at all past the replay limit", async ({
+    page,
+  }) => {
+    // The other half of §12 item 19, and the half disclosure could not reach.
+    // `resolved` has to be sent on an ordinary run — the verification report is
+    // rendered from it — so the fix answer leaks one bit per attempt. What makes
+    // that cheap is that attempts are unbounded, so the limit is the closure.
+    //
+    // Submitted straight to the API: this is exactly the enumeration pattern the
+    // limit exists to slow, and driving the UI nine times would test the stage
+    // components again rather than the policy.
+    await page.goto(`/missions/${MISSION}/briefing`);
+
+    const responses = [];
+    for (let i = 0; i < REPLAY_LIMIT + 1; i += 1) {
+      responses.push(await submitRunDirectly(page, MISSION));
+    }
+
+    // The first eight are answered normally — a genuine player replaying hard
+    // must not be cut off.
+    for (const [i, response] of responses.slice(0, REPLAY_LIMIT).entries()) {
+      expect(response.limited, `attempt ${i + 1} was limited too early`).toBeUndefined();
+      expect(typeof response.grade?.resolved).toBe("boolean");
+    }
+
+    // The ninth is accepted, recorded, and answered with nothing.
+    const ninth = responses[REPLAY_LIMIT];
+    expect(ninth.limited?.limited).toBe(true);
+    expect(ninth.limited?.attempts).toBe(REPLAY_LIMIT);
+    expect(ninth.limited?.limit).toBe(REPLAY_LIMIT);
+
+    // The whole point: no verdict, no score, and no ledger to read one out of.
+    // `ledger.missions[missionId]` carries the best run's `resolved` and `score`,
+    // so leaving it in would hand over exactly what the withholding protects.
+    for (const field of ["grade", "ledger", "credit"]) {
+      expect(
+        Object.prototype.hasOwnProperty.call(ninth, field),
+        `${field} was disclosed past the replay limit`,
+      ).toBe(false);
+    }
+  });
+
+  test("still records the run it declined to report on", async ({
+    page,
+    player,
+  }) => {
+    // Record-but-disclose-nothing, not reject. The append-only history has to
+    // stay complete — it is what makes the limit self-enforcing on the next
+    // attempt, and a rejected run would be a hole in the player's own history.
+    await page.goto(`/missions/${MISSION}/briefing`);
+    for (let i = 0; i < REPLAY_LIMIT + 1; i += 1) {
+      await submitRunDirectly(page, MISSION);
+    }
+
+    const rows = await selectRows<RunRow>(
+      "mission_runs",
+      `player_id=eq.${player.id}&mission_id=eq.${MISSION}`,
+    );
+    expect(rows.length).toBe(REPLAY_LIMIT + 1);
   });
 
   test("starts a genuinely fresh attempt from Run It Again", async ({

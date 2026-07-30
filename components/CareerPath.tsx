@@ -1,7 +1,16 @@
 import { CAREER_RANKS, RANK_ACCENTS } from "@/lib/data";
+import { catalogueReach, rankInReach, reachableRanks } from "@/lib/reach";
+import { AvailabilityBadge } from "./ui/AvailabilityBadge";
 import { Reveal } from "./ui/Reveal";
 
 export function CareerPath() {
+  // Four of the six ranks need missions that are not written yet. They stay on
+  // the rail — the ladder is real and the roadmap is the honest reason they are
+  // out of reach — but they are muted and badged rather than shown as goals.
+  const reach = catalogueReach();
+  const reachable = reachableRanks(reach);
+  const topRank = reachable[reachable.length - 1]?.name ?? CAREER_RANKS[0].name;
+
   return (
     <section
       id="career"
@@ -15,8 +24,10 @@ export function CareerPath() {
               Your Node.js Progression
             </h2>
             <p className="mt-2 text-sm leading-relaxed text-slate-400">
-              Resolve Node.js incidents, earn XP and climb from first-time
-              explorer to Node.js specialist.
+              Resolve Node.js incidents, earn XP and climb the ladder. The
+              current catalogue carries you through{" "}
+              <span className="text-slate-300">{topRank}</span> — the ranks past
+              it arrive with the chapters that fund them.
             </p>
           </div>
 
@@ -24,7 +35,16 @@ export function CareerPath() {
           <ol className="thin-scroll -mx-2 flex snap-x items-start gap-1 overflow-x-auto px-2 pb-3 lg:mx-0 lg:justify-between lg:overflow-visible lg:px-0 lg:pb-0">
             {CAREER_RANKS.map((rank, i) => {
               const Icon = rank.icon;
-              const accent = RANK_ACCENTS[rank.accent];
+              const inReach = rankInReach(rank, reach);
+              // A rank the catalogue cannot fund loses its accent entirely, so
+              // the rail reads as "these two are the game today" at a glance.
+              const accent = inReach
+                ? RANK_ACCENTS[rank.accent]
+                : {
+                    badge: "border-white/10 bg-white/[0.03]",
+                    star: "text-slate-600",
+                    name: "text-slate-500",
+                  };
               return (
                 <li
                   key={rank.name}
@@ -51,9 +71,14 @@ export function CareerPath() {
                     <span className={`mt-1 text-xs font-semibold ${accent.name}`}>
                       {rank.name}
                     </span>
-                    <span className="font-mono text-[0.6rem] text-slate-500">
+                    <span
+                      className={`font-mono text-[0.6rem] ${
+                        inReach ? "text-slate-500" : "text-slate-600"
+                      }`}
+                    >
                       {rank.xpRange}
                     </span>
+                    {!inReach && <AvailabilityBadge status="coming-soon" />}
                   </Reveal>
 
                   {/* Connector */}

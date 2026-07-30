@@ -21,6 +21,7 @@ import {
 import {
   EMPTY_VIEW,
   canStart as canStartMission,
+  hasFullContent,
   type PlayerView,
 } from "./availability";
 import { getMission, type Mission } from "./missions";
@@ -80,6 +81,12 @@ export type Skill = SkillDef & {
   nextLevelXp: number;
   /** Lifetime XP in this skill, across every level. */
   totalXp: number;
+  /**
+   * True when no authored mission trains this skill, so its zero is a statement
+   * about the catalogue rather than about the player. Excluded from every
+   * aggregate — see `isPlannedSkill`.
+   */
+  planned: boolean;
 };
 
 export type SkillCategory = {
@@ -431,6 +438,42 @@ export const SKILL_DEFS: SkillDef[] = [
 
 /* --------------------------- Derived from play -------------------------- */
 
+/**
+ * The missions that can actually train a skill today: the ones it lists that
+ * have their stage content authored.
+ */
+export function trainableMissions(skill: SkillDef): Mission[] {
+  return relatedMissions(skill).filter((m) => hasFullContent(m.id));
+}
+
+/**
+ * A skill no authored mission can build yet — **planned, not weak**.
+ *
+ * `Streams` and `Validation` are in the taxonomy because the MVP's API and
+ * Node-core tracks are incomplete without naming them, but no written incident
+ * trains either, so both sit at level 0 for every player forever. Two
+ * consequences, and the second is the one that mattered:
+ *
+ * - rendering them like any other skill invites the player to raise something
+ *   they cannot raise;
+ * - averaging their permanent zeros into `categoryAverage` and
+ *   `skillsSummary().overall` capped overall mastery below 100% for even a
+ *   flawless player, and dragged two radar axes down with it.
+ *
+ * So they are excluded from every aggregate and badged Coming Soon in the grid,
+ * the same treatment `FUTURE_TRACKS` already gets. Derived from the catalogue,
+ * so authoring a mission that trains one makes it an ordinary skill again with
+ * no flag to remember.
+ */
+export function isPlannedSkill(skill: SkillDef): boolean {
+  return trainableMissions(skill).length === 0;
+}
+
+/** The skills the authored catalogue can actually train. */
+export function trainableSkills(): SkillDef[] {
+  return SKILL_DEFS.filter((s) => !isPlannedSkill(s));
+}
+
 /** A skill definition resolved against the XP the player has earned in it. */
 export function resolveSkill(def: SkillDef, ledger: Ledger): Skill {
   const totalXp = skillXpFor(ledger, def.id);
@@ -442,6 +485,7 @@ export function resolveSkill(def: SkillDef, ledger: Ledger): Skill {
     currentXp: into,
     nextLevelXp: needed,
     totalXp,
+    planned: isPlannedSkill(def),
   };
 }
 
@@ -551,6 +595,18 @@ export function skillsInCategory(
   return skillsFor(ledger).filter((s) => s.category === id);
 }
 
+/**
+ * The skills in a category that the player can actually move. Every average and
+ * radar value is taken over these rather than over `skillsInCategory`, so a
+ * planned skill's permanent zero never reads as the player's weakness.
+ */
+export function trainableInCategory(
+  id: SkillCategoryId,
+  ledger: Ledger = EMPTY_LEDGER,
+): Skill[] {
+  return skillsInCategory(id, ledger).filter((s) => !s.planned);
+}
+
 function avg(nums: number[]): number {
   return nums.length ? Math.round(nums.reduce((a, b) => a + b, 0) / nums.length) : 0;
 }
@@ -571,12 +627,14 @@ export function categoryAverage(
   id: SkillCategoryId,
   ledger: Ledger = EMPTY_LEDGER,
 ): number {
-  return avg(skillsInCategory(id, ledger).map(masteryPct));
+  return avg(trainableInCategory(id, ledger).map(masteryPct));
 }
 
 /** Compact summary shown at the top — derived from real skill XP, never authored. */
 export function skillsSummary(ledger: Ledger = EMPTY_LEDGER) {
-  const skills = skillsFor(ledger);
+  // Over what the catalogue can train: a planned skill is not a skill the
+  // player has failed to start, and counting it makes 100% unreachable.
+  const skills = skillsFor(ledger).filter((s) => !s.planned);
   const overall = avg(skills.map(masteryPct));
   // "Mastered" means a skill the player has actually taken to Advanced.
   const mastered = skills.filter((s) => s.level >= 7).length;
@@ -615,7 +673,11 @@ export function skillsToImprove(
   const actionable = skillsFor(ledger).filter((s) =>
     relatedMissions(s).some((m) => canStartMission(m, view)),
   );
-  const pool = actionable.length > 0 ? actionable : skillsFor(ledger);
+  // The fallback still excludes planned skills: with nothing startable the
+  // advice is already weak, and naming a skill with no written incident behind
+  // it would make it advice the player cannot act on at all.
+  const pool =
+    actionable.length > 0 ? actionable : skillsFor(ledger).filter((s) => !s.planned);
   return [...pool].sort((a, b) => a.totalXp - b.totalXp).slice(0, limit);
 }
 

@@ -13,7 +13,8 @@ import {
   type LucideIcon,
 } from "lucide-react";
 import { rankMinXp } from "./data";
-import { MISSIONS, resolveBriefing, type Mission } from "./missions";
+import { PERFECT_SCORE } from "./grading";
+import { MISSIONS, type Mission } from "./missions";
 import {
   EMPTY_LEDGER,
   bestScore,
@@ -21,6 +22,11 @@ import {
   streakDays,
   type Ledger,
 } from "./progress";
+import {
+  catalogueReach,
+  isProductionIncident,
+  type CatalogueReach,
+} from "./reach";
 import { skillLevel } from "./skills";
 
 /* -------------------------------- Types --------------------------------- */
@@ -50,6 +56,18 @@ export type Achievement = {
   link?: { href: string; label: string };
   /** How the requirement reads on a locked card. */
   requirement: string;
+  /**
+   * True when no amount of play on the *authored catalogue* could unlock this —
+   * the target needs content that has not been written. Derived from
+   * `catalogueReach()`, never authored, so writing the missions that fund it
+   * clears the flag on its own.
+   *
+   * A roadmap achievement is rendered as roadmap rather than as a locked goal,
+   * and is excluded from the unlocked-of-total figure and from "next to
+   * unlock" — counting a goal nobody can reach against the player would make
+   * 100% impossible and would hand out advice they cannot act on.
+   */
+  roadmap: boolean;
 };
 
 export type AchievementTone = "violet" | "electric" | "emerald" | "amber" | "slate";
@@ -137,19 +155,18 @@ export function achievementSources(
 /** The level at which a skill reads as "Advanced" on the Skills page. */
 const ADVANCED_LEVEL = 7;
 
-/**
- * A production incident, as opposed to a fundamentals exercise: anything the
- * briefing rates above "low" severity.
- */
-function isProductionIncident(mission: Mission): boolean {
-  return resolveBriefing(mission).severity !== "low";
-}
-
 /* ------------------------------ Definitions ----------------------------- */
 
-type AchievementDef = Omit<Achievement, "progress" | "unlocked"> & {
+type AchievementDef = Omit<Achievement, "progress" | "unlocked" | "roadmap"> & {
   /** Raw progress, measured from live sources. Clamped to `target` on read. */
   measure: (s: AchievementSources) => number;
+  /**
+   * The highest value `measure` could *ever* report on the authored catalogue.
+   * Compared against `target` to decide whether this achievement is reachable
+   * at all. Omit only for a measure the catalogue cannot bound — a streak is
+   * limited by the player's own days, not by how many missions exist.
+   */
+  reach?: (r: CatalogueReach) => number;
 };
 
 // No unlock dates are authored here. When a threshold was crossed is a fact
@@ -168,6 +185,7 @@ const DEFS: AchievementDef[] = [
     target: 1,
     link: { href: "/missions", label: "View missions" },
     measure: (s) => s.resolvedMissions.length,
+    reach: (r) => r.playableMissions,
   },
   {
     id: "ten-missions",
@@ -180,6 +198,7 @@ const DEFS: AchievementDef[] = [
     target: 10,
     link: { href: "/missions", label: "View missions" },
     measure: (s) => s.resolvedMissions.length,
+    reach: (r) => r.playableMissions,
   },
   {
     id: "chapter-one-cleared",
@@ -193,6 +212,7 @@ const DEFS: AchievementDef[] = [
     target: MISSIONS.filter((m) => m.chapterId === 1).length,
     link: { href: "/missions/map", label: "Open mission map" },
     measure: (s) => s.resolvedMissions.filter((m) => m.chapterId === 1).length,
+    reach: (r) => r.playableInChapter(1),
   },
 
   /* ------------------------- Technical skills ------------------------- */
@@ -207,6 +227,7 @@ const DEFS: AchievementDef[] = [
     target: ADVANCED_LEVEL,
     link: { href: "/skills", label: "View skills" },
     measure: (s) => s.skillLevel("root-cause-analysis"),
+    reach: (r) => r.skillLevelCeiling("root-cause-analysis"),
   },
   {
     id: "event-loop-master",
@@ -218,7 +239,10 @@ const DEFS: AchievementDef[] = [
     tone: "emerald",
     target: ADVANCED_LEVEL,
     link: { href: "/skills", label: "View skills" },
+    // Roadmap at MVP volume: `event-loop-overload` is the only authored mission
+    // that builds this skill, so it tops out at level 2 against a target of 7.
     measure: (s) => s.skillLevel("event-loop"),
+    reach: (r) => r.skillLevelCeiling("event-loop"),
   },
   {
     id: "async-expert",
@@ -231,6 +255,7 @@ const DEFS: AchievementDef[] = [
     target: ADVANCED_LEVEL,
     link: { href: "/skills", label: "View skills" },
     measure: (s) => s.skillLevel("async-javascript"),
+    reach: (r) => r.skillLevelCeiling("async-javascript"),
   },
 
   /* --------------------------- Consistency ---------------------------- */
@@ -271,6 +296,8 @@ const DEFS: AchievementDef[] = [
     target: 100,
     link: { href: "/missions", label: "View missions" },
     measure: (s) => s.bestScore,
+    // Any single playable mission can be scored perfectly.
+    reach: (r) => (r.playableMissions > 0 ? PERFECT_SCORE : 0),
   },
   {
     id: "zero-hints-used",
@@ -285,6 +312,7 @@ const DEFS: AchievementDef[] = [
     // Hint usage is recorded per run, so this now measures what it claims:
     // incidents resolved without a single hint opened.
     measure: (s) => s.hintFreeResolved,
+    reach: (r) => r.playableMissions,
   },
 
   /* ----------------------------- Special ------------------------------ */
@@ -300,6 +328,7 @@ const DEFS: AchievementDef[] = [
     target: 10,
     link: { href: "/missions", label: "View missions" },
     measure: (s) => s.resolvedMissions.filter(isProductionIncident).length,
+    reach: (r) => r.productionIncidents,
   },
   {
     id: "backend-engineer-rank",
@@ -312,6 +341,9 @@ const DEFS: AchievementDef[] = [
     target: rankMinXp("Backend Engineer"),
     link: { href: "/dashboard", label: "View career progress" },
     measure: (s) => s.totalXp,
+    // Roadmap at MVP volume: the whole catalogue is worth 1,830 XP against a
+    // 10,000 XP rank, so this needs Chapters 4 and 5 before it means anything.
+    reach: (r) => r.xpCeiling,
   },
 ];
 
@@ -325,8 +357,9 @@ const DEFS: AchievementDef[] = [
 export function getAchievements(
   sources: AchievementSources = achievementSources(),
   unlockTimes: Record<string, string> = {},
+  reach: CatalogueReach = catalogueReach(),
 ): Achievement[] {
-  return DEFS.map(({ measure, ...def }) => {
+  return DEFS.map(({ measure, reach: reachOf, ...def }) => {
     const progress = Math.min(measure(sources), def.target);
     const unlocked = progress >= def.target;
     return {
@@ -335,8 +368,16 @@ export function getAchievements(
       unlocked,
       // The recorded crossing time, if this achievement has actually crossed.
       unlockedAt: unlocked ? unlockTimes[def.id] : undefined,
+      // Reachability is a fact about the catalogue, not about the player, so it
+      // is measured here rather than authored on the definition.
+      roadmap: reachOf ? reachOf(reach) < def.target : false,
     };
   });
+}
+
+/** The achievements the authored catalogue can actually award. */
+export function earnable(list: Achievement[]): Achievement[] {
+  return list.filter((a) => !a.roadmap);
 }
 
 /** Ids of everything currently unlocked — what the ledger stamps times for. */
@@ -351,10 +392,12 @@ export function completionRatio(a: Achievement): number {
 /**
  * Display order: unlocked first (most recently earned first), then locked by
  * how close they are — so what you just earned and what you're about to earn
- * both sit at the top.
+ * both sit at the top. Roadmap goals sort last whatever their ratio: they are
+ * not something the player is "close to", however full their bar looks.
  */
 export function sortAchievements(list: Achievement[]): Achievement[] {
   return [...list].sort((a, b) => {
+    if (a.roadmap !== b.roadmap) return a.roadmap ? 1 : -1;
     if (a.unlocked !== b.unlocked) return a.unlocked ? -1 : 1;
     if (a.unlocked) return (b.unlockedAt ?? "").localeCompare(a.unlockedAt ?? "");
     return completionRatio(b) - completionRatio(a);
@@ -368,19 +411,33 @@ export function latestAchievement(list: Achievement[]): Achievement | undefined 
     .sort((a, b) => (b.unlockedAt ?? "").localeCompare(a.unlockedAt ?? ""))[0];
 }
 
-/** The locked achievement closest to completion — never one already earned. */
+/**
+ * The locked achievement closest to completion — never one already earned, and
+ * never a roadmap goal. "Event Loop Master, 2 of 7" would read as the nearest
+ * thing to earn while being the one thing no play can deliver.
+ */
 export function nextToUnlock(list: Achievement[]): Achievement | undefined {
-  return list
+  return earnable(list)
     .filter((a) => !a.unlocked)
     .sort((a, b) => completionRatio(b) - completionRatio(a))[0];
 }
 
+/**
+ * The unlocked-of-total figure, over what the catalogue can actually award.
+ * Roadmap goals are excluded from both halves, so a player who earns everything
+ * earnable sees 100% instead of a ceiling they cannot explain. `roadmap` counts
+ * them separately, for a UI that wants to say how many are still to come.
+ */
 export function achievementSummary(list: Achievement[]) {
-  const unlocked = list.filter((a) => a.unlocked);
+  const earnableList = earnable(list);
+  const unlocked = earnableList.filter((a) => a.unlocked);
   return {
     unlocked: unlocked.length,
-    total: list.length,
-    pct: list.length ? Math.round((unlocked.length / list.length) * 100) : 0,
+    total: earnableList.length,
+    roadmap: list.length - earnableList.length,
+    pct: earnableList.length
+      ? Math.round((unlocked.length / earnableList.length) * 100)
+      : 0,
   };
 }
 
