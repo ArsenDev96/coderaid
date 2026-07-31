@@ -72,19 +72,46 @@ jobs:
       - name: Install Chromium
         run: npx playwright install --with-deps chromium
 
+      # An ephemeral Supabase stack, per run, in Docker on the runner.
+      #
+      # This replaced the live project on 2026-07-31 (§12 item 2). Every push
+      # used to create and delete real users in production, and the replay-limit
+      # and reset specs write ~40 rows each time. Nothing here touches it.
+      #
+      # It also closes a trap that had bitten twice: `supabase/migrations/` is
+      # applied BY HAND to the hosted project, so a migration could sit in the
+      # tree unapplied — or, as 0004 did, fail to apply at all — while CI stayed
+      # green. `supabase start` applies all of them from scratch on every run, so
+      # a migration that cannot be applied is now a red build rather than a
+      # surprise in the dashboard.
+      - name: Start Supabase
+        run: npx supabase start
+
+      # The local stack's keys are fixed, published demo values — they are not
+      # secrets and are deliberately written out rather than stored as such.
+      # `supabase status -o env` emits them under the names the app expects.
+      - name: Export the local stack's keys
+        run: |
+          npx supabase status -o env \
+            | sed -E 's/^API_URL=/NEXT_PUBLIC_SUPABASE_URL=/;
+                      s/^ANON_KEY=/NEXT_PUBLIC_SUPABASE_ANON_KEY=/;
+                      s/^SERVICE_ROLE_KEY=/SUPABASE_SERVICE_ROLE_KEY=/' \
+            | grep -E '^(NEXT_PUBLIC_SUPABASE_URL|NEXT_PUBLIC_SUPABASE_ANON_KEY|SUPABASE_SERVICE_ROLE_KEY)=' \
+            | tr -d '"' >> "$GITHUB_ENV"
+
       # Builds and serves the app through the Playwright webServer config.
       #
-      # The Supabase keys are what let `e2e/authenticated.spec.ts` mint a
-      # session and cross the sign-in wall. They are deliberately not required:
-      # `hasCredentials()` skips that file when they are absent, so a fork's
-      # pull request — which cannot read secrets — skips those specs rather than
-      # failing red on credentials it was never going to be given.
+      # The keys are now always present, so `hasCredentials()` no longer skips
+      # the authenticated specs — including on a fork's pull request, which
+      # could never read the repository secrets and therefore skipped the 20
+      # specs that matter most. A skipped run is the same colour as a passing
+      # one, and that is no longer a way this suite can go quiet.
       - name: Play a mission through the real UI
         run: npm run test:e2e
-        env:
-          NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
-          NEXT_PUBLIC_SUPABASE_ANON_KEY: ${{ secrets.NEXT_PUBLIC_SUPABASE_ANON_KEY }}
-          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+
+      - name: Stop Supabase
+        if: always()
+        run: npx supabase stop --no-backup
 
       - name: Upload the report on failure
         if: failure()

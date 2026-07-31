@@ -45,16 +45,39 @@ export async function POST() {
   }
 
   const db = createAdminClient();
-  const now = new Date().toISOString();
 
-  const { error: stampError } = await db
+  /*
+    `'now'` is a Postgres special input value, not a string being stored: cast to
+    `timestamptz` it resolves to the **database's** transaction timestamp.
+
+    That is the whole point, and writing `new Date().toISOString()` here was a
+    real bug. `reset_at` is compared against `mission_runs.completed_at`, which
+    is the database's own `now()` — so stamping it from this process's clock
+    compares two different clocks. Measured on 2026-07-31, the machine running
+    the app was ~2 seconds behind the Supabase instance, which was enough for a
+    run finished moments before a reset to sit *after* the tombstone and survive
+    it: the ledger read 80 XP straight after a reset that reported success.
+
+    It is the same rule `POST /api/runs` states about the replay window — a value
+    compared against database-generated timestamps has to come from the
+    database's clock — one level up. There the untrusted clock is the browser's;
+    here it was the server's own, which is exactly why it looked safe.
+
+    The stamped value is read back rather than assumed, so the response reports
+    what Postgres actually wrote.
+  */
+  const { data: stamped, error: stampError } = await db
     .from("players")
-    .update({ reset_at: now })
-    .eq("id", user.id);
+    .update({ reset_at: "now" })
+    .eq("id", user.id)
+    .select("reset_at")
+    .single();
 
-  if (stampError) {
+  if (stampError || !stamped?.reset_at) {
     return NextResponse.json({ error: "reset_failed" }, { status: 500 });
   }
+
+  const now = stamped.reset_at as string;
 
   /*
     Ordering matters. The tombstone lands first, so a failure here leaves a

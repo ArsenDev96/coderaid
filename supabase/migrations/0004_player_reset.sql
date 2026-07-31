@@ -43,8 +43,30 @@ comment on column public.players.reset_at is
 -- therefore restated below, deliberately, even though 0003 already set them:
 -- the `with (security_invoker = true)` on the definition, and the revoke after
 -- it. Neither is redundant — they fail differently, which is the point.
+--
+-- WHY THIS DROPS THE VIEW INSTEAD OF REPLACING IT. `create or replace view`
+-- may only *append* columns; it cannot reorder or rename an existing one. The
+-- live view still carries the column list 0001 expanded from `mission_runs.*`,
+-- because 0003 changed the view's OPTIONS (`alter view … set`) rather than its
+-- definition — so it never re-expanded the star. `mission_runs.source` was
+-- added afterwards, by 0002. Re-expanding `r.*` here therefore inserts `source`
+-- *before* the trailing `attempts`, and the replace fails with:
+--
+--   42P16: cannot change name of view column "attempts" to "source"
+--
+-- Seen for real on 2026-07-31, the first time this migration was run. Dropping
+-- is safe because nothing in the database depends on this view — no other view,
+-- no function, no policy — and both of its consumers (`lib/server/ledger.ts`
+-- and `lib/server/standings.ts`) select columns by name through PostgREST.
+--
+-- The drop is also precisely why the `revoke` below is not optional. Supabase's
+-- default privileges grant `SELECT` on **new** public relations to `anon` and
+-- `authenticated`, and a dropped-and-recreated view is a new relation. Without
+-- the revoke, applying this migration would silently reopen §12 item 20.
 
-create or replace view public.best_runs
+drop view if exists public.best_runs;
+
+create view public.best_runs
   with (security_invoker = true)
 as
 select distinct on (r.player_id, r.mission_id)

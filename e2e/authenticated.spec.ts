@@ -599,6 +599,207 @@ test.describe("the authenticated path", () => {
     expect(body.ledger.missions[MISSION].resolved).toBe(true);
   });
 
+  /* ---------------------------------------------------------------------- *
+   *  Starting over — §12 item 7, a tombstone rather than a delete
+   * ---------------------------------------------------------------------- */
+
+  /**
+   * The round trip, and the only place the SQL half of the feature is tested.
+   *
+   * `tests/reset.test.ts` pins what a date means and
+   * `tests/ledger-derivation.test.ts` pins which columns that is applied to,
+   * but both run against a stand-in. Whether `best_runs` *actually* filters on
+   * `players.reset_at` is a fact about migration 0004 in the live project, and
+   * nothing but a real database can answer it. This spec fails on a deploy
+   * where 0004 has not been applied — deliberately, and the same way
+   * `view-privileges.spec.ts` fails without 0003.
+   */
+  test("zeroes the ledger without deleting a single run", async ({
+    page,
+    player,
+  }) => {
+    await playToVerification(page, "perfect");
+    await runVerification(page);
+
+    // Real, earned progress first — a reset that zeroes an already-empty
+    // account would pass this test while doing nothing at all.
+    const earned = (await (await page.request.get("/api/ledger")).json()) as {
+      ledger: { totalXp: number; missions: Record<string, unknown> };
+    };
+    expect(earned.ledger.totalXp).toBe(80);
+    expect(Object.keys(earned.ledger.missions)).toEqual([MISSION]);
+
+    const stamps = await selectRows<{ achievement_id: string }>(
+      "player_achievements",
+      `player_id=eq.${player.id}&select=achievement_id`,
+    );
+    expect(stamps.length).toBeGreaterThan(0);
+
+    /* ------------------------------ the reset ----------------------------- */
+    const reset = await page.request.post("/api/reset");
+    expect(reset.status()).toBe(200);
+
+    // The response carries the resulting ledger so the client can adopt it
+    // without a second round trip; it must be the zero one.
+    const body = (await reset.json()) as {
+      ledger?: { totalXp: number; missions: Record<string, unknown> };
+      resetAt: string;
+    };
+    expect(body.resetAt).toBeTruthy();
+    expect(body.ledger?.totalXp).toBe(0);
+
+    // And a fresh read agrees — the tombstone is in the database, not in a
+    // response the route happened to construct.
+    const after = (await (await page.request.get("/api/ledger")).json()) as {
+      ledger: {
+        totalXp: number;
+        missions: Record<string, unknown>;
+        skillXp: Record<string, number>;
+        activeDays: string[];
+        achievements: Record<string, string>;
+      };
+    };
+    expect(after.ledger.totalXp).toBe(0);
+    expect(after.ledger.missions).toEqual({});
+    expect(after.ledger.skillXp).toEqual({});
+    expect(after.ledger.achievements).toEqual({});
+    // The reset day itself still counts: the player was genuinely here today.
+    expect(after.ledger.activeDays.length).toBeLessThanOrEqual(1);
+
+    /* --------------------- what a delete would have lost ------------------ */
+    // The whole reason this is a tombstone. `mission_runs` is untouched, and
+    // the row still carries everything it was recorded with.
+    const runs = await selectRows<RunRow>(
+      "mission_runs",
+      `player_id=eq.${player.id}&select=*`,
+    );
+    expect(runs).toHaveLength(1);
+    expect(runs[0].mission_id).toBe(MISSION);
+    expect(runs[0].score).toBe(100);
+    expect(runs[0].xp_earned).toBe(80);
+
+    // The tombstone is a real column value, and it is what the view filters on.
+    const players = await selectRows<{ reset_at: string | null }>(
+      "players",
+      `id=eq.${player.id}&select=reset_at`,
+    );
+    expect(players[0].reset_at).not.toBeNull();
+
+    // Achievement stamps are deleted rather than filtered — an unlock time is a
+    // derived conclusion, and one the ledger no longer supports is a second
+    // source of truth (§4 principle 12).
+    expect(
+      await selectRows("player_achievements", `player_id=eq.${player.id}&select=achievement_id`),
+    ).toHaveLength(0);
+
+    // The leaderboard derives from the same view, so it goes to zero with the
+    // ledger rather than continuing to rank a reset player on old runs.
+    const { standings } = (await (
+      await page.request.get("/api/leaderboard")
+    ).json()) as { standings: Array<{ id: string; xp: { all: number } }> };
+    const mine = standings.find((row) => row.id === player.id);
+    expect(mine?.xp.all ?? 0).toBe(0);
+  });
+
+  /**
+   * The invariant most likely to be broken by a later hand.
+   *
+   * The replay limit counts raw `mission_runs` rows, unfiltered by the
+   * tombstone, and that is exactly what stops Reset Progress being a rate-limit
+   * bypass. Anyone who later "tidies up" by making the limit read `best_runs`,
+   * or by having the reset delete rows after all, hands a free set of attempts
+   * to every enumerator for the cost of one POST.
+   */
+  test("does not refill the replay limit", async ({ page }) => {
+    await page.goto(`/missions/${MISSION}/briefing`);
+
+    for (let i = 0; i < REPLAY_LIMIT; i += 1) {
+      await submitRunDirectly(page, MISSION);
+    }
+
+    // The limit is genuinely reached before the reset, or the assertion after
+    // it proves nothing.
+    const blocked = await submitRunDirectly(page, MISSION);
+    expect(blocked.limited?.limited).toBe(true);
+
+    expect((await page.request.post("/api/reset")).status()).toBe(200);
+
+    // Still limited. The window is what frees an attempt up, not a reset.
+    const afterReset = await submitRunDirectly(page, MISSION);
+    expect(afterReset.limited?.limited).toBe(true);
+    expect(afterReset.limited?.attempts).toBeGreaterThanOrEqual(REPLAY_LIMIT);
+    for (const field of ["grade", "ledger", "credit"]) {
+      expect(
+        Object.prototype.hasOwnProperty.call(afterReset, field),
+        `${field} was disclosed after a reset past the replay limit`,
+      ).toBe(false);
+    }
+  });
+
+  /**
+   * The one-time pre-account import stays one-time. Letting a reset re-open it
+   * would make a control that says "start over" into a way of granting yourself
+   * a fresh claim, repeatedly.
+   */
+  test("does not re-open the one-time claim", async ({ page, player }) => {
+    const claim = await page.request.post("/api/claim", {
+      data: { ledger: { missions: { [MISSION]: { score: 100, resolved: true } } } },
+    });
+    expect(claim.status()).toBe(200);
+
+    expect((await page.request.post("/api/reset")).status()).toBe(200);
+
+    // Asserted on the column, not only on the 409. §16.4 guards the one-time
+    // rule twice — `players.claimed_at` *and* a partial unique index on
+    // `(player_id, mission_id) where source = 'claimed'` — so a reset that
+    // cleared the flag would still be refused by the index, and a spec that
+    // checked only the status code would pass while the decision was reversed.
+    // Verified by mutation: nulling `claimed_at` in the reset route leaves the
+    // 409 intact and fails only this line.
+    const players = await selectRows<{ claimed_at: string | null }>(
+      "players",
+      `id=eq.${player.id}&select=claimed_at`,
+    );
+    expect(players[0].claimed_at).not.toBeNull();
+
+    const again = await page.request.post("/api/claim", {
+      data: { ledger: { missions: { [MISSION]: { score: 100, resolved: true } } } },
+    });
+    expect(again.status()).toBe(409);
+
+    // The refused second claim wrote nothing, and the first one's row survived
+    // the reset the same way a graded run does.
+    expect(
+      await selectRows("mission_runs", `player_id=eq.${player.id}&select=id`),
+    ).toHaveLength(1);
+  });
+
+  /**
+   * The other half: a reset is a starting point, not a wall. A run recorded
+   * after the tombstone counts normally, which is what makes the whole thing a
+   * reset rather than an account-level ban on earning anything.
+   */
+  test("counts what the player earns after starting over", async ({ page }) => {
+    await playToVerification(page, "perfect");
+    await runVerification(page);
+    expect((await page.request.post("/api/reset")).status()).toBe(200);
+
+    await resetMissionState(page, MISSION);
+    await playToVerification(page, "perfect");
+    await runVerification(page);
+
+    const after = (await (await page.request.get("/api/ledger")).json()) as {
+      ledger: {
+        totalXp: number;
+        missions: Record<string, { attempts: number }>;
+      };
+    };
+    expect(after.ledger.totalXp).toBe(80);
+    // One, not two. The pre-reset attempt is recorded and invisible, so the
+    // count beside the mission describes the history the player can see.
+    expect(after.ledger.missions[MISSION].attempts).toBe(1);
+  });
+
   /**
    * The other half of the same design: sign-out is POST-only *on purpose*,
    * because a GET sign-out lets any page on the internet log the player out
@@ -642,5 +843,10 @@ base.describe("the authenticated path, signed out", () => {
       data: { missionId: MISSION, rootCauseId: "x", fixId: "y", fixApplied: true },
     });
     expect(graded.status()).toBe(401);
+
+    // Nor can anyone stamp a tombstone. The route holds the service-role key
+    // and its only bound on *whose* row it writes is the verified session, so
+    // the 401 is the whole of that bound rather than a nicety.
+    expect((await request.post("/api/reset")).status()).toBe(401);
   });
 });

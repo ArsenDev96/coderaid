@@ -126,6 +126,19 @@ comment on view public.best_runs is
 --   revoke all on public.thing from anon, authenticated;
 --
 -- `e2e/view-privileges.spec.ts` enforces this from outside the database.
+--
+-- AND THE COROLLARY, learned the hard way in 0004. `r.*` above is expanded to a
+-- fixed column list at creation time, and `create or replace view` may only
+-- *append* columns to that list — it cannot reorder or rename one. So once the
+-- underlying table gains a column (0002 added `mission_runs.source`), this view
+-- can no longer be replaced at all; the star re-expands with the new column in
+-- the middle and Postgres refuses with `42P16`. A later migration that needs to
+-- change the definition must `drop view` and recreate it.
+--
+-- Which makes the revoke load-bearing a second time, for a second reason: a
+-- recreated view is a **new relation**, so Supabase's default privileges grant
+-- `SELECT` on it to `anon` and `authenticated` all over again. Recreating this
+-- view without the revoke reopens the hole 0003 closed.
 
 alter table public.players            enable row level security;
 alter table public.mission_runs       enable row level security;
