@@ -21,7 +21,8 @@ export async function GET(request: Request) {
     return NextResponse.redirect(`${origin}/sign-in?error=missing_code`);
   }
 
-  const { error } = await createClient().auth.exchangeCodeForSession(code);
+  const supabase = await createClient();
+  const { error } = await supabase.auth.exchangeCodeForSession(code);
   if (error) {
     return NextResponse.redirect(`${origin}/sign-in?error=exchange_failed`);
   }

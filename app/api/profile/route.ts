@@ -44,7 +44,8 @@ export async function POST(request: Request) {
   // `.eq("id", user.id)` is belt-and-braces: RLS already restricts the row to
   // the caller. Scoping it here too means the query says what it means without
   // the reader having to hold the policy in their head.
-  const { data, error } = await createClient()
+  const supabase = await createClient();
+  const { data, error } = await supabase
     .from("players")
     .update(update)
     .eq("id", user.id)

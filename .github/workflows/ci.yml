@@ -131,6 +131,14 @@ jobs:
       - name: Play a mission through the real UI
         run: npm run test:e2e
 
+      # The count, printed. Everything above reasons about credentials; this
+      # reasons about how many specs actually ran, which is the thing being
+      # claimed — and is the only one of the three that notices a spec file
+      # quietly falling out of collection.
+      - name: Assert every spec actually ran
+        shell: bash
+        run: node scripts/assert-e2e-ran.mjs
+
       - name: Stop Supabase
         if: always()
         run: npx supabase stop --no-backup

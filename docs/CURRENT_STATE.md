@@ -321,9 +321,9 @@ The README (`README.md`) has been rewritten to match this positioning and is no 
 
 | Concern | Choice |
 | --- | --- |
-| Framework | Next.js **14.2.35**, App Router |
+| Framework | Next.js **16.2.12**, App Router (upgraded from 14.2.35 on 2026-07-31 — §12 item 12) |
 | Language | TypeScript 5.5, `strict: true`, path alias `@/*` → repo root |
-| UI | React 18.3, Tailwind CSS 3.4 |
+| UI | React **19.2**, Tailwind CSS 3.4 |
 | Icons | `lucide-react` |
 | Animation | `framer-motion` (reduced-motion aware) |
 | Fonts | `next/font/google` — Inter (`--font-inter`), JetBrains Mono (`--font-jetbrains`) |
@@ -331,7 +331,7 @@ The README (`README.md`) has been rewritten to match this positioning and is no 
 | Auth | `@supabase/ssr` 0.12 + `@supabase/supabase-js` 2 — GitHub OAuth only, cookie sessions |
 | Tests | **Vitest 2** — `tests/`, 26 files, 646 tests, Node environment, `@/*` alias |
 | Browser smoke | **Playwright 1.61** — `e2e/`, 37 Chromium tests against the production build: 14 signed-out, 20 authenticated (§15.5, §17.4), 3 database-privilege checks that use no browser at all (§15.6) |
-| Lint | **ESLint 8 + `eslint-config-next`**, committed `.eslintrc.json` extending `next/core-web-vitals` |
+| Lint | **ESLint 9 + `eslint-config-next` 16**, flat config in `eslint.config.mjs`. `next lint` no longer exists, so `npm run lint` is plain `eslint .` |
 | Content validation | `tsx scripts/validate-missions.ts` over `lib/mission-validation.ts` |
 
 Scripts: `npm run dev | build | start | lint | typecheck | test | test:watch | validate:missions`,
@@ -346,16 +346,17 @@ and `SUPABASE_SERVICE_ROLE_KEY`. The service-role key is read only inside `lib/s
 which begins with `import "server-only"`, so no import path can pull it toward the browser bundle.
 It must never be given a `NEXT_PUBLIC_` prefix.
 
-### Verified command results (re-run 2026-07-31, after the reset pass)
+### Verified command results (re-run 2026-07-31, after the Next 16 migration)
 
 | Command | Result |
 | --- | --- |
 | `npm run typecheck` | **passes clean**, no errors |
-| `npm run lint` | **runs non-interactively** — "No ESLint warnings or errors" |
+| `npm run lint` | **0 errors, 14 warnings** — all 14 are `react-hooks/set-state-in-effect`, new in this ESLint config and deliberately demoted (§12 item 23) |
 | `npm run test` | **646 passed** across 26 files |
 | `npm run validate:missions` | **0 errors, 0 warnings** — 20 missions checked, 14 fully playable |
-| `npm run build` | **succeeds**, "Compiled successfully" — see the stale-`.next` note below |
-| `npx playwright test` | **37 collected**; the 20 authenticated specs need the live Supabase project, and the four reset specs additionally need **migration 0004 applied** |
+| `npm run build` | **succeeds** — see the stale-`.next` note below |
+| `npx playwright test` | **37 passed** against the hosted project |
+| `npm audit --omit=dev` | **0 vulnerabilities** (was 2 high before the migration) |
 
 **A dev server poisons `bundle-secrecy`.** If anyone has run `npm run dev`, `.next/static/webpack/`
 holds unminified `hot-update.js` files, and unminified output keeps local variable names.
@@ -1896,13 +1897,43 @@ Genuinely outstanding:
     no code change was needed and all six gates stayed green), which clears the critical band —
     middleware authorization bypass, the cache-poisoning family, image-optimization content
     injection, request smuggling.
-    What remains is **1 high + 1 moderate in production, unreachable in this app and unfixable in
-    the 14.x line**: the advisory range is `9.3.4-canary.0 – 16.3.0-canary.5`, so the fix is
-    Next 16 — a major migration. Every remaining advisory needs a feature CodeRaid does not use:
-    there is no `middleware.ts`, no `next/image` import anywhere, no i18n, no rewrites, no server
-    actions, and the bundled `postcss` is build-time only. The dev tree still carries the rest of
-    the findings via `eslint-config-next` and vite. **Re-measure with `npm audit --omit=dev` rather
-    than trusting the total** — the headline count mixes dev and production.
+    What remained was unfixable in the 14.x line: the advisory range was
+    `9.3.4-canary.0 – 16.3.0-canary.5`, so the fix was Next 16 — a major migration.
+
+    **Done 2026-07-31. `npm audit --omit=dev` now reports 0 vulnerabilities.** By the time it was
+    taken on it had grown to **2 high**, both in Next's own code rather than a transitive: SSRF via
+    rewrites (`GHSA-p9j2-gv94-2wf4`) and unauthenticated disclosure of internal Server Function
+    endpoints (`GHSA-955p-x3mx-jcvp`).
+
+    **`next` 14.2.35 → 16.2.12, `react`/`react-dom` 18.3 → 19.2.** React 19 was not strictly
+    required — `next@16` still peers `^18.2.0` — but the codebase had **zero** of the patterns React
+    19 breaks: no `forwardRef`, `useFormState`, `defaultProps`, `propTypes`, `ReactDOM.render` or
+    `element.ref` access, and no component tests to rewrite. Staying on 18 would have bought nothing
+    and left the app on a combination Next will drop.
+
+    What actually had to change, and nothing else did:
+
+    - **`cookies()` is async since Next 15.** One call site, `lib/supabase/server.ts`, so
+      `createClient()` became `async` and its three callers now await it. `currentUser()` was
+      already async, so every route handler that only uses *it* is untouched.
+    - **`params` is a `Promise`** in pages and `generateMetadata`. Six mission stage pages, three
+      patterns each, all identical — transformed by a script that aborts without writing unless
+      every pattern matches exactly once, rather than by twenty-four hand edits.
+    - **`next lint` is gone.** `npm run lint` is now `eslint .`, and `eslint-config-next@16`
+      requires ESLint 9, which reads flat config only: `.eslintrc.json` → `eslint.config.mjs`.
+    - **`next build` rewrote `tsconfig.json` itself** — `"jsx": "preserve"` → `"react-jsx"`, plus
+      `.next/dev/types/**/*.ts` in `include`, plus a reformat of every array. Next manages that file,
+      so the rewrite was kept rather than reverted; expect it again on the next major. The two
+      semantic changes are Next 16 requirements, not preferences.
+
+    **Two transitives needed pinning, and npm's own advice was wrong.** `next@16.2.12` still bundles
+    `postcss@8.4.31` and pulls `sharp@0.34.5`, both with high-severity advisories — and because npm
+    attributes them to `next`, `npm audit fix --force` proposes **downgrading to `next@9.3.3`**,
+    straight back into the advisories this upgrade closed. The `overrides` block in `package.json`
+    pins `postcss@^8.5.25` and `sharp@^0.35.3` instead. `sharp` is only there for image
+    optimisation, which this app never invokes — there is still no `next/image` import anywhere —
+    but it is in the production tree, so it is pinned rather than argued away. **Re-check the
+    overrides on every `next` bump and delete them once Next ships the patched versions itself.**
 
 ### Fixed 2026-07-22 — the stale verification verdict
 
@@ -2328,6 +2359,34 @@ surfaces:
     `credentialsMissing()` throwing whenever `CI` is set, so a skip in CI is a hard error regardless
     of why the keys are missing. Both proven to fail before being trusted. See §15.4.
 
+    **A third guard was added 2026-07-31 alongside the Next 16 migration**, because the first two
+    both reason about *credentials* and the claim being made is about *specs*.
+    `scripts/assert-e2e-ran.mjs` reads the Playwright JSON report and fails the job if any spec
+    skipped, if fewer than 37 ran, or if any failed. It is the only one of the three that notices a
+    spec file quietly falling out of collection, which no credential check would ever see. Proven
+    against fixtures: a 17-ran/20-skipped report fails, a 30-ran report fails, a missing report
+    fails, and the shape was confirmed by generating a real report under `CI=1` rather than assumed.
+
+23. **`react-hooks/set-state-in-effect` is demoted to a warning — 14 sites, deliberately deferred.**
+    Arrived with `eslint-plugin-react-hooks` v6 in `eslint-config-next@16`, so it came with the
+    framework rather than with any change to this code, and it fires 14 times across 13 files.
+
+    Every one is the same shape: read `localStorage` (or fetch the ledger) on mount, then subscribe
+    to changes. Server rendering cannot read `localStorage`, which is *why* they hydrate in an
+    effect. The rule is right that this cascades renders, and the idiomatic replacement is
+    `useSyncExternalStore`.
+
+    It was not done in this pass on purpose. That refactor rewrites the client hydration path —
+    `ProgressProvider` among them, which is the entire pre-account ledger — and **there are no
+    component tests to catch a regression** (§12 item 2). Changing the state model and the framework
+    in one pass, with nothing watching, is how a migration becomes an outage. A warning keeps it
+    visible and countable without wiring `lint` to fail on pre-existing code. **Raise it back to
+    `error` in the pass that fixes it**, and do component tests first.
+
+    Sites: `DashboardGreeting`, `LeaderboardFilterPanel`, `StageGate`, `DiagnosisWorkspace`,
+    `FixWorkspace`, `InvestigationWorkspace`, `useMissionResume`, `ResultsWorkspace` (×2),
+    `VerificationWorkspace`, `StartExperience`, `ProgressProvider`, `ProfileSection`, `useSettings`.
+
 ---
 
 ## 13. The gap between here and a real product
@@ -2692,6 +2751,13 @@ This asserts the specific thing meant — *these specs ran* — rather than the 
 was green in both worlds. Both halves were proven to fail before being trusted: renamed stack
 variables die at the pipeline, an empty value dies at the readback, and `CI=1` with no credentials
 turns collection red in all three `describe` blocks. The error names variables only, never values.
+
+**And a third step counts the result.** `Assert every spec actually ran` runs
+`scripts/assert-e2e-ran.mjs` after the suite, reading the JSON report Playwright writes only under
+`CI`. It fails on any skip, on fewer than 37 specs, or on any failure. The two guards above both
+reason about credentials; this one reasons about the number actually being claimed, and is the only
+one that catches a spec file dropping out of collection. It prints the count on success, so the
+figure is in the log rather than inferred from a colour.
 
 **Reordered 2026-07-21, and the reason is worth recording.** `build` used to run *last*, after
 `test`. `tests/bundle-secrecy.test.ts` — the check that greps the real build output for the answer
