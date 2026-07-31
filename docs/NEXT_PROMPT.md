@@ -207,13 +207,16 @@ Two things to carry forward:
   `tests/profile.test.ts` both use numeric code points on purpose: a literal zero-width character
   silently vanishes when a tool touches the file, and an escaped character class is a line nobody
   can proofread.
-- **The e2e specs write to the live Supabase project**; there is no local stack. Users are
-  namespaced `coderaid-e2e+…@example.com` and torn down in the fixture. A dedicated CI project is
-  the right fix and is recorded under §12 item 2.
-- CI has the three GitHub Actions secrets, so the authenticated specs can run. **Confirm in the job
-  log that they *ran* rather than skipped** — `hasCredentials()` skips them silently, and a skipped
-  run is the same colour as a passing one. Repository secrets are not exposed to **fork** pull
-  requests, so those still skip by design.
+- **In CI the e2e specs run against an ephemeral local Supabase stack**, not the live project
+  (§12 item 2, closed 2026-07-31). `npx supabase start` applies all five migrations from empty, the
+  suite runs, the stack is torn down. Nothing CI does reaches production any more.
+- **Running them locally still writes to the live project** — that is what your `.env.local` points
+  at. Users are namespaced `coderaid-e2e+…@example.com` and torn down in the fixture.
+- **A skip in CI is now a hard error, not a policy.** `credentialsMissing()` throws whenever `CI` is
+  set; locally, a missing `.env.local` still skips. You no longer have to confirm in the job log
+  that the authenticated specs ran — that was load-bearing manual vigilance, and it failed: the key
+  export could return success having exported nothing (§12 item 22). Forks no longer skip either;
+  the local stack's keys are published demo values, so there is nothing to withhold.
 - If `node_modules` looks incomplete (missing vitest/eslint/tsx/`@supabase/*`), run `npm install`.
   Restore `package-lock.json` afterwards if npm only churns line endings.
 - **Flag design decisions rather than making them silently**, especially anything that changes

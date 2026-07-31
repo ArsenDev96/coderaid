@@ -90,22 +90,44 @@ jobs:
       # The local stack's keys are fixed, published demo values — they are not
       # secrets and are deliberately written out rather than stored as such.
       # `supabase status -o env` emits them under the names the app expects.
+      #
+      # `set -o pipefail` is load-bearing, not boilerplate. Actions runs
+      # `bash -e {0}`, which does NOT set it, so a pipeline's status is its LAST
+      # command's — here `tr`, which succeeds on empty input. Without it a `grep`
+      # that matched nothing exported nothing, exited 0, and left the twenty
+      # authenticated specs to skip themselves in a green job. The explicit
+      # readback below is the assertion that the names actually landed; the
+      # step's own exit code was never evidence of that.
       - name: Export the local stack's keys
+        shell: bash
         run: |
+          set -euo pipefail
           npx supabase status -o env \
             | sed -E 's/^API_URL=/NEXT_PUBLIC_SUPABASE_URL=/;
                       s/^ANON_KEY=/NEXT_PUBLIC_SUPABASE_ANON_KEY=/;
                       s/^SERVICE_ROLE_KEY=/SUPABASE_SERVICE_ROLE_KEY=/' \
             | grep -E '^(NEXT_PUBLIC_SUPABASE_URL|NEXT_PUBLIC_SUPABASE_ANON_KEY|SUPABASE_SERVICE_ROLE_KEY)=' \
             | tr -d '"' >> "$GITHUB_ENV"
+          # Names only — never echo a value, even a published demo one.
+          for name in NEXT_PUBLIC_SUPABASE_URL \
+                      NEXT_PUBLIC_SUPABASE_ANON_KEY \
+                      SUPABASE_SERVICE_ROLE_KEY; do
+            if ! grep -q "^${name}=." "$GITHUB_ENV"; then
+              echo "::error::${name} was not exported by the local stack."
+              exit 1
+            fi
+          done
 
       # Builds and serves the app through the Playwright webServer config.
       #
-      # The keys are now always present, so `hasCredentials()` no longer skips
-      # the authenticated specs — including on a fork's pull request, which
-      # could never read the repository secrets and therefore skipped the 20
-      # specs that matter most. A skipped run is the same colour as a passing
-      # one, and that is no longer a way this suite can go quiet.
+      # The keys are now always present, so the authenticated specs no longer
+      # skip — including on a fork's pull request, which could never read the
+      # repository secrets and therefore skipped the 20 specs that matter most.
+      #
+      # And `credentialsMissing()` throws rather than skipping whenever `CI` is
+      # set, so this is enforced from inside the suite too. Between the two, a
+      # skipped run can no longer be the same colour as a passing one — which
+      # is the only reason the green tick above means anything.
       - name: Play a mission through the real UI
         run: npm run test:e2e
 
