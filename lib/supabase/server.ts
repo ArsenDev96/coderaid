@@ -13,8 +13,11 @@ import { supabaseAnonKey, supabaseUrl } from "./env";
  * to the same policies as the browser, and those deliberately forbid writing a
  * run, an achievement or an active day.
  */
-export function createClient() {
-  const cookieStore = cookies();
+export async function createClient() {
+  // Async since Next 15: `cookies()` returns a promise, so every caller of this
+  // helper awaits it too. The store is resolved once here rather than inside
+  // `getAll`/`setAll`, which `@supabase/ssr` calls synchronously.
+  const cookieStore = await cookies();
 
   return createServerClient(supabaseUrl(), supabaseAnonKey(), {
     cookies: {
@@ -38,8 +41,9 @@ export function createClient() {
 
 /** The signed-in user, or `null`. Never throws on an absent session. */
 export async function currentUser() {
+  const client = await createClient();
   const {
     data: { user },
-  } = await createClient().auth.getUser();
+  } = await client.auth.getUser();
   return user;
 }

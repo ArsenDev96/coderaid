@@ -8,21 +8,23 @@ import { StageGate } from "@/components/missions/StageGate";
 import { FIXABLE_MISSION_IDS, getFix } from "@/lib/fix";
 import { MISSIONS, getMission, missionStep } from "@/lib/missions";
 
-type Params = { params: { missionId: string } };
+type Params = { params: Promise<{ missionId: string }> };
 
 export function generateStaticParams() {
   return MISSIONS.map((m) => ({ missionId: m.id }));
 }
 
-export function generateMetadata({ params }: Params): Metadata {
-  const mission = getMission(params.missionId);
+export async function generateMetadata({ params }: Params): Promise<Metadata> {
+  const { missionId } = await params;
+  const mission = getMission(missionId);
   return {
     title: mission ? `${mission.title} — Fix | CodeRaid` : "Fix — CodeRaid",
   };
 }
 
-export default function FixPage({ params }: Params) {
-  const mission = getMission(params.missionId);
+export default async function FixPage({ params }: Params) {
+  const { missionId } = await params;
+  const mission = getMission(missionId);
   if (!mission) notFound();
 
   const fix = getFix(mission.id);

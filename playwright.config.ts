@@ -48,7 +48,12 @@ export default defineConfig({
   forbidOnly: Boolean(process.env.CI),
   retries: process.env.CI ? 1 : 0,
   workers: process.env.CI ? 1 : undefined,
-  reporter: process.env.CI ? "line" : "list",
+  // The JSON report is what `scripts/assert-e2e-ran.mjs` counts in CI, so that
+  // "the specs ran" is a number the job checks rather than something inferred
+  // from a green tick (§12 item 22).
+  reporter: process.env.CI
+    ? [["line"], ["json", { outputFile: "playwright-report/results.json" }]]
+    : "list",
 
   use: {
     baseURL: "http://127.0.0.1:3100",

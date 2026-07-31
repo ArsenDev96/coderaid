@@ -2,7 +2,7 @@
 
 Project: **`d:\coderaid`** on this machine (there is also a checkout at
 `c:\Users\DoC\Desktop\sis` — both are real, do not "fix" either path). The repo is
-`ArsenDev96/coderaid`. Next.js 14 App Router, TypeScript strict, Tailwind, Supabase. A Node.js
+`ArsenDev96/coderaid`. Next.js 16 App Router, React 19, TypeScript strict, Tailwind, Supabase. A Node.js
 backend-debugging simulator: 14 playable missions, 6 stages each (Briefing → Investigation →
 Diagnosis → Fix → Verification → Complete).
 
@@ -156,17 +156,21 @@ Two things to carry forward:
   currently promises it, so this is a gap rather than a broken promise — but it is the obvious next
   question a player asks after using Reset Everything. **Ask before building it.**
 - **No component tests; browser coverage is one mission deep** (rest of §12 item 2).
-- **Next 16 migration** (§12 item 12) — 1 high + 1 moderate production advisory, unfixable in the
-  14.x line. Every remaining advisory needs a feature CodeRaid does not use (no `middleware.ts`, no
-  `next/image`, no i18n, no rewrites, no server actions), so this is low urgency but genuinely open.
-  **Re-measure with `npm audit --omit=dev`** rather than trusting the headline count.
+- ~~Next 16 migration~~ **done 2026-07-31** (§12 item 12). Next 16.2.12, React 19.2, ESLint 9 flat
+  config, and `npm audit --omit=dev` is **0 vulnerabilities**. Two follow-ups it left behind: the
+  `overrides` block pinning `postcss`/`sharp` should be deleted once Next ships them patched, and
+  `react-hooks/set-state-in-effect` is demoted to a warning at 14 sites (§12 item 23) pending
+  component tests. **Re-measure with `npm audit --omit=dev`** rather than the headline count, which
+  mixes dev and production.
 - 13 of 14 missions still use the 1,400ms timer. §17 names the three honest candidates for a real
   replay: `promise-all-cascade`, `async-map-trap`, `overlapping-scheduler-runs`. Most of the
   catalogue cannot have one honestly, and faking it would be the same theatre in a better costume.
 - CI builds twice per run; `/api/ledger` costs 3 Postgres round trips; the leaderboard reads all of
   `best_runs`; `POST /api/runs` now costs one more read for the attempt count. All still "honest at
   this scale".
-- `/demo` is still a `PlaceholderPage`, still linked from the landing page.
+- `/demo` is still a `PlaceholderPage`, but **nothing links to it any more** — the Privacy and Terms
+  links that pointed there were removed from the footer. It is an orphan route: delete it or build
+  it, but it is no longer reachable by a player.
 
 ## How to work
 

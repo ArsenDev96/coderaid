@@ -15,14 +15,15 @@ import {
   missionAvailability,
 } from "@/lib/availability";
 
-type Params = { params: { missionId: string } };
+type Params = { params: Promise<{ missionId: string }> };
 
 export function generateStaticParams() {
   return MISSIONS.map((m) => ({ missionId: m.id }));
 }
 
-export function generateMetadata({ params }: Params): Metadata {
-  const mission = getMission(params.missionId);
+export async function generateMetadata({ params }: Params): Promise<Metadata> {
+  const { missionId } = await params;
+  const mission = getMission(missionId);
   if (!mission) return { title: "Mission Briefing — CodeRaid" };
   return {
     title: `${mission.title} — Mission Briefing | CodeRaid`,
@@ -30,8 +31,9 @@ export function generateMetadata({ params }: Params): Metadata {
   };
 }
 
-export default function MissionBriefingPage({ params }: Params) {
-  const mission = getMission(params.missionId);
+export default async function MissionBriefingPage({ params }: Params) {
+  const { missionId } = await params;
+  const mission = getMission(missionId);
   if (!mission) notFound();
 
   const briefing = resolveBriefing(mission);

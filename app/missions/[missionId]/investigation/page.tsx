@@ -11,14 +11,15 @@ import {
 } from "@/lib/investigation";
 import { MISSIONS, getMission, missionStep, resolveBriefing } from "@/lib/missions";
 
-type Params = { params: { missionId: string } };
+type Params = { params: Promise<{ missionId: string }> };
 
 export function generateStaticParams() {
   return MISSIONS.map((m) => ({ missionId: m.id }));
 }
 
-export function generateMetadata({ params }: Params): Metadata {
-  const mission = getMission(params.missionId);
+export async function generateMetadata({ params }: Params): Promise<Metadata> {
+  const { missionId } = await params;
+  const mission = getMission(missionId);
   return {
     title: mission
       ? `${mission.title} — Investigation | CodeRaid`
@@ -26,8 +27,9 @@ export function generateMetadata({ params }: Params): Metadata {
   };
 }
 
-export default function InvestigationPage({ params }: Params) {
-  const mission = getMission(params.missionId);
+export default async function InvestigationPage({ params }: Params) {
+  const { missionId } = await params;
+  const mission = getMission(missionId);
   if (!mission) notFound();
 
   const investigation = getInvestigation(mission.id);
