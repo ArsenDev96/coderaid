@@ -264,8 +264,32 @@
 >   relation**, and Supabase re-grants `SELECT` on those to `anon` and `authenticated`. The corollary
 >   is recorded beside the house rule in `0001_init.sql`.
 >
-> The suite is **646 tests across 26 files**, plus **37 Playwright specs**. All six gates green:
-> `typecheck`, `lint`, `test`, `validate:missions`, `build`, `playwright`.
+> **New in the CI-isolation pass (2026-07-31). §12 item 2's infrastructure half is closed, and it
+> uncovered a dated defect.** CI no longer runs against the live Supabase project: it starts an
+> **ephemeral local stack** on the runner (`supabase start`), applies every migration from an empty
+> database, and tears it down. No CI traffic reaches production, a migration that cannot be applied
+> is now a red build rather than a surprise in the SQL editor, and fork pull requests stop silently
+> skipping the twenty authenticated specs.
+>
+> - **The defect it found (§12 item 21).** The schema **never granted a privilege to `service_role`
+>   or `authenticated`**. It worked only because the hosted project was created under Supabase's old
+>   default, which auto-granted every new `public` table to all three API roles — a default now
+>   withdrawn, with `config.toml` naming **2026-10-30** as the date it is removed for good. On a
+>   fresh stack, `service_role` — *the only writer of anything scored* — got
+>   `401 permission denied for table players`. A new project for CI would not have run the app
+>   either, and the live project breaks when the old behaviour goes.
+>   `0005_explicit_grants.sql` declares exactly what the app uses, and re-asserts the `best_runs`
+>   revoke last, because a grants file is the file someone later widens into `on all tables`.
+> - **The `view-privileges` control spec was asserting the old world.** It required `anon` to get
+>   `200 []` from the tables; under the new default the answer is `401`, which is *stronger*. Both
+>   are accepted now — but since "refused everywhere" would make the control unable to tell a
+>   locked-down project from an unreachable one, reachability is established with the service-role
+>   key instead. Re-proven by reintroducing the original leak on a local stack and watching the right
+>   two specs go red.
+>
+> The suite is **646 tests across 26 files**, plus **37 Playwright specs** — which now pass against
+> **both** a from-scratch local stack and the hosted project. All six gates green: `typecheck`,
+> `lint`, `test`, `validate:missions`, `build`, `playwright`.
 
 ---
 
@@ -473,6 +497,9 @@ supabase/migrations/
   0003_lock_best_runs.sql    security_invoker + revoke on best_runs — the view bypassed RLS
   0004_player_reset.sql      players.reset_at; best_runs DROPPED and recreated filtering on it,
                              re-asserting security_invoker AND the revoke (0001's house rule)
+  0005_explicit_grants.sql   The privileges the app always relied on, declared. Supabase's old
+                             auto-expose default is being withdrawn (§12 item 21)
+  config.toml                Committed so `supabase start` reproduces the project locally and in CI
 
 scripts/
   validate-missions.ts       CLI wrapper: grouped output, non-zero exit on errors
@@ -1702,10 +1729,24 @@ Genuinely outstanding:
    claim, the leaderboard, the replay limit and RLS as committed specs (§15.5). What remains under this item:
    there are still no *component* tests, and the browser coverage is still one mission deep — the
    other thirteen are covered by Vitest rules only.
-   **And the authenticated specs run against the live Supabase project**, because no local stack is
-   configured. Users are namespaced `coderaid-e2e+…@example.com` and deleted in teardown, but a
-   dedicated CI project would be the right fix — a failed teardown currently leaves a row in
-   production, and CI traffic and real players share a database.
+
+   **~~The authenticated specs run against the live Supabase project.~~ Resolved 2026-07-31 — with an
+   ephemeral local stack rather than a second hosted project.** `supabase/config.toml` is committed,
+   CI runs `npx supabase start`, and the whole stack lives and dies inside the run. Nothing touches
+   production. Two things fell out of it that a second hosted project would not have given:
+
+   - **Migrations are now applied by a machine, on every run, from scratch.** They are applied *by
+     hand* to the hosted project, so one could sit in the tree unapplied — or fail outright, as 0004
+     did — while CI stayed green. `supabase start` replays all five from an empty database, so a
+     migration that cannot be applied is a red build. **This would have caught the 0004 `42P16`
+     failure before it ever reached the dashboard**, verified by re-running the old `create or
+     replace` form against a fresh stack.
+   - **The authenticated specs no longer skip on forks.** Repository secrets are not exposed to fork
+     pull requests, so `hasCredentials()` silently skipped the twenty specs that matter most on
+     exactly the contributions least likely to be trusted. The local stack's keys are fixed published
+     demo values, so there is nothing to withhold.
+
+   **It also surfaced the defect that made the whole item urgent — see item 21.**
 3. **Content scale — CLOSED as a decision, 2026-07-30. The MVP ships at 14 missions and 1,830 XP.**
    This item read "the highest-value work once the rest is done" through several passes. It is no
    longer open work: the catalogue is **deliberately frozen** at the 14 Node.js missions, and
@@ -2223,6 +2264,48 @@ surfaces:
     `authenticated` — is written into the RLS comment block of `0001_init.sql`, where the next
     person adding a view will be looking.
 
+### Found 2026-07-31 — fixed, and dated
+
+21. **The schema never granted a privilege to `service_role` or `authenticated`, and was relying on
+    a Supabase default that is being removed.** Found while building the CI stack (item 2), which is
+    the only reason it was found at all: it is invisible on the live project.
+
+    Every table privilege the app uses came from Supabase's **old cloud default**, which auto-granted
+    each new `public` table to `anon`, `authenticated` and `service_role`. Nothing in `0001`–`0004`
+    grants anything to those roles except the column-level `UPDATE` on the six profile columns. The
+    default is gone for new projects, and `supabase/config.toml` carries the deadline in its own
+    comment on `auto_expose_new_tables`: *"When unset, new entities are NOT auto-exposed, matching
+    the new cloud default … the field is removed on **2026-10-30** once the always-revoked behaviour
+    is permanent."*
+
+    **Measured the same day, same migrations, two environments:**
+
+    | Read | Hosted project (old default) | Fresh local stack (new default) |
+    | --- | --- | --- |
+    | `mission_runs` as `anon` | `200 []` | `401 42501` |
+    | `players` as **`service_role`** | rows | **`401 permission denied`** |
+
+    The second row is the serious one. `service_role` is the **only writer of anything scored**
+    (§16.2), so on a project created today the app does not run at all — no ledger, no grading, no
+    leaderboard. Which means a fresh Supabase project for CI would not have worked either, and the
+    live project breaks on the day the old behaviour is withdrawn.
+
+    **`0005_explicit_grants.sql` declares the dependency.** It grants exactly what the app uses and
+    nothing more — narrower than the blanket default it replaces — and **re-asserts the `best_runs`
+    revoke last**, because a grants file is precisely the file someone later "tidies up" into
+    `grant … on all tables in schema public` and silently reopens item 20.
+
+    **It is additive and changed nothing in production**: it grants what the old default already
+    gave and revokes nothing that was not already revoked. All 37 Playwright specs pass against the
+    hosted project after it, and all 37 against a local stack built from scratch — which is the
+    point, since before it the local stack could only reach 36.
+
+    One honest limitation, stated because it affects how you verify this: **`0005` has no externally
+    observable signature on the hosted project.** Unlike 0004, which added a column you can read
+    back, it is additive over an already-permissive baseline, so "is it applied?" cannot be answered
+    from outside the way `players.reset_at` can. What *can* be checked is that a fresh stack works,
+    and CI now checks that on every run.
+
 ---
 
 ## 13. The gap between here and a real product
@@ -2543,8 +2626,24 @@ It is **not** true of the `smoke` job. The e2e run serves the built app, and at 
 `/api/ledger` throws a named error without `NEXT_PUBLIC_SUPABASE_URL`, so the provider's mount
 request 500s, `POST /api/runs` 500s instead of 401ing, and the sign-in wall
 `mission-flow.spec.ts` asserts on never renders. Reproduced locally by hiding `.env.local`: that
-spec fails at the "Sign in with GitHub" assertion. The smoke job now receives all three keys as
-secrets (§15.5).
+spec fails at the "Sign in with GitHub" assertion.
+
+**The `smoke` job stopped using repository secrets on 2026-07-31** (§12 items 2 and 21). It now runs
+`npx supabase start`, which brings up a full Supabase stack in Docker on the runner and **applies
+every migration from an empty database**, then exports that stack's keys into `$GITHUB_ENV` with
+`supabase status -o env`. Those keys are fixed, published demo values, not secrets. Three
+consequences worth knowing:
+
+- **No CI traffic reaches production.** Every push used to create and delete real users there.
+- **A migration that cannot be applied is now a red build**, rather than something discovered by hand
+  in the SQL editor. Migrations are applied manually to the hosted project, and 0004 proved that a
+  file in the tree can be one the database will refuse.
+- **Fork pull requests no longer skip the authenticated specs.** Secrets are not exposed to forks, so
+  `hasCredentials()` silently skipped the twenty most important specs on exactly the contributions
+  least likely to be trusted — a skipped run being the same colour as a passing one.
+
+`supabase stop --no-backup` runs with `if: always()`, so a failed spec cannot leave containers or a
+volume behind on the runner.
 
 **Reordered 2026-07-21, and the reason is worth recording.** `build` used to run *last*, after
 `test`. `tests/bundle-secrecy.test.ts` — the check that greps the real build output for the answer
@@ -2680,7 +2779,7 @@ anon key read?* — which is everyone, since that key ships in the client bundle
 | --- | --- |
 | `best_runs hands nothing to an anonymous caller` | Either no row set at all (401/403 — the `revoke`) or an empty one (200 — `security_invoker` with no rows of your own). **Both are correct and they are different fixes**, so the spec accepts either and fails only if rows come back |
 | `no answer-key column reaches an anonymous caller` | `root_cause_id`, `evidence_ids` and `fix_id` appear on nothing returned. Named explicitly, because the failure being guarded against is not "rows leaked" but *these fields* leaked — an empty result passes the row-count check by accident of the moment, and this one states the stakes |
-| `RLS still holds on the tables underneath` | `mission_runs`, `players` and `player_achievements` each answer **200 with `[]`**. The control: if all three specs go red the project is unreachable or the key is wrong; if only the first two do, the view has lost its protection again |
+| `the project answers at all, and the tables refuse an anonymous caller` | **Rewritten 2026-07-31.** Reachability is established with a **service-role** read, then each of `mission_runs`, `players` and `player_achievements` must give an anonymous caller *no rows* — as either `200 []` (a grant, with RLS filtering everything) or `401`/`403` (no grant at all). See below for why it changed |
 
 `readAsAnon()` in `e2e/support/session.ts` reports the status instead of throwing on one, because
 "permission denied" and "no rows" are both right answers here and a caller asserting *nothing came
@@ -2690,10 +2789,26 @@ back* should not have to care which it got.
 suite talks to Supabase, and that property is what makes the unit suite runnable with no credentials
 and no network. This is a fact about the live database's privileges, not about any module.
 
-**Proven to fail, and not by a mutation.** Run against production before `0003_lock_best_runs.sql`
-was applied, the first two went red on real leaked rows — including a `root_cause_id` — while the
-third passed. That is the strongest form of the house rule "when you add a guard, prove it can fail":
-the guard's first run reproduced the vulnerability it exists to catch.
+**Why the third spec was rewritten (2026-07-31).** It asserted `200` with `[]` — `anon` holding
+`SELECT` while RLS filtered every row away. That was only ever true because the hosted project was
+created under Supabase's old auto-expose default (§12 item 21). Under the current default there is
+no grant, the same read answers `401`, and **the spec failed against a correctly-configured
+database**. `401` is the *stronger* posture — no grant beats a grant plus a policy — so both are now
+accepted.
+
+But accepting both costs the original control its whole purpose: if `anon` is refused everywhere,
+"refused" no longer distinguishes a locked-down project from an unreachable one, and the two specs
+above pass by saying nothing. So reachability is now established with the **service-role** key, which
+must succeed in either privilege model. That is what keeps the anon results meaningful instead of
+vacuous — the same "green for the wrong reason" trap that hid `bundle-secrecy` for weeks.
+
+**Proven to fail, twice, and neither time by a mutation to the assertion.** Run against production
+before `0003_lock_best_runs.sql` was applied, the first two went red on real leaked rows — including
+a `root_cause_id` — while the third passed. The rewrite was proven the same way: on a local stack
+with `grant select on public.best_runs to anon` and `security_invoker = false` re-applied and a seeded
+run, the first two went red with *"the answer key is public"* and *"root_cause_id is readable without
+a session"* while the new control stayed green — **the exact diagnostic pattern this section
+describes**, now demonstrated under the new privilege model as well as the old one.
 
 The usual caveat applies with more force than elsewhere: like the authenticated specs, these
 `skip` themselves without credentials, and **a skipped run is the same colour as a passing one**.
@@ -2718,6 +2833,18 @@ was worth.**
 
 **There is deliberately no `total_xp` column**, no stored rank and no stored streak. The runs are the
 evidence; every figure is derived from them.
+
+**Privileges are declared, not inherited (0005, 2026-07-31).** Until then the schema granted nothing
+to `service_role` or `authenticated` beyond the six-column profile `UPDATE`, and worked only because
+Supabase's old cloud default auto-granted every new `public` table to all three API roles. That
+default is being withdrawn — §12 item 21 has the measurements and the date. `0005_explicit_grants.sql`
+now states what each role may address:
+
+| Role | Granted |
+| --- | --- |
+| `service_role` | `select, insert, update, delete` on the four tables, `select` on `best_runs`, sequence usage. It has `bypassrls`, but **bypassing RLS is not the same as holding a table privilege** |
+| `authenticated` | `select` on the four tables — RLS then decides *which rows*. `players` stays SELECT-only here; the column-level `UPDATE` in 0001 is what grants the six profile columns |
+| `anon` | **Nothing**, stated as a deliberate omission. A signed-out visitor never reads a table directly |
 
 ### 16.2 The trust model
 

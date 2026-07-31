@@ -18,14 +18,24 @@ content growth unless the product owner reopens it.
 
 The suite is **646 tests across 26 files** plus **37 Playwright specs**, and all six gates are green.
 
-**`supabase/migrations/` is not applied automatically.** There is no linked Supabase CLI project and
-no database password in `.env.local` — only the URL, the anon key and the service-role key, none of
-which can run DDL. Migrations are applied by hand in the Supabase dashboard's SQL editor. Check that
-a migration in the tree is actually live before trusting a spec that depends on it; running
-`e2e/view-privileges.spec.ts` is the fastest way to confirm 0003 is in place, and the four reset
-specs in `authenticated.spec.ts` are the equivalent for 0004. **All four migrations are live as of
-2026-07-31** — verified by reading `players.reset_at` and `best_runs.source` with the service key,
-and by confirming the anon key still gets `42501 permission denied` on the view.
+**`supabase/migrations/` is still not applied to the HOSTED project automatically.** There is no
+linked Supabase CLI project and no database password in `.env.local` — only the URL, the anon key and
+the service-role key, none of which can run DDL. Hosted migrations are applied by hand in the
+dashboard's SQL editor. Check a migration is actually live before trusting a spec that depends on it:
+`e2e/view-privileges.spec.ts` confirms 0003, and the four reset specs in `authenticated.spec.ts`
+confirm 0004. **All five are live as of 2026-07-31** — 0001–0004 verified by reading
+`players.reset_at` and `best_runs.source` with the service key and confirming anon still gets `42501`
+on the view. **0005 cannot be verified from outside** (§12 item 21): it is additive over an
+already-permissive baseline, so it has no observable signature the way a new column does. What was
+verified is that all 37 specs still pass against the hosted project after it.
+
+**CI is a different story now, and this is the important change.** `supabase/config.toml` is
+committed and CI runs `npx supabase start` — a full stack in Docker, **every migration applied from
+an empty database, on every run**. So the hand-application gap above is a hosted-project problem
+only: a migration that cannot be applied now fails CI. That is not hypothetical, it is why the gap
+mattered — 0004 was a file in the tree that the database refused. **You can run the same stack
+locally** (Docker required): `npx supabase start`, then point the three env vars at what
+`npx supabase status -o env` prints.
 
 ### Done in the MVP-ceiling pass (2026-07-30) — do not re-plan these
 
@@ -106,17 +116,40 @@ mutations initially *passed* — the claim guard asserted a 409 that a partial u
 whether or not `claimed_at` was cleared, so it could not see the decision being reversed. The spec
 now asserts the column directly.
 
+### Done in the CI-isolation pass (2026-07-31) — do not re-plan this
+
+**§12 item 2's infrastructure half is closed with an ephemeral local Supabase stack**, not a second
+hosted project. CI runs `supabase start`, applies all five migrations from an empty database, runs
+the suite, and tears it down. No CI traffic in production; migrations verified by machine on every
+run; fork PRs no longer skip the twenty authenticated specs.
+
+**It found a dated defect — §12 item 21, and this one has a deadline.** The schema **never granted a
+privilege to `service_role` or `authenticated`**. It worked only because the hosted project was
+created under Supabase's old auto-expose default, which is being withdrawn; `supabase/config.toml`
+names **2026-10-30**. On a fresh stack, `service_role` — the only writer of anything scored — got
+`401 permission denied for table players`. `0005_explicit_grants.sql` declares what the app actually
+uses. It is additive, changed nothing in production, and is applied.
+
+Two things to carry forward:
+
+- **Never widen `0005` into `grant … on all tables in schema public`.** It would re-grant `best_runs`
+  and silently reopen §12 item 20 — the answer-key leak. The file re-asserts the revoke last for
+  exactly this reason, and says so.
+- **The `view-privileges` control spec now proves reachability with the service-role key**, because
+  under the new default `anon` is refused everywhere and "refused" stopped being able to distinguish
+  a locked-down project from an unreachable one. If you touch it, re-prove it the way §15.6 records:
+  reintroduce the leak on a local stack rather than mutating the assertion.
+
 ## Also open
 
 - **Display-name moderation** — the residue of §12 item 17. `sanitizeDisplayName` is a *rendering*
   guard: it strips control characters, zero-width characters and bidi overrides so one player's name
   cannot break or reorder the leaderboard row beside it. It is not a word list and there is no review
   queue. Whether CodeRaid needs moderation, and of what kind, is a product decision. **Ask first.**
-- **A dedicated CI Supabase project** (§12 item 2). The e2e specs write to the live project, so every
-  push to `main` creates and deletes real users in production. This is now the largest piece of
-  infrastructure debt. Note the replay-limit specs each insert 9 rows per run, and the reset specs
-  add three more players plus one that reaches the limit — so a full run is now ~20 short-lived users
-  and ~40 rows.
+- **~~A dedicated CI Supabase project~~ (§12 item 2). Done 2026-07-31, as an ephemeral local stack
+  rather than a second hosted project** — cheaper, applies the migrations itself, and needs no
+  secrets. Do not re-plan it. What remains under item 2 is only the *testing* half: still no
+  component tests, still one mission deep in the browser.
 - **Account deletion does not exist**, and the reset dialog is careful to say so: it tells the player
   their runs "stay recorded, they just stop counting", never that they are deleted. A genuine erasure
   request is a different feature with a different name, and it *should* delete the account. Nothing

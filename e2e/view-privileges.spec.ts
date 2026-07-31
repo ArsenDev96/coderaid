@@ -1,5 +1,5 @@
 import { test as base, expect } from "@playwright/test";
-import { hasCredentials, readAsAnon } from "./support/session";
+import { hasCredentials, readAsAnon, selectRows } from "./support/session";
 
 /**
  * The database API is a public surface, and `best_runs` was wide open on it.
@@ -75,15 +75,49 @@ base.describe("what the anon key can read", () => {
     }
   });
 
-  base("RLS still holds on the tables underneath", async () => {
-    // The control. These were never broken — they are here so a failure of the
-    // first two tests can be read correctly. If all three go red, the project
-    // is unreachable or the key is wrong; if only the first two do, the view
-    // has lost its protection again.
+  base("the project answers at all, and the tables refuse an anonymous caller", async () => {
+    /*
+      The control, and it is the reason the two specs above can be read at all:
+      "nothing came back" is the passing outcome there, and an unreachable
+      project or a wrong key produces exactly that.
+
+      **Rewritten 2026-07-31, because the original control stopped being one.**
+      It asserted `200` with `[]` from each table — anon holding `SELECT` while
+      RLS filtered every row away. That was only ever true because the hosted
+      project was created under Supabase's old default, which auto-granted every
+      new `public` table to `anon`. Under the current default there is no grant
+      at all, so the same read answers `401 42501`, and the spec failed against a
+      correctly-configured database (§12 item 2).
+
+      **401 is the stronger posture, not a regression** — no grant beats a grant
+      plus a policy — so both are accepted. But accepting both costs the original
+      control its discriminating power: if anon is refused everywhere, "refused"
+      no longer distinguishes a locked-down project from an unreachable one.
+
+      So reachability is established with the service-role key instead, which
+      must succeed in every privilege model. That is what makes the anon results
+      below meaningful rather than vacuous.
+    */
+    const reachable = await selectRows("mission_runs", "select=id&limit=1");
+    expect(
+      Array.isArray(reachable),
+      "the project did not answer a service-role read — nothing below can be trusted",
+    ).toBe(true);
+
     for (const table of ["mission_runs", "players", "player_achievements"]) {
       const read = await readAsAnon(table);
-      expect(read.status, `${table} did not answer`).toBe(200);
-      expect(read.rows, `${table} leaked rows to an anonymous caller`).toEqual([]);
+
+      // No grant (401/403) or a grant with RLS filtering everything (200 []).
+      // Both are correct; what must never happen is a row coming back.
+      if (read.rows !== null) {
+        expect(read.status, `${table} answered oddly`).toBe(200);
+        expect(read.rows, `${table} leaked rows to an anonymous caller`).toEqual([]);
+      } else {
+        expect(
+          [401, 403],
+          `${table} neither answered nor refused cleanly`,
+        ).toContain(read.status);
+      }
     }
   });
 });
