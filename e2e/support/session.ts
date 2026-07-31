@@ -25,13 +25,41 @@ const URL_VAR = "NEXT_PUBLIC_SUPABASE_URL";
 const ANON_VAR = "NEXT_PUBLIC_SUPABASE_ANON_KEY";
 const SERVICE_VAR = "SUPABASE_SERVICE_ROLE_KEY";
 
-/** True when the suite can reach Supabase at all — CI forks have no secrets. */
+/** True when the suite can reach Supabase at all. */
 export function hasCredentials(): boolean {
   return Boolean(
     process.env[URL_VAR] &&
       process.env[ANON_VAR] &&
       process.env[SERVICE_VAR],
   );
+}
+
+/**
+ * Whether to skip the specs that need a session — and, in CI, a hard error
+ * instead.
+ *
+ * Locally a missing `.env.local` is an ordinary reason to skip. **In CI there
+ * is no legitimate reason left.** Since 2026-07-31 the suite runs against an
+ * ephemeral local stack whose keys are fixed published demo values, so there
+ * is nothing a fork could fail to read; if they are absent it means the stack
+ * did not export them, and skipping would report that as success. A skipped
+ * run is the same colour as a passing one, which is how the bundle-secrecy
+ * guard sat dead for weeks.
+ *
+ * This asserts the specific thing meant — *these specs ran* — rather than the
+ * job's exit code, which stays green either way.
+ */
+export function credentialsMissing(): boolean {
+  if (hasCredentials()) return false;
+  if (process.env.CI) {
+    // Names only, never values.
+    throw new Error(
+      `Supabase credentials are absent in CI: the local stack should have ` +
+        `exported ${URL_VAR}, ${ANON_VAR} and ${SERVICE_VAR}. ` +
+        `Skipping here would report a dead suite as a pass.`,
+    );
+  }
+  return true;
 }
 
 function env(name: string): string {

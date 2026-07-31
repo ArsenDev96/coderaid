@@ -2306,6 +2306,28 @@ surfaces:
     from outside the way `players.reset_at` can. What *can* be checked is that a fresh stack works,
     and CI now checks that on every run.
 
+22. **The smoke job's key export could not fail, so its green tick did not mean the specs ran.**
+    Found by reading `ci.yml` after its first real run (#21) came back green — the run the previous
+    pass correctly flagged as unverified, since pushing is the only way to exercise a workflow.
+
+    The export ended `| tr -d '"' >> "$GITHUB_ENV"`. Actions runs `bash -e {0}` **without**
+    `pipefail`, so the step's exit status was `tr`'s, and `tr` succeeds on empty input. A `grep` that
+    matched nothing — a renamed variable in a future `supabase status`, say — exported nothing and
+    passed. `hasCredentials()` then skipped the twenty authenticated specs, and the job was green.
+    Confirmed by running the old pipeline against stack output under different names: **exit 0, zero
+    bytes written.**
+
+    This is the third instance of the same failure in this repo (bundle-secrecy, the reset claim
+    spec, this), and the sharpest, because the pass that wrote it was *explicitly hunting* this exact
+    pattern — its own comment says "a skipped run is the same colour as a passing one, and that is no
+    longer a way this suite can go quiet." It was, and the guard it added to close it had the flaw
+    inside it. **The lesson is not "remember pipefail"; it is that a step's exit code is evidence
+    about the step, never about its effect.** Assert the effect.
+
+    Fixed at both ends — `set -euo pipefail` plus a `$GITHUB_ENV` readback in the workflow, and
+    `credentialsMissing()` throwing whenever `CI` is set, so a skip in CI is a hard error regardless
+    of why the keys are missing. Both proven to fail before being trusted. See §15.4.
+
 ---
 
 ## 13. The gap between here and a real product
@@ -2645,6 +2667,32 @@ consequences worth knowing:
 `supabase stop --no-backup` runs with `if: always()`, so a failed spec cannot leave containers or a
 volume behind on the runner.
 
+**The export step could not fail — fixed 2026-07-31, second pass (§12 item 22).** The workflow's
+first real run (#21, on the PR #6 merge) was green, and that green proved less than it looked. The
+key export was a pipeline ending `| tr -d '"' >> "$GITHUB_ENV"`. Actions runs `bash -e {0}`, which
+does **not** set `pipefail`, so the step's status was `tr`'s — and `tr` succeeds on empty input. A
+`grep` that matched nothing therefore exported nothing, exited 0, and handed the suite an
+environment with no keys, at which point `hasCredentials()` skipped the twenty specs and the job
+stayed green. **Every mechanism in the chain reported success while the thing they existed to run
+did not happen.** Reproduced directly: the old pipeline, fed stack output under different variable
+names, exits 0 and writes 0 bytes.
+
+Closed at both ends, because either alone can be defeated:
+
+- **`.github/workflows/ci.yml`** sets `set -euo pipefail` and then *reads back* `$GITHUB_ENV`,
+  failing with a `::error::` naming any of the three variables that did not land. The readback is
+  not redundant with `pipefail`: a variable exported with an empty value passes `grep` and is caught
+  only by the readback.
+- **`credentialsMissing()` in `e2e/support/session.ts`** throws instead of skipping whenever `CI` is
+  set. Locally, a missing `.env.local` is still an ordinary skip. In CI there is no longer a
+  legitimate reason to skip at all — the local stack's keys are published demo values, so there is
+  nothing a fork could fail to read — and a skip there means the export broke.
+
+This asserts the specific thing meant — *these specs ran* — rather than the job's exit code, which
+was green in both worlds. Both halves were proven to fail before being trusted: renamed stack
+variables die at the pipeline, an empty value dies at the readback, and `CI=1` with no credentials
+turns collection red in all three `describe` blocks. The error names variables only, never values.
+
 **Reordered 2026-07-21, and the reason is worth recording.** `build` used to run *last*, after
 `test`. `tests/bundle-secrecy.test.ts` — the check that greps the real build output for the answer
 fields removed from the client bundle — skips itself when `.next` is absent, so that a clean
@@ -2715,12 +2763,14 @@ that depends on that having been done by hand — `view-privileges.spec.ts` was 
 to "never reset". **Confirm 0004 is live before believing any reset spec**, exactly the way
 `view-privileges.spec.ts` confirms 0003.
 
-The suite skips itself when the keys are absent (`hasCredentials()`), so a fork's pull request —
-which cannot read secrets — skips these rather than failing red. That is the same skip-on-missing-
-precondition pattern that hid the bundle-secrecy guard for weeks, so it is worth being explicit
-about the difference: **that** one skipped silently on the machine that was supposed to run it,
-where this one skips only where the credentials genuinely cannot exist, and the job that owns them
-does not skip.
+The suite skips itself when the keys are absent — but **only outside CI**. `credentialsMissing()`
+returns `true` locally, where no `.env.local` is an ordinary reason to skip, and *throws* whenever
+`CI` is set (§15.4). That distinction is the whole point: this is the same skip-on-missing-
+precondition pattern that hid the bundle-secrecy guard for weeks, and the honest reading is that
+until 2026-07-31 it was **not** meaningfully safer. The comfort taken from "it skips only where the
+credentials genuinely cannot exist" assumed the credentials always arrive where they can — which
+is exactly what the export step failed to guarantee, silently. The machine that is supposed to run
+these specs can now no longer decline to.
 
 **Verified to fail when it should.** Mutating `parseClaim` to trust the submitted `xpEarned`
 instead of recomputing it made the claim spec fail with `Expected: 72, Received: 9999`; the

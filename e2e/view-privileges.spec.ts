@@ -1,5 +1,5 @@
 import { test as base, expect } from "@playwright/test";
-import { hasCredentials, readAsAnon, selectRows } from "./support/session";
+import { credentialsMissing, readAsAnon, selectRows } from "./support/session";
 
 /**
  * The database API is a public surface, and `best_runs` was wide open on it.
@@ -37,8 +37,8 @@ const ANSWER_KEY_COLUMNS = ["root_cause_id", "evidence_ids", "fix_id"];
 
 base.describe("what the anon key can read", () => {
   base.skip(
-    !hasCredentials(),
-    "needs the Supabase keys; skipped where secrets are unavailable.",
+    credentialsMissing(),
+    "needs the Supabase keys; skipped locally without them, red in CI.",
   );
 
   base("best_runs hands nothing to an anonymous caller", async () => {

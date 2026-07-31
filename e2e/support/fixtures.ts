@@ -3,8 +3,8 @@ import {
   applySession,
   cookieName,
   createPlayer,
+  credentialsMissing,
   deletePlayer,
-  hasCredentials,
   type TestPlayer,
 } from "./session";
 
@@ -17,9 +17,9 @@ import {
  * account, which is what lets these run in parallel and keeps one test's runs
  * out of another's ledger.
  *
- * `describe`-level `skip` on `hasCredentials()` is what makes the suite safe to
- * run without secrets — a fork's PR skips these rather than failing red on
- * credentials it was never going to have.
+ * `describe`-level `skip` on `credentialsMissing()` is what makes the suite safe
+ * to run locally without a `.env.local`. In CI it does the opposite and throws:
+ * the local stack always has keys, so a skip there means the export broke.
  */
 export const test = base.extend<{ player: TestPlayer }>({
   /**
@@ -60,4 +60,4 @@ export const test = base.extend<{ player: TestPlayer }>({
 });
 
 export { expect } from "@playwright/test";
-export { hasCredentials };
+export { credentialsMissing };

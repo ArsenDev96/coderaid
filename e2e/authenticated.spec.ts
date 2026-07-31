@@ -1,6 +1,6 @@
 import { test as base } from "@playwright/test";
 import { REPLAY_LIMIT } from "../lib/replay-limit";
-import { expect, hasCredentials, test } from "./support/fixtures";
+import { credentialsMissing, expect, test } from "./support/fixtures";
 import {
   MISSION,
   gradeOf,
@@ -35,8 +35,8 @@ type RunRow = {
 
 test.describe("the authenticated path", () => {
   test.skip(
-    !hasCredentials(),
-    "needs the Supabase keys; skipped where secrets are unavailable.",
+    credentialsMissing(),
+    "needs the Supabase keys; skipped locally without them, red in CI.",
   );
 
   test("serves a ledger from Postgres and leaves localStorage empty", async ({
@@ -824,8 +824,8 @@ test.describe("the authenticated path", () => {
  */
 base.describe("the authenticated path, signed out", () => {
   base.skip(
-    !hasCredentials(),
-    "needs the Supabase keys; skipped where secrets are unavailable.",
+    credentialsMissing(),
+    "needs the Supabase keys; skipped locally without them, red in CI.",
   );
 
   base("401s rather than serving an empty ledger or a public board", async ({
