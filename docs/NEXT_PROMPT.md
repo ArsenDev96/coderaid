@@ -1,4 +1,4 @@
-# CodeRaid — the MVP is scope-complete; decide the reset, then harden
+# CodeRaid — the MVP is scope-complete and the debt list has no undecided items left; harden
 
 Project: **`d:\coderaid`** on this machine (there is also a checkout at
 `c:\Users\DoC\Desktop\sis` — both are real, do not "fix" either path). The repo is
@@ -6,7 +6,7 @@ Project: **`d:\coderaid`** on this machine (there is also a checkout at
 backend-debugging simulator: 14 playable missions, 6 stages each (Briefing → Investigation →
 Diagnosis → Fix → Verification → Complete).
 
-Read `docs/CURRENT_STATE.md` first. It was updated 2026-07-30 and is **accurate** — §16 is the
+Read `docs/CURRENT_STATE.md` first. It was updated 2026-07-31 and is **accurate** — §16 is the
 server architecture, §17 the verification replay, §12 the real debt. Trust it, and **keep it that
 way: if you change behaviour, change the doc in the same pass.**
 
@@ -16,13 +16,16 @@ way: if you change behaviour, change the doc in the same pass.**
 §12 item 3 is closed as a *decision*, not as work. Chapters 4 and 5 stay Coming Soon. Do not plan
 content growth unless the product owner reopens it.
 
-The suite is **623 tests across 25 files** plus **33 Playwright specs**, and all six gates are green.
+The suite is **646 tests across 26 files** plus **37 Playwright specs**, and all six gates are green.
 
 **`supabase/migrations/` is not applied automatically.** There is no linked Supabase CLI project and
 no database password in `.env.local` — only the URL, the anon key and the service-role key, none of
 which can run DDL. Migrations are applied by hand in the Supabase dashboard's SQL editor. Check that
 a migration in the tree is actually live before trusting a spec that depends on it; running
-`e2e/view-privileges.spec.ts` is the fastest way to confirm 0003 is in place.
+`e2e/view-privileges.spec.ts` is the fastest way to confirm 0003 is in place, and the four reset
+specs in `authenticated.spec.ts` are the equivalent for 0004. **All four migrations are live as of
+2026-07-31** — verified by reading `players.reset_at` and `best_runs.source` with the service key,
+and by confirming the anon key still gets `42501 permission denied` on the view.
 
 ### Done in the MVP-ceiling pass (2026-07-30) — do not re-plan these
 
@@ -67,21 +70,41 @@ from it — so the limit bounds how *fast* an enumerator learns, not what a dete
 can. It is a cost control. Don't "finish" it without a product decision about what players may see of
 their own history.
 
-## Do this first — decide the server-side reset (§12 item 7)
+### Done in the reset pass (2026-07-31) — do not re-plan this
 
-The last undecided item on the list, and like the rate limit it needs a decision before it needs code.
+**§12 item 7 is closed, as a TOMBSTONE rather than a delete.** `players.reset_at` marks the moment a
+player started over; every derivation reads past it and **nothing leaves `mission_runs`**. A delete
+was rejected because append-only is load-bearing in three places — it is what makes best-run-wins a
+query, what makes a replay an upgrade rather than a second award, and what makes the replay limit
+self-enforcing. That last one is the sharp edge: the limit **counts rows**, so deleting them would
+have turned Reset Progress into a rate-limit bypass. There is a spec pinning exactly that.
 
-Runs are append-only, so "Reset Progress" cannot erase earned XP for a signed-in player; the copy
-already says what it actually does. What is undecided:
+`best_runs` applies the filter in SQL (0004), so the ledger *and* the leaderboard reset together.
+`lib/reset.ts` covers only what the view cannot reach: **active days are filtered** (streak restarts,
+visit history survives, and the reset day itself counts) and **achievement stamps are deleted**,
+because an unlock time is a derived conclusion rather than evidence. `POST /api/reset` holds the
+service-role key — the opposite of `/api/profile`, and §16.8 says why: a browser-writable `reset_at`
+could be set to the **future**, silently voiding every future run. A reset does **not** refill the
+replay limit, re-open the one-time claim, touch the profile, or delete the account.
 
-- Should an account be able to wipe its own history at all?
-- If yes, is that a **delete** (which breaks the append-only guarantee that makes best-run-wins a
-  query rather than a mutation, and makes the replay limit self-enforcing) or a **tombstone** — a
-  `reset_at` on `players` that every derivation reads past?
-- What happens to achievements already stamped, and to the leaderboard row?
+**Two real defects were found by running it, not by reading it. Both are worth remembering:**
 
-The tombstone is the shape that keeps every existing invariant, and it is worth saying so when you
-raise it. **Ask before building it.**
+- **The tombstone was stamped from the wrong clock.** The route wrote `new Date().toISOString()` —
+  the app server's time — into a column compared against `mission_runs.completed_at`, which is the
+  *database's* `now()`. The two differed by ~2 seconds, enough for a just-finished run to survive its
+  own tombstone. `/api/runs` already states this rule about the *browser's* clock; the server's own
+  clock is where it did not look like it applied. Now writes Postgres's `'now'` (§16.8).
+- **`best_runs` could no longer be replaced.** 0003 changed the view's *options* with `alter view`,
+  so the live view still carried the column list 0001 expanded from `mission_runs.*` — from before
+  0002 added `source`. `create or replace view` may only append columns, so re-expanding the star
+  failed with `42P16`. 0004 drops and recreates, which makes its `revoke` load-bearing a second time:
+  a recreated view is a **new relation** and Supabase re-grants `SELECT` on those to `anon`. The
+  corollary is now written beside the house rule in `0001_init.sql`.
+
+**If you touch any of this, the mutation log in §15.5 is the thing to re-run.** One of the five
+mutations initially *passed* — the claim guard asserted a 409 that a partial unique index produces
+whether or not `claimed_at` was cleared, so it could not see the decision being reversed. The spec
+now asserts the column directly.
 
 ## Also open
 
@@ -91,7 +114,14 @@ raise it. **Ask before building it.**
   queue. Whether CodeRaid needs moderation, and of what kind, is a product decision. **Ask first.**
 - **A dedicated CI Supabase project** (§12 item 2). The e2e specs write to the live project, so every
   push to `main` creates and deletes real users in production. This is now the largest piece of
-  infrastructure debt. Note the replay-limit specs each insert 9 rows per run.
+  infrastructure debt. Note the replay-limit specs each insert 9 rows per run, and the reset specs
+  add three more players plus one that reaches the limit — so a full run is now ~20 short-lived users
+  and ~40 rows.
+- **Account deletion does not exist**, and the reset dialog is careful to say so: it tells the player
+  their runs "stay recorded, they just stop counting", never that they are deleted. A genuine erasure
+  request is a different feature with a different name, and it *should* delete the account. Nothing
+  currently promises it, so this is a gap rather than a broken promise — but it is the obvious next
+  question a player asks after using Reset Everything. **Ask before building it.**
 - **No component tests; browser coverage is one mission deep** (rest of §12 item 2).
 - **Next 16 migration** (§12 item 12) — 1 high + 1 moderate production advisory, unfixable in the
   14.x line. Every remaining advisory needs a feature CodeRaid does not use (no `middleware.ts`, no
@@ -128,7 +158,12 @@ raise it. **Ask before building it.**
 - **When you add a guard, prove it can fail.** Mutate the thing it protects, watch it go red, revert.
   Several checks in this repo have at some point done nothing while reporting success — including, in
   the ceiling pass, a first draft of `reach.test.ts` that passed against a mutated `categoryAverage`
-  because it never covered the radar.
+  because it never covered the radar, and in the reset pass a claim spec that asserted a 409 two
+  independent mechanisms produce, so removing one of them changed nothing it could see. **When an
+  outcome is defended twice, assert the specific thing you meant, not the outcome.**
+- **Beware `git checkout -- <file>` to revert a mutation when your own work on that file is still
+  uncommitted** — it takes your changes with it. Copy the file aside first. This cost a re-fix in the
+  reset pass.
 - **Prefer deriving a figure to authoring one, and prefer a test that re-derives it independently.**
   `tests/reach.test.ts` checks the 1,830 ceiling twice: once as a sum over missions, once by playing
   every mission perfectly through the real grading engine. The second is what makes it evidence.

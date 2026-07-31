@@ -226,7 +226,45 @@
 > enumerator learns, not what a determined one eventually can — a player can always read their own
 > best run — so item 19 stays **narrowed**; what is finished is the open work.
 >
-> The suite is **623 tests across 25 files**, plus **33 Playwright specs**. All six gates green:
+> **New in the reset pass (2026-07-31). §12 item 7 is closed** — the last undecided item on the list.
+> "Reset Progress" could not erase earned XP for a signed-in player, because runs are append-only and
+> best-run-wins is a query over them rather than a mutation. The decision was a **tombstone, not a
+> delete**: `players.reset_at` marks the moment a player started over, and every derivation reads past
+> it. **Nothing leaves `mission_runs`.**
+>
+> - **A delete was rejected because append-only is load-bearing in three separate places** — it is
+>   what makes best-run-wins a query, what makes a replay an upgrade rather than a second award, and
+>   what makes the replay limit self-enforcing. That last one is the sharp edge: the limit *counts
+>   rows*, so deleting them would have turned Reset Progress into a rate-limit bypass.
+>   `e2e/authenticated.spec.ts` pins that invariant directly.
+> - **`best_runs` filters on the tombstone in SQL** (`0004_player_reset.sql`), which is what makes one
+>   reset apply to the ledger and the leaderboard at once rather than in two places that can drift.
+>   `lib/reset.ts` covers the two sources the view cannot reach: **active days are filtered** (the
+>   streak restarts, the visit history survives) and **achievement stamps are deleted** by the route,
+>   because an unlock time is a derived conclusion rather than evidence (§4 principle 12).
+> - **`POST /api/reset` holds the service-role key, unlike `POST /api/profile`**, and §16.8 says why
+>   the two routes go opposite ways. `reset_at` is deliberately *not* one of the six player-writable
+>   columns: a browser-writable tombstone could be set to the **future**, silently voiding every run
+>   the player went on to record.
+> - **What a reset deliberately does not do:** refill the replay limit, re-open the one-time claim,
+>   touch the profile, or delete the account. A genuine erasure request is a different feature with a
+>   different name, and it should remove the account itself.
+> - **A real defect in the route, found by running the spec.** The tombstone was stamped from the
+>   *application server's* clock into a column compared against `mission_runs.completed_at`, which is
+>   the **database's** `now()`. The two differ — ~2 seconds here — so a run finished moments before a
+>   reset survived it, and the ledger read 80 XP straight after a reset that returned 200. It now
+>   writes the Postgres `'now'` value. The codebase already had this rule, stated in `/api/runs`
+>   about the browser's clock; the server's own clock is where it did not look like it applied
+>   (§16.8).
+> - **A real defect in the migration, found by running it.** `0003` set the view's options with
+>   `alter view` rather than recreating it, so the live view still carried the column list `0001`
+>   expanded from `mission_runs.*` — from before `0002` added `source`. `create or replace view` may
+>   only *append* columns, so re-expanding the star failed with `42P16`. `0004` now drops and
+>   recreates, which makes its `revoke` load-bearing for a second reason: a recreated view is a **new
+>   relation**, and Supabase re-grants `SELECT` on those to `anon` and `authenticated`. The corollary
+>   is recorded beside the house rule in `0001_init.sql`.
+>
+> The suite is **646 tests across 26 files**, plus **37 Playwright specs**. All six gates green:
 > `typecheck`, `lint`, `test`, `validate:missions`, `build`, `playwright`.
 
 ---
@@ -265,10 +303,10 @@ The README (`README.md`) has been rewritten to match this positioning and is no 
 | Icons | `lucide-react` |
 | Animation | `framer-motion` (reduced-motion aware) |
 | Fonts | `next/font/google` — Inter (`--font-inter`), JetBrains Mono (`--font-jetbrains`) |
-| Backend | **Supabase** — Postgres + GitHub OAuth. Five route handlers under `app/api/`; no server actions |
+| Backend | **Supabase** — Postgres + GitHub OAuth. Six route handlers under `app/api/`; no server actions |
 | Auth | `@supabase/ssr` 0.12 + `@supabase/supabase-js` 2 — GitHub OAuth only, cookie sessions |
-| Tests | **Vitest 2** — `tests/`, 25 files, 623 tests, Node environment, `@/*` alias |
-| Browser smoke | **Playwright 1.61** — `e2e/`, 33 Chromium tests against the production build: 14 signed-out, 16 authenticated (§15.5, §17.4), 3 database-privilege checks that use no browser at all (§15.6) |
+| Tests | **Vitest 2** — `tests/`, 26 files, 646 tests, Node environment, `@/*` alias |
+| Browser smoke | **Playwright 1.61** — `e2e/`, 37 Chromium tests against the production build: 14 signed-out, 20 authenticated (§15.5, §17.4), 3 database-privilege checks that use no browser at all (§15.6) |
 | Lint | **ESLint 8 + `eslint-config-next`**, committed `.eslintrc.json` extending `next/core-web-vitals` |
 | Content validation | `tsx scripts/validate-missions.ts` over `lib/mission-validation.ts` |
 
@@ -284,16 +322,16 @@ and `SUPABASE_SERVICE_ROLE_KEY`. The service-role key is read only inside `lib/s
 which begins with `import "server-only"`, so no import path can pull it toward the browser bundle.
 It must never be given a `NEXT_PUBLIC_` prefix.
 
-### Verified command results (re-run 2026-07-30, after the MVP-ceiling pass)
+### Verified command results (re-run 2026-07-31, after the reset pass)
 
 | Command | Result |
 | --- | --- |
 | `npm run typecheck` | **passes clean**, no errors |
 | `npm run lint` | **runs non-interactively** — "No ESLint warnings or errors" |
-| `npm run test` | **623 passed** across 25 files |
+| `npm run test` | **646 passed** across 26 files |
 | `npm run validate:missions` | **0 errors, 0 warnings** — 20 missions checked, 14 fully playable |
 | `npm run build` | **succeeds**, "Compiled successfully" — see the stale-`.next` note below |
-| `npx playwright test` | **33 collected**; the 16 authenticated specs need the live Supabase project |
+| `npx playwright test` | **37 collected**; the 20 authenticated specs need the live Supabase project, and the four reset specs additionally need **migration 0004 applied** |
 
 **A dev server poisons `bundle-secrecy`.** If anyone has run `npm run dev`, `.next/static/webpack/`
 holds unminified `hot-update.js` files, and unminified output keeps local variable names.
@@ -351,6 +389,8 @@ app/
   api/leaderboard/route.ts   Real standings, signed-in players only
   api/profile/route.ts       The player's own six profile columns — the ONLY route that runs as
                              the user rather than as service-role (§16.7)
+  api/reset/route.ts         Starting over: stamps the players.reset_at tombstone and drops the
+                             player's achievement stamps. Deletes no run (§16.8)
   dashboard/                 Player home
   missions/                  Mission browser
   missions/map/              Mission map (chapter rail + details panel)
@@ -397,6 +437,8 @@ lib/
                              which ranks and achievements are reachable at all. The mirror of
                              availability.ts — that asks what THIS PLAYER may do next
   replay-limit.ts            Pure replay-rate policy: 8 graded runs per mission per hour (§12 item 19)
+  reset.ts                   Pure reset-tombstone semantics: resetInstant(), countsAfterReset() —
+                             which recorded facts still count after players.reset_at (§12 item 7)
   stage-access.ts            Pure stage-prerequisite rules (what StageGate enforces)
   mission-validation.ts      Pure content-validation rules (what validate:missions runs)
   code-theme.ts              Pure code tokenizer + editor-theme palettes (what CodeText renders)
@@ -429,6 +471,8 @@ supabase/migrations/
   0001_init.sql              Tables, best_runs view, RLS, handle_new_user trigger
   0002_claim_local_progress.sql  players.claimed_at, mission_runs.source, claim uniqueness
   0003_lock_best_runs.sql    security_invoker + revoke on best_runs — the view bypassed RLS
+  0004_player_reset.sql      players.reset_at; best_runs DROPPED and recreated filtering on it,
+                             re-asserting security_invoker AND the revoke (0001's house rule)
 
 scripts/
   validate-missions.ts       CLI wrapper: grouped output, non-zero exit on errors
@@ -441,6 +485,7 @@ tests/                       Vitest — pure domain logic + end-to-end mission f
   investigation-restore-and-replay   which localStorage slots each reset clears and keeps
   reach          what the frozen catalogue can and cannot award (§12 items 3, 4)
   replay-limit   the replay-rate policy (§12 item 19)
+  reset          the reset tombstone's semantics (§12 item 7)
   stubs/server-only.ts       Aliased by vitest.config.ts so server modules import in Node
 
 e2e/                         Playwright — mission-flow.spec.ts + onboarding.spec.ts +
@@ -510,7 +555,9 @@ vitest.config.ts             Node environment, @/* alias, `server-only` → test
     and `soundEffects` were deleted for this reason; so were the Friends, Country and Company
     leaderboard scopes, which had no data model behind them. When Reset Progress could no longer
     erase earned XP — runs are append-only — its copy changed to say what it actually does rather
-    than keep a promise it could not keep.
+    than keep a promise it could not keep. **As of 2026-07-31 there is a second control that does
+    honour it** (§12 item 7), and the same principle governs its wording: it says the runs *stop
+    counting*, not that they are deleted, because they are not.
 12. **The evidence is stored; the conclusion is derived.** There is deliberately no `total_xp`
     column, no stored rank and no stored streak. A stored total is a second source of truth that
     starts disagreeing with the runs behind it the moment anybody plays.
@@ -1385,6 +1432,22 @@ theme row now do something. Pure, like `lib/stage-access.ts` and `lib/mission-va
   keys removed, and the caller then `router.refresh()`es. The storage handle is injectable so the
   sweep is testable.
 
+  **Two controls when signed in, as of 2026-07-31 (§12 item 7).** For a signed-out player the local
+  sweep genuinely resets everything, because the ledger is local. For a signed-in player it can only
+  clear saved *stage* state, so `ProgressSection` offers that as **Clear Saved State** and adds a
+  separate, more destructive **Reset Everything** that calls `POST /api/reset`. They are deliberately
+  two controls rather than one: collapsing them would make the safe action feel dangerous and the
+  dangerous one easy to reach by habit. The account reset clears the local state too — leaving a
+  confirmed diagnosis behind for a mission the server now considers unplayed is exactly the stale
+  mismatch the rest of the app works to avoid.
+
+  `ResetProgressDialog` takes a `ResetVariant` of `"progress" | "saved-state" | "account"` rather
+  than the boolean it used to, because a boolean could not express the case that matters most: a
+  signed-in player has *two* destructive actions and confusing them is what the dialog exists to
+  prevent. Each variant spells out what is cleared **and what is kept**; the `account` copy says the
+  runs "stay recorded, they just stop counting", never that they are deleted. The dialog stays open
+  on failure with a `role="alert"` message, since closing it would read as success.
+
 ---
 
 ## 9. Persistence — the complete storage contract
@@ -1443,6 +1506,12 @@ says so rather than promising more than it can do:
 - **Signed in** — it clears saved stage state so every mission replays from its briefing, and
   nothing else. Runs are append-only by design, so earned XP survives. The dialog lists exactly
   that. Replaying can only improve a score; a worse attempt is recorded and changes nothing.
+
+**Zeroing a signed-in player's earned progress is a separate, server-side action** as of 2026-07-31:
+`POST /api/reset` stamps `players.reset_at` and every derivation reads past it (§12 item 7, §16.8).
+It is not a `localStorage` operation at all, which is why it is not in the table above — the only
+thing it does to storage is call `resetMissionProgress()` afterwards, so the local stage state cannot
+be left describing missions the server now considers unplayed.
 
 ---
 
@@ -1690,9 +1759,76 @@ Genuinely outstanding:
    again. Honest at this scale; the fix when it isn't is caching, not a stored total.
 6. **The leaderboard reads every row of `best_runs` on each request.** Fine at one row per player
    per completed mission; the fix when it isn't is a materialised view refreshed on write.
-7. **There is no server-side reset.** Runs are append-only, so "Reset Progress" cannot erase earned
-   XP for a signed-in player. The copy says so, but whether an account should be able to wipe its
-   own history — and whether that is even coherent with an append-only ledger — is undecided.
+7. **~~There is no server-side reset.~~ Resolved 2026-07-31 — as a TOMBSTONE, not a delete.**
+   Runs are append-only, so "Reset Progress" could not erase earned XP for a signed-in player; the
+   copy said so, which was honest but left the control weaker than players expect. It now can, and
+   without deleting anything: **`players.reset_at` marks the moment a player started over, and every
+   derivation reads past it.**
+
+   **Why not a delete.** Append-only is load-bearing in three separate places, not one:
+
+   | It is what makes… | A delete would… |
+   | --- | --- |
+   | best-run-wins a *query* over rows rather than a mutation | leave nothing to query |
+   | a replay an *upgrade* rather than a second award | let the same mission be farmed again |
+   | the replay limit self-enforcing — `lib/replay-limit.ts` **counts rows** | **turn Reset Progress into a rate-limit bypass** |
+
+   That third one is the sharp edge and is the reason the decision went the way it did. A delete is
+   still the right answer to a genuine erasure request — but that is a different feature with a
+   different name, and it should delete the account.
+
+   **Where the filter lives.** `0004_player_reset.sql` applies it **in SQL, inside `best_runs`**,
+   which is what makes one reset reach the ledger and the leaderboard at once instead of two places
+   that drift apart. Scores, XP and skill totals therefore need no application code at all.
+   `lib/reset.ts` covers only the two sources the view cannot reach, and they are treated
+   differently on purpose:
+
+   - **Active days are filtered, not deleted.** The streak restarts; the visit history survives for
+     analytics. A day counts if it is the **reset day or later** — someone who reset at 14:00 was
+     genuinely here that day, and discarding it would break a streak they actually kept.
+   - **Achievement stamps are deleted**, by the route. An unlock time is a *derived conclusion*, not
+     evidence (§4 principle 12); a stamp the ledger no longer supports is a second source of truth
+     that disagrees with the runs immediately. `ledgerFor()` filters them as well, as belt and
+     braces for a reset whose second write failed.
+   - **An instant must be strictly after the tombstone; a calendar day need only be on it.** Two
+     branches because two columns are stored differently, and comparing a `date` as an instant would
+     silently drop the reset day.
+
+   **Both failure directions fall the same way: "not reset".** An unparsable value is kept, and a
+   failed `reset_at` read is treated as "never reset" — because that read fails on any deploy where
+   0004 has not been applied, and blanking a player's earned progress is a far worse error than
+   showing progress a reset should have hidden.
+
+   **What a reset deliberately does *not* do**, recorded because the omissions are decisions:
+   it does not refill the replay limit (which counts raw `mission_runs`, unfiltered), does not
+   re-open the one-time pre-account claim (`players.claimed_at` — that would make it repeatable),
+   does not touch the profile or preferences, and does not delete the account.
+
+   **`POST /api/reset` holds the service-role key**, unlike `POST /api/profile` which deliberately
+   runs as the user (§16.7). The asymmetry is the point and §16.8 states it: `reset_at` is not one of
+   the six player-writable columns and must not be, because a browser-writable tombstone could be set
+   to the **future**, silently voiding every run the player went on to record.
+
+   **Two real defects surfaced while proving this works**, both of which a reasoning-only pass would
+   have shipped:
+
+   - **The tombstone was stamped from the wrong clock.** `new Date().toISOString()` in the route is
+     the *application server's* time; `mission_runs.completed_at` is the *database's*. The gap
+     measured ~2 seconds, which was enough for a just-finished run to sit after its own tombstone and
+     survive it — 80 XP still on the ledger after a successful reset. Fixed by writing Postgres's
+     `'now'`. §16.8 has the full account, including why the rule the codebase already stated about
+     the browser's clock did not look like it applied to the server's own.
+   - **A view that could no longer be replaced.** Below.
+
+   **A real defect surfaced on the first attempt to apply 0004.** `0003` had set the view's options
+   with `alter view` rather than recreating it, so the live view still carried the column list `0001`
+   expanded from `mission_runs.*` — from before `0002` added `source`. `create or replace view` may
+   only *append* columns, never reorder or rename one, so re-expanding the star put `source` ahead of
+   the trailing `attempts` and Postgres refused with `42P16`. `0004` drops and recreates instead,
+   which makes its `revoke` load-bearing for a **second** reason: a recreated view is a new relation,
+   and Supabase's default privileges grant `SELECT` on new public relations to `anon` and
+   `authenticated` all over again. Recreating the view without the revoke would have silently
+   reopened item 20. The corollary is now written beside the house rule in `0001_init.sql`.
 8. No error boundaries, no analytics. Loading states now exist on the leaderboard and the ledger.
 9. ~~**No CI.**~~ **Resolved.** `.github/workflows/ci.yml` runs
    `typecheck → lint → validate:missions → build → test` on pushes to `main` and pull requests
@@ -2272,7 +2408,7 @@ the claim and the leaderboard are all behind authentication, so none of them is 
 They were verified against the live database by hand (§16.6). Closing that gap — §12 item 2 — is
 what would make this section's claim true again rather than mostly true.
 
-### 15.1 The test suite — `tests/`, Vitest, 623 tests across 25 files
+### 15.1 The test suite — `tests/`, Vitest, 646 tests across 26 files
 
 Node environment, no DOM, no component testing library. `vitest.config.ts` re-declares the `@/*`
 alias so tests import modules exactly the way the app does, **and aliases `server-only` to
@@ -2285,6 +2421,15 @@ Nothing in the suite talks to Supabase. The pure rules that decide what crosses 
 are tested directly; the round trip itself was verified by hand (§16.6) and is the debt in §12
 item 2.
 
+**One file goes one level up, and it is worth knowing which.** `ledger-derivation.test.ts` mocks
+`@/lib/supabase/admin` and drives `ledgerFor()` against arrays, because the reset tombstone is the
+one rule that is not wholly pure: `lib/reset.ts` decides what a date *means*, but
+`lib/server/ledger.ts` decides which columns that decision is *applied to*, and no test of the first
+catches a change to the second. The stand-in models migration 0004's filter rather than running it,
+so a green there is **not** evidence that the real view filters — that is `e2e/authenticated.spec.ts`
+against the real database, and it is the only place it can be. The file says so in a comment, because
+a reader who mistakes the model for the thing would over-trust it exactly where it matters.
+
 | File | Covers |
 | --- | --- |
 | `grading.test.ts` | Correct/wrong diagnosis, partial and padded evidence, correct fix under a wrong diagnosis, wrong fix, unapplied fix, one and many hints, abandoned runs, score clamped to 0–100 across six combinations, XP derived from `mission.xp × score`, `resolved` only when the applied fix resolves, skill reward shares, `scoreBand` |
@@ -2294,7 +2439,7 @@ item 2.
 | `skills.test.ts` | Zero start, primary vs supporting reward shares, unrelated skills uncredited, derived levels after crediting, unique ids, valid categories, mission back-references, `skillsToImprove` only suggesting actionable skills, category averages |
 | `achievements.test.ts` | Nothing unlocked at zero, resolved-only counting, completed-but-unresolved, hint-free from real telemetry, skill-level achievements, `perfect-diagnosis` at exactly 100, timestamps stamped once and never moved, ordering, idempotent re-derivation |
 | `leaderboards.test.ts` | **Rewritten for real standings.** Ranking by the selected period, gapless ranks, deterministic tie-breaks (incidents then name, stable when the input order flips), period figures rather than all-time, podium/table split, filters narrowing the table **without renumbering ranks**, the similar-level band, percentile measured against the real population and floored at 1, empty-board cases — plus a guard that the fictional roster, `TOTAL_PLAYERS`, `HOME_COUNTRY`, `HOME_COMPANY` and `currentPlayerEntry` cannot come back |
-| `ledger-derivation.test.ts` | **New.** `creditBetween` for a first completion, an improved replay, a worse replay adding nothing, and never reporting a negative award; `parseLocalDate` accepting a day either side of the server's and discarding anything further; `coerceLedger` recomputing `totalXp` from the records it was sent and rejecting anything that isn't a version-2 ledger |
+| `ledger-derivation.test.ts` | **New.** `creditBetween` for a first completion, an improved replay, a worse replay adding nothing, and never reporting a negative award; `parseLocalDate` accepting a day either side of the server's and discarding anything further; `coerceLedger` recomputing `totalXp` from the records it was sent and rejecting anything that isn't a version-2 ledger. **Extended 2026-07-31** with `ledgerFor()` itself, against a stand-in database (see the note above): a full ledger for a player who has never reset — the control, without which "reads as zero" would pass against a stand-in that returns nothing — then a tombstoned ledger reading **zero XP, no missions, no skills, no days, no achievements while `mission_runs` is read back untouched**; a post-reset run counting, with `attempts` at 1 rather than 2; active days kept in the table but counted only from the reset day; a pre-reset achievement stamp dropped and a post-reset one kept; a **failed `reset_at` read falling to "never reset" rather than blanking the player**; and a failed *run* read throwing instead of reporting an empty ledger |
 | `claim.test.ts` | **New.** A genuine run kept with rewards re-derived; a submitted XP figure ignored entirely; scores clamped; unknown, coming-soon and prototype-polluting mission ids dropped; good rows kept when one is unusable; duration and hints bounded; `parseClaimDate` keeping real past dates but refusing the future and anything older than the app |
 | `bundle-secrecy.test.ts` | **New.** Greps the real `.next` output for the four removed answer field names, and for any serialised `rootCauseId:"…"` / `fixId:"…"` pairing. Deliberately does **not** grep for bare answer ids — those are radio-button values and are legitimately in the bundle; the secret is which id is correct. Skips itself when `.next` is absent (see the warning in §2) |
 | `settings.test.ts` | Option defaults valid, **the stored key set pinned so a preference nothing reads can't return**, the code tokenizer (lossless round-trip, keyword/string/comment/number classification, no keyword-inside-identifier) and the editor palettes (one per offered theme, unknown id falling back, no colour reused within a palette), reset protecting identity/preferences and sweeping unknown stage keys, plus every stage-prerequisite rule |
@@ -2307,6 +2452,7 @@ item 2.
 | `profile.test.ts` | **New 2026-07-29.** `sanitizeDisplayName` leaving ordinary names, non-Latin scripts and emoji alone while stripping newlines/tabs, zero-width characters, bidi overrides, and reducing a name of nothing but those to empty; `parseProfileUpdate` mapping the client's vocabulary onto the six granted columns, **refusing a column it was never granted**, dropping catalogue ids that do not exist, ignoring fields with no column, truncating *after* sanitising, dropping an empty name, only ever setting `onboarding_completed` true, and returning null rather than issuing an empty `SET`; `coerceProfile` treating null columns as absent rather than as empty strings; `draftFromProfile` preferring the server per field, keeping the wizard `step` the server has no column for, and never un-completing onboarding. **The invisible code points are written as numeric escapes, never as literals** — the same rule `lib/server/profile.ts` follows, and for the same reason: a literal one vanishes the next time a tool touches the file |
 | `reach.test.ts` | **New 2026-07-30.** What the frozen catalogue can and cannot award (§12 items 3, 4). The ceiling measured three ways — as a sum over playable missions, and independently by **playing every mission perfectly through the real grading engine** and landing on the same 1,830; per-skill ceilings matching what that playthrough credited each skill; `event-loop` topping out at 80 XP = level 2 against a target of 7; the planned skills being exactly `streams` and `validation`; the two roadmap achievements and four roadmap ranks being exactly the ones the ceiling cannot fund; `rankBand` aiming at the catalogue rather than an unreachable rank; roadmap goals excluded from the unlocked-of-total figure, never offered as "next to unlock", sorted last. **Two forward-looking cases simulate a grown catalogue and assert the treatment lifts itself**, so a Chapter 4 pass is told what to stop badging. Also pins the honest limit: overall mastery still cannot reach 100%, which is a progress figure and not a promise |
 | `replay-limit.test.ts` | **New 2026-07-30.** The replay-rate policy (§12 item 19): a first run allowed, a four-run practice pattern allowed, the boundary at exactly `REPLAY_LIMIT`, the window **rolling** rather than a fixed bucket, an attempt exactly at the window edge already expired, retry time taken from the *oldest* counted attempt (not the newest), malformed timestamps ignored rather than counted, `Date`/epoch forms accepted, and the two constants themselves pinned — because 8-per-hour-per-mission *is* the product decision, and changing it should be a conscious edit to this test |
+| `reset.test.ts` | **New 2026-07-31.** The reset tombstone's semantics (§12 item 7), pure and with no database. `resetInstant` reading an ISO instant **and the shapes PostgREST actually sends for a `timestamptz`** — an offset rather than a `Z`, and microsecond precision — and answering `null` for everything unparsable, including a `Date` object and a number, since the value comes off a JSON body. `countsAfterReset` short-circuiting a null tombstone to keep **everything, including values it could not parse** (the case almost every player is in); the reset day counting and the day before not, from either end of the reset day; the whole history before it dropped; an instant **exactly at** the tombstone not counting while one millisecond after does; the same date treated differently as a day and as an instant, on purpose, because two columns are stored differently; and anything unparsable kept — including a ten-character non-date, which is the string that would otherwise take the calendar branch and compare as `NaN` |
 | `helpers/mission-run.ts` | Not a test: the shared harness (`installStorage`, `play`, `collectResults`, `stageProgress`) all three flow suites drive |
 
 `mission-flow.test.ts` is the one worth knowing about. It drives the same functions the stage
@@ -2417,7 +2563,7 @@ silent in opposite directions — one hides a real leak, the other invents one.
 
 **This closes the gap §12 item 2 described.** Grading, the ledger, the claim and the leaderboard
 used to be verified by hand and by nothing else (§16.6); the probes that did it were never
-committed. They are now ten committed Playwright specs that cross the sign-in wall.
+committed. They are now **twenty** committed Playwright specs that cross the sign-in wall.
 
 **How a session is minted, since GitHub OAuth cannot be driven by a test.** `e2e/support/session.ts`
 does what the OAuth callback would: creates a user via `POST /auth/v1/admin/users` with the
@@ -2448,9 +2594,27 @@ What they cover — the first eight mirroring §16.6 one for one, the last two a
 | logs out | after submitting the sidebar's sign-out form, `/api/ledger` and `/api/leaderboard` both 401 — the session is over on the **server**, not merely visually |
 | GET cannot log you out | `GET /auth/sign-out` → **405**, and the session still works afterwards |
 
+**The four reset specs, added 2026-07-31 with §12 item 7.** These are the only place the *SQL* half
+of the tombstone is tested — everything in `tests/` runs against a stand-in, and whether `best_runs`
+actually filters on `players.reset_at` is a fact about migration 0004 in the live project.
+
+| Spec | Asserts |
+| --- | --- |
+| zeroes the ledger without deleting a run | Real progress first (80 XP, a stamped achievement), then `POST /api/reset` → 200; the **response's** ledger is zero *and* a fresh `GET` agrees, so the tombstone is in the database rather than in a response the route constructed; XP, missions, skills and achievements all zero; `players.reset_at` is a real column value; the achievement rows are **gone**; the leaderboard row drops to 0 with the ledger, since both derive from the same view — and **`mission_runs` still holds the row, with its score and XP intact**, which is the entire difference between a tombstone and a delete |
+| does not refill the replay limit | **The invariant most likely to be broken later.** Reach the limit, confirm it is genuinely reached, reset, submit again — still limited, still disclosing no `grade`, `ledger` or `credit`. The limit counts raw `mission_runs`, so a reset must not hand back a fresh set of attempts. Anyone who later "tidies up" by pointing it at `best_runs`, or by making the reset delete rows, hands every enumerator eight free guesses for the cost of one POST |
+| does not re-open the one-time claim | Claim, reset, then assert **`players.claimed_at` is still set** — and only then that a second claim 409s, and that the first claim's row survived the reset like any other run. The column assertion is not redundant: §16.4 guards the one-time rule *twice*, with the flag **and** a partial unique index, so a reset that cleared the flag would still be refused by the index. The first draft checked only the 409 and **passed against a mutation that nulled `claimed_at`** — see the mutation log below |
+| counts what the player earns after starting over | A reset is a starting point, not a wall: a run recorded afterwards scores normally and the ledger reads 80 again, with `attempts` at **1** — the pre-reset attempt is recorded and invisible, so the count beside the mission describes the history the player can see |
+| signed out (in the un-extended block) | `POST /api/reset` → **401**. The route holds the service-role key and its only bound on *whose* row it stamps is the verified session, so that 401 is the whole of that bound rather than a nicety |
+
 **They run against the real Supabase project**, because there is no local stack configured. Users
 are created as `coderaid-e2e+…@example.com` and deleted; still, see §12 item 2 for why a dedicated
 CI project would be better.
+
+**`supabase/migrations/` is not applied automatically**, and the reset specs are the second guard
+that depends on that having been done by hand — `view-privileges.spec.ts` was the first. Without
+0004 the column does not exist, `POST /api/reset` fails on it, and `ledgerFor()` correctly degrades
+to "never reset". **Confirm 0004 is live before believing any reset spec**, exactly the way
+`view-privileges.spec.ts` confirms 0003.
 
 The suite skips itself when the keys are absent (`hasCredentials()`), so a fork's pull request —
 which cannot read secrets — skips these rather than failing red. That is the same skip-on-missing-
@@ -2462,6 +2626,16 @@ does not skip.
 **Verified to fail when it should.** Mutating `parseClaim` to trust the submitted `xpEarned`
 instead of recomputing it made the claim spec fail with `Expected: 72, Received: 9999`; the
 mutation was then reverted. A green suite that cannot go red proves nothing.
+
+**The reset specs, mutated one at a time on 2026-07-31** — and the exercise paid for itself twice:
+
+| Mutation to `app/api/reset/route.ts` | Result |
+| --- | --- |
+| Delete the player's `mission_runs` rows as well (tombstone → delete) | **2 red** — "zeroes the ledger without deleting a single run" *and* "does not refill the replay limit". The second is the one that matters: it is the rate-limit bypass the decision exists to prevent |
+| Keep the achievement stamps instead of deleting them | **red** on the stamps assertion |
+| Do not stamp `reset_at` at all | **red** — the ledger never zeroes |
+| Also null `players.claimed_at` | **passed at first, which was the point.** The 409 is produced by the partial unique index whether or not the flag is cleared, so the spec was asserting an outcome that two mechanisms defend and could not see one of them being removed. A direct assertion on the column was added, and the mutation then went red |
+| Stamp `reset_at` from the Node clock again | **red** — this is the live bug §16.8 records, and the spec is what found it in the first place |
 
 ### 15.3 Stage prerequisites — `lib/stage-access.ts` + `components/missions/StageGate.tsx`
 
@@ -2536,11 +2710,11 @@ was worth.**
 
 | Table | Holds | Written by |
 | --- | --- | --- |
-| `players` | Identity and preferences only. Nothing scored. **No email column** — `auth.users` is a SQL join away, and not duplicating it is one less thing to leak. | The `handle_new_user` trigger on sign-up; the player, for their own profile columns |
+| `players` | Identity and preferences only. Nothing scored — plus `claimed_at` and, since 0004, **`reset_at`**, which are server-owned and outside the player's column grant. **No email column** — `auth.users` is a SQL join away, and not duplicating it is one less thing to leak. | The `handle_new_user` trigger on sign-up; the player, for their own six profile columns; route handlers for the two server-owned ones |
 | `mission_runs` | **Append-only.** Every graded run: score, XP, resolved, per-skill award, what they submitted, telemetry, `completed_on`, and `source` (`played` \| `claimed`) | Route handlers only |
 | `player_active_days` | `(player_id, day)`. Opening the app is activity, which is what a streak measures — so it is not derivable from runs alone | Route handlers only |
 | `player_achievements` | `(player_id, achievement_id, unlocked_at)`, stamped on the crossing | Route handlers only |
-| `best_runs` (view) | `distinct on (player_id, mission_id) … order by score desc, completed_at asc`, plus an `attempts` count. **`security_invoker`, and revoked from `anon` and `authenticated`** since 0003 — it was neither, and served the answer key to anyone with the anon key (§12 item 20) | — |
+| `best_runs` (view) | `distinct on (player_id, mission_id) … order by score desc, completed_at asc`, plus an `attempts` count. **`security_invoker`, and revoked from `anon` and `authenticated`** since 0003 — it was neither, and served the answer key to anyone with the anon key (§12 item 20). Since 0004 it also **excludes every run at or before the player's `reset_at`**, which is what makes one reset reach the ledger and the leaderboard together | — |
 
 **There is deliberately no `total_xp` column**, no stored rank and no stored streak. The runs are the
 evidence; every figure is derived from them.
@@ -2578,10 +2752,11 @@ the database, which is the only vantage point from which this class of bug is vi
 | `POST /api/claim` | One-time import of a pre-account ledger | §16.4 |
 | `GET /api/leaderboard` | Real standings | 401 signed out — the rows name other people |
 | `POST /api/profile` | Writes the six granted `players` columns | **The only route on this list that does not hold the service-role key** — §16.7 |
+| `POST /api/reset` | Stamps `players.reset_at` and deletes the player's achievement stamps, then reads the resulting zero ledger back | Deletes **no run**. Service-role, and §16.8 explains why it goes the opposite way to `/api/profile` |
 
 Every route above holds the service-role key and bypasses RLS, **except `POST /api/profile`**. That
 is not an oversight; it is the one place where running as the user is strictly safer, and §16.7 says
-why.
+why. `POST /api/reset` is the sharpest contrast with it and §16.8 is the pair to that argument.
 
 **Why grading happens at verification, not on the results screen.** Running verification is the
 commit point: diagnosis and fix are both locked. Grading later would mean the results screen could
@@ -2696,6 +2871,57 @@ reasoning about the grant:
 Nothing here is scored, so there is no ledger to re-derive and no achievement threshold to re-check.
 The read path is separate and still service-role: `playerRecord()` in `lib/server/ledger.ts` returns
 the profile alongside the claim flag on `/api/ledger` (§9).
+
+### 16.8 `POST /api/reset` — the tombstone, and why it goes the other way (new 2026-07-31)
+
+The pair to §16.7, and the contrast is the argument. `/api/profile` runs as the **user** because
+every column it writes is one the player is allowed to own. `/api/reset` holds the **service-role
+key** because `reset_at` is the opposite kind of column:
+
+> A column the browser can write is a column the browser can write **at any value**. A player who
+> could set their own `reset_at` to a date in the future would silently void every run they went on
+> to record — a self-inflicted, invisible progress wipe that no code path could distinguish from an
+> intentional reset.
+
+So `reset_at` is deliberately outside the six-column grant, alongside `claimed_at`, and this handler
+is the only thing that writes it. Being outside the grant is also what makes the signed-out **401**
+the whole of the bound on *whose* row is stamped: with the admin client there is no RLS underneath to
+catch a mistake.
+
+What it does, in order, and the order is deliberate:
+
+1. **Stamp `players.reset_at`.** Every derivation reads past it; `best_runs` applies the filter in
+   SQL (0004), so scores, XP, skill totals and the leaderboard all go to zero from this one write.
+2. **Delete the player's `player_achievements` rows.** An unlock time is a derived conclusion, not
+   evidence. The tombstone lands *first* so that a failure at step 2 leaves a player whose ledger is
+   already empty and whose stale stamps `ledgerFor()` filters out anyway — degraded but consistent.
+   The reverse order would, on failure, leave full progress with the achievements missing, which is
+   both worse and less recoverable.
+3. **Read the zero ledger back** and return it, so the client adopts what the database actually
+   holds rather than an assumed `EMPTY_LEDGER`. A failed read still reports the reset — the write
+   happened, and the client refetches on its next mount.
+
+**The clock bug, found by running it (2026-07-31).** The first version stamped
+`new Date().toISOString()` — the *application server's* clock — into a column that is compared
+against `mission_runs.completed_at`, which is the **database's** `now()`. Those are two different
+clocks. The machine running the app measured ~2 seconds behind the Supabase instance, which was
+enough for a run finished moments before a reset to land *after* the tombstone and survive it: the
+ledger read 80 XP immediately after a reset that returned 200. The route now writes the Postgres
+special value `'now'`, which resolves to the database's transaction timestamp, and reads the stored
+value back so the response reports what was actually written.
+
+It is worth naming the shape of that mistake, because the codebase already had the rule and it still
+happened. `POST /api/runs` says it explicitly about the replay window — *"`completed_at` is the
+database's own `now()`; `completed_on` is the player's local date and is therefore
+attacker-controlled, so the limit must not be counted on it."* The same rule applies one level up:
+**a value compared against database-generated timestamps must come from the database's clock.**
+There the untrusted clock is the browser's, which is obvious. Here it was the server's own, which is
+exactly why it looked safe. (The replay window still derives its cutoff from the Node clock, and that
+is fine: a two-second error in a one-hour rolling window changes nothing, whereas here the skew sat
+directly on the boundary that decides whether a run counts at all.)
+
+The e2e spec *"counts what the player earns after starting over"* is the guard, and it was the thing
+that found it — it asserted `attempts` was 1 and got 2. Reverting the fix makes it red again.
 
 ---
 
