@@ -287,7 +287,7 @@
 >   key instead. Re-proven by reintroducing the original leak on a local stack and watching the right
 >   two specs go red.
 >
-> The suite is **646 tests across 26 files**, plus **37 Playwright specs** — which now pass against
+> The suite is **669 tests across 27 files**, plus **37 Playwright specs** — which now pass against
 > **both** a from-scratch local stack and the hosted project. All six gates green: `typecheck`,
 > `lint`, `test`, `validate:missions`, `build`, `playwright`.
 
@@ -329,7 +329,7 @@ The README (`README.md`) has been rewritten to match this positioning and is no 
 | Fonts | `next/font/google` — Inter (`--font-inter`), JetBrains Mono (`--font-jetbrains`) |
 | Backend | **Supabase** — Postgres + GitHub OAuth. Six route handlers under `app/api/`; no server actions |
 | Auth | `@supabase/ssr` 0.12 + `@supabase/supabase-js` 2 — GitHub OAuth only, cookie sessions |
-| Tests | **Vitest 2** — `tests/`, 26 files, 646 tests, Node environment, `@/*` alias |
+| Tests | **Vitest 2** — `tests/`, 27 files, 669 tests, Node environment, `@/*` alias |
 | Browser smoke | **Playwright 1.61** — `e2e/`, 37 Chromium tests against the production build: 14 signed-out, 20 authenticated (§15.5, §17.4), 3 database-privilege checks that use no browser at all (§15.6) |
 | Lint | **ESLint 9 + `eslint-config-next` 16**, flat config in `eslint.config.mjs`. `next lint` no longer exists, so `npm run lint` is plain `eslint .` |
 | Content validation | `tsx scripts/validate-missions.ts` over `lib/mission-validation.ts` |
@@ -352,7 +352,7 @@ It must never be given a `NEXT_PUBLIC_` prefix.
 | --- | --- |
 | `npm run typecheck` | **passes clean**, no errors |
 | `npm run lint` | **0 errors, 14 warnings** — all 14 are `react-hooks/set-state-in-effect`, new in this ESLint config and deliberately demoted (§12 item 23) |
-| `npm run test` | **646 passed** across 26 files |
+| `npm run test` | **669 passed** across 27 files |
 | `npm run validate:missions` | **0 errors, 0 warnings** — 20 missions checked, 14 fully playable |
 | `npm run build` | **succeeds** — see the stale-`.next` note below |
 | `npx playwright test` | **37 passed** against the hosted project |
@@ -2572,7 +2572,7 @@ the claim and the leaderboard are all behind authentication, so none of them is 
 They were verified against the live database by hand (§16.6). Closing that gap — §12 item 2 — is
 what would make this section's claim true again rather than mostly true.
 
-### 15.1 The test suite — `tests/`, Vitest, 646 tests across 26 files
+### 15.1 The test suite — `tests/`, Vitest, 669 tests across 27 files
 
 Node environment, no DOM, no component testing library. `vitest.config.ts` re-declares the `@/*`
 alias so tests import modules exactly the way the app does, **and aliases `server-only` to
@@ -3261,6 +3261,59 @@ is written and the test runs **signed out** — silently, against endpoints that
 presents as a missing element, which looks like a UI bug and is not one. The fixture is now
 `{ auto: true }` and throws if the session cookie is not in the context afterwards, so a spec cannot
 accidentally run anonymously.
+
+### 17.6 The rest of Chapter 1 — `lib/verification-replays.ts` (new 2026-08-01)
+
+The three missions §17 named as the only other honest candidates now have runnable replays:
+`promise-all-cascade`, `async-map-trap` and `overlapping-scheduler-runs`. All three are pure
+JavaScript-runtime behaviours — promise settlement, awaiting, and re-entrant scheduling — that a
+browser exhibits natively. The remaining ten missions still do not have one, and still should not.
+
+**Read this part before changing anything here: the binary model does not work for these.**
+`event-loop-overload` takes one boolean — did the fix move the work off the thread — because all
+four of its distractors genuinely leave it there. That is not true of `promise-all-cascade`. Its
+`catch-each-promise-returning-null` distractor **does** stop the cascade; `lib/fix.ts` says so in as
+many words, and calls it wrong for a different reason — it discards *which* vendor failed. A binary
+replay would have shown that fix losing all 48 profiles while the mission text said it kept 47.
+The replay would have contradicted the mission, which is the failure §17 exists to prevent.
+
+So each fix names a **strategy**, and the strategy is what executes. `replayStrategy()` in
+`lib/server/replay.ts` resolves `missionId + fixId → strategy` behind `server-only`, alongside the
+`event-loop-overload` mapping; the browser receives one strategy name and never the map. That is
+safe rather than merely tidy because the names are unordered and several non-answers score well on
+something: `catch-null` retains every profile it can, `idempotency` prevents every duplicate.
+Knowing your fix ran as `catch-null` discloses nothing the verdict does not already show you.
+
+What each one measures, and why that number and not another:
+
+| Mission | Measured | Resolved when |
+| --- | --- | --- |
+| `promise-all-cascade` | `retained`, `namedFailures` | 47 retained **and** the failure named — two numbers, because a fix that saves the profiles and loses the failure is the "quiet wrong success" the mission warns about, and one number cannot see it |
+| `async-map-trap` | `completedAtReturn` of `total` | all items finished at the instant the job reported completion |
+| `overlapping-scheduler-runs` | `maxConcurrentRuns`, `duplicateCharges` | never two runs at once — the authored root cause is the **overlap**; duplicates are the symptom, counted separately so `idempotency` and `dedupe-after` can be told apart from the fix that removes the cause |
+
+`tests/verification-replays.test.ts` (23 tests) asserts the property §17 was built for, and one
+more. Not only must the authored correct fix resolve the incident and every distractor fail to —
+**each distractor must fail in the specific way `lib/fix.ts` says it does.** `catch-null` is asserted
+to retain 47 and name 0. A test that only checked "distractor ⇒ bad" would pass while the replay
+contradicted the prose, which is exactly the bug the per-fix model exists to avoid. These assert
+counts rather than durations, so unlike §17.2 there is no timing margin to be flaky about; the one
+time-shaped scenario overlaps structurally, its run being longer than its interval by design.
+
+**A first draft measured the symptom instead of the mechanism.** The scheduler scenario derived each
+run's invoice from a counter, which manufactured duplicate charges even when nothing overlapped —
+so the *correct* fix scored one duplicate and the test failed. Runs now claim the lowest unsettled
+invoice and only settle it on completion, so the duplicate is *caused by* the overlap. Same lesson
+as `aggregateWeekly`'s short-circuiting first draft (§17.1): a scenario has to reproduce the
+mechanism, not just the symptom. Both guards were then mutated deliberately — pointing the correct
+cascade fix at the wrong strategy, and making the async-map fix stop awaiting — and both went red.
+
+**Not yet wired to the UI, and §12 item 1 is not closed by this.** The engine and its tests are
+landed and verified; nothing a player sees has changed for these three missions, which still show
+the 1,400ms timer. Wiring needs `replayStrategy()`'s output added to the `POST /api/runs` response
+next to `grade.resolved` — it cannot be computed in the browser without shipping the map — and a
+renderer for these metric shapes, since `ReplayMeasurement.tsx` is specific to the event-loop
+`Measurement` type. That is the next pass.
 
 ---
 

@@ -16,7 +16,7 @@ way: if you change behaviour, change the doc in the same pass.**
 §12 item 3 is closed as a *decision*, not as work. Chapters 4 and 5 stay Coming Soon. Do not plan
 content growth unless the product owner reopens it.
 
-The suite is **646 tests across 26 files** plus **37 Playwright specs**, and all six gates are green.
+The suite is **669 tests across 27 files** plus **37 Playwright specs**, and all six gates are green.
 
 **`supabase/migrations/` is still not applied to the HOSTED project automatically.** There is no
 linked Supabase CLI project and no database password in `.env.local` — only the URL, the anon key and
@@ -162,9 +162,18 @@ Two things to carry forward:
   `react-hooks/set-state-in-effect` is demoted to a warning at 14 sites (§12 item 23) pending
   component tests. **Re-measure with `npm audit --omit=dev`** rather than the headline count, which
   mixes dev and production.
-- 13 of 14 missions still use the 1,400ms timer. §17 names the three honest candidates for a real
-  replay: `promise-all-cascade`, `async-map-trap`, `overlapping-scheduler-runs`. Most of the
-  catalogue cannot have one honestly, and faking it would be the same theatre in a better costume.
+- **The three honest replays are built and tested, but not wired to the UI** (§17.6, new 2026-08-01).
+  `lib/verification-replays.ts` executes `promise-all-cascade`, `async-map-trap` and
+  `overlapping-scheduler-runs` for real, and `tests/verification-replays.test.ts` asserts every fix
+  option behaves the way `lib/fix.ts` says it does. **A player still sees the 1,400ms timer for all
+  three** — §12 item 1 is not closed. The remaining work is two pieces: return
+  `replayStrategy(missionId, fixId)` in the `POST /api/runs` response beside `grade.resolved` (it
+  cannot be computed in the browser without shipping the answer map), and write a renderer for the
+  new metric shapes, since `ReplayMeasurement.tsx` only understands the event-loop `Measurement`.
+  **Read §17.6 before touching it** — the binary resolved/unresolved model is wrong for these, for a
+  reason the mission content itself dictates.
+- The other ten missions still use the 1,400ms timer and should keep it. Most of the catalogue
+  cannot have a replay honestly, and faking it would be the same theatre in a better costume.
 - CI builds twice per run; `/api/ledger` costs 3 Postgres round trips; the leaderboard reads all of
   `best_runs`; `POST /api/runs` now costs one more read for the attempt count. All still "honest at
   this scale".
