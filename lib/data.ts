@@ -52,7 +52,13 @@ export const NAV_LINKS: NavLink[] = [
   { label: "Mission Preview", href: "#mission" },
   { label: "Skills", href: "#skills" },
   { label: "Career Path", href: "#career" },
-  { label: "Pricing", href: "#pricing" },
+  // Was "Pricing" → `#pricing`, which scrolled to the closing call-to-action.
+  // There is no pricing anywhere in the product: no price, no plan, no tier.
+  // A nav item naming something that does not exist is the same defect the
+  // footer already removed Privacy Policy and Terms of Service for — it
+  // promises a thing the app cannot show. The section is real, so the label
+  // and the anchor now say what it actually is.
+  { label: "Get Started", href: "#get-started" },
 ];
 
 export const HERO_HIGHLIGHTS: HeroHighlight[] = [

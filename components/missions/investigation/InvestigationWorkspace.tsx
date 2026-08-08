@@ -5,6 +5,8 @@ import {
   findEvidence,
   keyEvidence,
   loadInvestigationState,
+  rowKey,
+  selectableRowsOnTool,
   saveInvestigationState,
   toolsFor,
   type Investigation,
@@ -13,6 +15,7 @@ import {
 import { clearInvestigationOnward } from "@/lib/mission-storage";
 import type { Severity } from "@/lib/missions";
 import { touchRun } from "@/lib/run";
+import { AlreadyCollectedNotice } from "./AlreadyCollectedNotice";
 import { CodeInspectionPanel } from "./CodeInspectionPanel";
 import { CollectedEvidencePanel } from "./CollectedEvidencePanel";
 import { DatabasePanel } from "./DatabasePanel";
@@ -46,6 +49,13 @@ export function InvestigationWorkspace({
     investigation.tools[0],
   );
   const [collectedIds, setCollectedIds] = useState<string[]>([]);
+  /**
+   * Rows the player marked, as `tool:rowId`. `null` is a save from before rows
+   * were tracked — see `InvestigationState.markedRowKeys`. It stays null for
+   * the rest of that mission rather than flipping mid-investigation, which
+   * would silently re-label rows the player *had* marked as somebody else's.
+   */
+  const [markedRowKeys, setMarkedRowKeys] = useState<string[] | null>([]);
   const [hydrated, setHydrated] = useState(false);
   /**
    * How many findings were already collected when this visit began — 0 for a
@@ -73,6 +83,7 @@ export function InvestigationWorkspace({
     );
     setActiveTool(saved?.activeTool ?? investigation.tools[0]);
     setCollectedIds(restored);
+    setMarkedRowKeys(saved ? saved.markedRowKeys : []);
     // Only what came back from a previous visit counts as restored. Anything
     // collected from here on is the player's own doing and needs no notice.
     setRestoredCount(restored.length);
@@ -84,11 +95,12 @@ export function InvestigationWorkspace({
     saveInvestigationState(investigation.missionId, {
       activeTool,
       collectedEvidenceIds: collectedIds,
+      markedRowKeys,
     });
-  }, [hydrated, investigation.missionId, activeTool, collectedIds]);
+  }, [hydrated, investigation.missionId, activeTool, collectedIds, markedRowKeys]);
 
   // Marking the same finding twice must not duplicate it.
-  const collect = (ids: string[]) => {
+  const collect = (ids: string[], rowIds: string[]) => {
     // The notice explains rows the player did not mark in this session. Once
     // they mark one, there is nothing left to explain.
     setRestoredCount(0);
@@ -96,6 +108,14 @@ export function InvestigationWorkspace({
       ...prev,
       ...ids.filter((id) => !prev.includes(id) && findEvidence(investigation, id)),
     ]);
+    // Every row they clicked is theirs, including ones whose finding was
+    // already held — clicking it is what the tick reports.
+    setMarkedRowKeys((prev) => {
+      if (prev === null) return null; // Legacy save: see the state declaration.
+      const next = new Set(prev);
+      for (const id of rowIds) next.add(rowKey(activeTool, id));
+      return [...next];
+    });
   };
 
   /**
@@ -107,12 +127,35 @@ export function InvestigationWorkspace({
   const restart = () => {
     clearInvestigationOnward(investigation.missionId);
     setCollectedIds([]);
+    setMarkedRowKeys([]);
     setActiveTool(investigation.tools[0]);
     setRestoredCount(0);
     setConfirmingRestart(false);
   };
 
-  const isCollected = (id: string) => collectedIds.includes(id);
+  /**
+   * The finding a row was collected *as*, or null if it has not been collected.
+   *
+   * Returning the name rather than a boolean is what lets a row say which
+   * finding it belongs to, so two rows ticking together read as one discovery
+   * seen twice instead of one tick the player cannot account for. Truthiness is
+   * the collected test, exactly as the old boolean was.
+   *
+   * `collectedIds` only ever holds ids that resolve — both the restore path and
+   * `collect` filter through `findEvidence` — so a collected row cannot fall
+   * back to looking uncollected here.
+   */
+  const collectedAs = (id: string) =>
+    collectedIds.includes(id)
+      ? (findEvidence(investigation, id)?.title ?? null)
+      : null;
+
+  /**
+   * Did the player mark *this row*, as opposed to holding its finding from
+   * somewhere else? Bound to the active tool, so panels never handle tool ids.
+   */
+  const markedHere = (rowId: string) =>
+    markedRowKeys === null || markedRowKeys.includes(rowKey(activeTool, rowId));
 
   const collectedItems = useMemo(
     () =>
@@ -134,6 +177,24 @@ export function InvestigationWorkspace({
 
   const activeMeta = tools.find((t) => t.id === activeTool) ?? tools[0];
 
+  /**
+   * Rows on this tool showing as "already held" — their finding is collected
+   * but the player marked it elsewhere. These are exactly the rows that need
+   * explaining; rows they marked here explain themselves.
+   */
+  const heldElsewhere = useMemo(() => {
+    if (markedRowKeys === null) return { rowCount: 0, findingCount: 0 };
+    const rows = selectableRowsOnTool(investigation, activeMeta.id).filter(
+      (r) =>
+        collectedIds.includes(r.evidenceId) &&
+        !markedRowKeys.includes(rowKey(activeMeta.id, r.rowId)),
+    );
+    return {
+      rowCount: rows.length,
+      findingCount: new Set(rows.map((r) => r.evidenceId)).size,
+    };
+  }, [investigation, activeMeta.id, collectedIds, markedRowKeys]);
+
   const renderPanel = () => {
     const hint = activeMeta.hint;
     switch (activeMeta.id) {
@@ -142,7 +203,8 @@ export function InvestigationWorkspace({
           <LogsPanel
             logs={investigation.logs}
             hint={hint}
-            isCollected={isCollected}
+            collectedAs={collectedAs}
+            markedHere={markedHere}
             onCollect={collect}
           />
         );
@@ -151,7 +213,8 @@ export function InvestigationWorkspace({
           <MetricsPanel
             metrics={investigation.metrics}
             hint={hint}
-            isCollected={isCollected}
+            collectedAs={collectedAs}
+            markedHere={markedHere}
             onCollect={collect}
           />
         );
@@ -160,7 +223,8 @@ export function InvestigationWorkspace({
           <CodeInspectionPanel
             code={investigation.code}
             hint={hint}
-            isCollected={isCollected}
+            collectedAs={collectedAs}
+            markedHere={markedHere}
             onCollect={collect}
           />
         );
@@ -169,7 +233,8 @@ export function InvestigationWorkspace({
           <DatabasePanel
             database={investigation.database}
             hint={hint}
-            isCollected={isCollected}
+            collectedAs={collectedAs}
+            markedHere={markedHere}
             onCollect={collect}
           />
         );
@@ -179,7 +244,8 @@ export function InvestigationWorkspace({
           <TracePanel
             trace={investigation.trace}
             hint={hint}
-            isCollected={isCollected}
+            collectedAs={collectedAs}
+            markedHere={markedHere}
             onCollect={collect}
           />
         ) : null;
@@ -232,6 +298,10 @@ export function InvestigationWorkspace({
             <p className="mb-4 text-xs text-slate-500">
               {activeMeta.description}
             </p>
+            <AlreadyCollectedNotice
+              rowCount={heldElsewhere.rowCount}
+              findingCount={heldElsewhere.findingCount}
+            />
             {renderPanel()}
           </div>
         </section>

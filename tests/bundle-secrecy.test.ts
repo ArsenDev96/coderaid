@@ -65,9 +65,17 @@ describe("the built bundle", () => {
   ];
 
   function browserFiles(): string[] {
-    // `.next/server` holds the server bundle, where the answers belong.
     return clientFiles(BUILD_DIR).filter(
-      (f) => !f.includes(`${join(".next", "server")}`),
+      (f) =>
+        // `.next/server` holds the server bundle, where the answers belong.
+        !f.includes(`${join(".next", "server")}`) &&
+        // `.next/dev` is the dev server's output, which is never deployed —
+        // and since Next 16 it nests its *own* `server/` under here, so the
+        // check above does not reach it. Left in, a developer who had run
+        // `npm run dev` before `npm test` got a failure naming server chunks
+        // they never ship, while a real leak in the production bundle would
+        // have been just two more lines in the same list.
+        !f.includes(`${join(".next", "dev")}`),
     );
   }
 

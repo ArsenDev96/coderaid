@@ -363,7 +363,7 @@ which is why a mission can be played without an account:
 | `coderaid:profile` | `{ name, avatarId, slogan, pathId, experienceId, step, completed }` |
 | `coderaid:user-settings` | `{ codeEditorTheme, showLineNumbers }` |
 | `coderaid:{missionId}:run` | `{ startedAt, lastActiveAt, stagesCompleted[], hintsUsed[] }` |
-| `coderaid:{missionId}:investigation` | `{ activeTool, collectedEvidenceIds[] }` |
+| `coderaid:{missionId}:investigation` | `{ activeTool, collectedEvidenceIds[], markedRowKeys[] \| null }` |
 | `coderaid:{missionId}:diagnosis` | `{ rootCauseId, evidenceIds[], confirmed }` |
 | `coderaid:{missionId}:fix` | `{ fixId, applied }` |
 | `coderaid:{missionId}:verification` | `{ run, completed }` |

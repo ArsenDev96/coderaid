@@ -4,6 +4,7 @@ import type { Investigation } from "@/lib/investigation";
 import {
   CollectedTag,
   MarkEvidenceBar,
+  RelatedTag,
   SelectionMark,
   useEvidenceSelection,
 } from "./EvidenceSelection";
@@ -16,13 +17,17 @@ import {
 export function TracePanel({
   trace,
   hint,
-  isCollected,
+  collectedAs,
+  markedHere,
   onCollect,
 }: {
   trace: NonNullable<Investigation["trace"]>;
   hint: string;
-  isCollected: (evidenceId: string) => boolean;
-  onCollect: (ids: string[]) => void;
+  /** The finding this row was collected as, or null while uncollected. */
+  collectedAs: (evidenceId: string) => string | null;
+  /** Whether the player marked this row, rather than holding its finding from elsewhere. */
+  markedHere: (rowId: string) => boolean;
+  onCollect: (evidenceIds: string[], rowIds: string[]) => void;
 }) {
   const selection = useEvidenceSelection(onCollect);
   const total = trace.root.ms;
@@ -47,8 +52,9 @@ export function TracePanel({
             const last = i === trace.spans.length - 1;
             const pct = Math.max((span.ms / total) * 100, 1);
             const collected = span.evidenceId
-              ? isCollected(span.evidenceId)
-              : false;
+              ? collectedAs(span.evidenceId)
+              : null;
+            const mine = collected !== null && markedHere(span.id);
             const selected = selection.isSelected(span.id);
 
             const body = (
@@ -97,7 +103,7 @@ export function TracePanel({
               );
             }
 
-            if (collected) {
+            if (collected && mine) {
               return (
                 <li
                   key={span.id}
@@ -106,7 +112,20 @@ export function TracePanel({
                   <SelectionMark selected={false} collected />
                   <span className="sr-only">Collected as evidence:</span>
                   {body}
-                  <CollectedTag />
+                  <CollectedTag name={collected} />
+                </li>
+              );
+            }
+
+            if (collected) {
+              return (
+                <li key={span.id} className={`${base} border-white/[0.06]`}>
+                  <SelectionMark selected={false} collected={false} related />
+                  <span className="sr-only">
+                    Belongs to a finding already collected elsewhere:
+                  </span>
+                  {body}
+                  <RelatedTag name={collected} />
                 </li>
               );
             }

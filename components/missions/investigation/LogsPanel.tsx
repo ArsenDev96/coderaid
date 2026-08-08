@@ -11,13 +11,17 @@ import {
 export function LogsPanel({
   logs,
   hint,
-  isCollected,
+  collectedAs,
+  markedHere,
   onCollect,
 }: {
   logs: Investigation["logs"];
   hint: string;
-  isCollected: (evidenceId: string) => boolean;
-  onCollect: (ids: string[]) => void;
+  /** The finding this row was collected as, or null while uncollected. */
+  collectedAs: (evidenceId: string) => string | null;
+  /** Whether the player marked this row, rather than holding its finding from elsewhere. */
+  markedHere: (rowId: string) => boolean;
+  onCollect: (evidenceIds: string[], rowIds: string[]) => void;
 }) {
   const selection = useEvidenceSelection(onCollect);
 
@@ -40,8 +44,9 @@ export function LogsPanel({
           {logs.lines.map((line) => {
             const badge = LOG_LEVEL_BADGE[line.level];
             const collected = line.evidenceId
-              ? isCollected(line.evidenceId)
-              : false;
+              ? collectedAs(line.evidenceId)
+              : null;
+            const mine = collected !== null && markedHere(line.id);
             const selected = selection.isSelected(line.id);
 
             const body = (
@@ -75,14 +80,28 @@ export function LogsPanel({
             }
 
             if (collected) {
+              // Names the finding on hover. A visible tag would widen the row
+              // past the log gutter, but a line the player did not mark is
+              // worth being able to account for.
+              const label = mine
+                ? `Collected as evidence: ${collected}`
+                : `Already held from another tool: ${collected}`;
               return (
                 <li
                   key={line.id}
-                  className="flex items-center gap-3 rounded-lg border border-emerald-400/20 bg-emerald-500/[0.06] px-3 py-1.5"
+                  title={label}
+                  className={`flex items-center gap-3 rounded-lg border px-3 py-1.5 ${
+                    mine
+                      ? "border-emerald-400/20 bg-emerald-500/[0.06]"
+                      : "border-white/[0.06] bg-white/[0.02]"
+                  }`}
                 >
-                  <SelectionMark selected={false} collected />
-                  {/* A visible tag would widen the row past the log gutter. */}
-                  <span className="sr-only">Collected as evidence:</span>
+                  <SelectionMark
+                    selected={false}
+                    collected={mine}
+                    related={!mine}
+                  />
+                  <span className="sr-only">{label}.</span>
                   {body}
                 </li>
               );

@@ -12,13 +12,17 @@ import {
 export function CodeInspectionPanel({
   code,
   hint,
-  isCollected,
+  collectedAs,
+  markedHere,
   onCollect,
 }: {
   code: Investigation["code"];
   hint: string;
-  isCollected: (evidenceId: string) => boolean;
-  onCollect: (ids: string[]) => void;
+  /** The finding this row was collected as, or null while uncollected. */
+  collectedAs: (evidenceId: string) => string | null;
+  /** Whether the player marked this row, rather than holding its finding from elsewhere. */
+  markedHere: (rowId: string) => boolean;
+  onCollect: (evidenceIds: string[], rowIds: string[]) => void;
 }) {
   const selection = useEvidenceSelection(onCollect);
   const { palette, showLineNumbers } = useCodePreferences();
@@ -39,8 +43,9 @@ export function CodeInspectionPanel({
         <ul className="min-w-[34rem] font-mono text-xs leading-6">
           {code.lines.map((line) => {
             const collected = line.evidenceId
-              ? isCollected(line.evidenceId)
-              : false;
+              ? collectedAs(line.evidenceId)
+              : null;
+            const mine = collected !== null && markedHere(String(line.n));
             const selected = selection.isSelected(String(line.n));
 
             const body = (
@@ -72,13 +77,27 @@ export function CodeInspectionPanel({
             }
 
             if (collected) {
+              // Named on hover rather than with a tag: a code gutter has no
+              // room for one, and collected lines come in runs.
+              const label = mine
+                ? `Collected as evidence: ${collected}`
+                : `Already held from another tool: ${collected}`;
               return (
                 <li
                   key={line.n}
-                  className="flex items-center gap-3 rounded border border-emerald-400/20 bg-emerald-500/[0.06] px-3"
+                  title={label}
+                  className={`flex items-center gap-3 rounded border px-3 ${
+                    mine
+                      ? "border-emerald-400/20 bg-emerald-500/[0.06]"
+                      : "border-white/[0.06] bg-white/[0.02]"
+                  }`}
                 >
-                  <SelectionMark selected={false} collected />
-                  <span className="sr-only">Collected as evidence:</span>
+                  <SelectionMark
+                    selected={false}
+                    collected={mine}
+                    related={!mine}
+                  />
+                  <span className="sr-only">{label}.</span>
                   {body}
                 </li>
               );

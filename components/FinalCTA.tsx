@@ -4,7 +4,12 @@ import { Reveal } from "./ui/Reveal";
 
 export function FinalCTA() {
   return (
-    <section id="pricing" className="mx-auto max-w-7xl px-4 py-16 sm:px-6 lg:px-8 lg:py-24">
+    // `get-started`, not `pricing`: this section has never shown a price, and
+    // the nav item that used to point here now says so too (`lib/data.ts`).
+    <section
+      id="get-started"
+      className="mx-auto max-w-7xl px-4 py-16 sm:px-6 lg:px-8 lg:py-24"
+    >
       <Reveal>
         <div className="relative overflow-hidden rounded-3xl border border-violet-400/30 bg-gradient-to-br from-violet-700/40 via-violet-900/30 to-electric-900/20 px-6 py-10 sm:px-12 sm:py-12">
           {/* circuit backdrop */}

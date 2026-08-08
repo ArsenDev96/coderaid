@@ -5,6 +5,7 @@ import type { Investigation } from "@/lib/investigation";
 import {
   CollectedTag,
   MarkEvidenceBar,
+  RelatedTag,
   SelectionMark,
   useEvidenceSelection,
 } from "./EvidenceSelection";
@@ -12,13 +13,17 @@ import {
 export function DatabasePanel({
   database,
   hint,
-  isCollected,
+  collectedAs,
+  markedHere,
   onCollect,
 }: {
   database: Investigation["database"];
   hint: string;
-  isCollected: (evidenceId: string) => boolean;
-  onCollect: (ids: string[]) => void;
+  /** The finding this row was collected as, or null while uncollected. */
+  collectedAs: (evidenceId: string) => string | null;
+  /** Whether the player marked this row, rather than holding its finding from elsewhere. */
+  markedHere: (rowId: string) => boolean;
+  onCollect: (evidenceIds: string[], rowIds: string[]) => void;
 }) {
   const selection = useEvidenceSelection(onCollect);
 
@@ -29,8 +34,9 @@ export function DatabasePanel({
       <ul className="grid grid-cols-1 gap-3 sm:grid-cols-2">
         {database.stats.map((stat) => {
           const collected = stat.evidenceId
-            ? isCollected(stat.evidenceId)
-            : false;
+            ? collectedAs(stat.evidenceId)
+            : null;
+          const mine = collected !== null && markedHere(stat.id);
           const selected = selection.isSelected(stat.id);
 
           const body = (
@@ -40,7 +46,11 @@ export function DatabasePanel({
                   {stat.label}
                 </span>
                 {stat.evidenceId ? (
-                  <SelectionMark selected={selected} collected={collected} />
+                  <SelectionMark
+                    selected={selected}
+                    collected={mine}
+                    related={collected !== null}
+                  />
                 ) : null}
               </div>
               <p className="mt-1.5 font-mono text-2xl font-semibold text-slate-100">
@@ -53,7 +63,11 @@ export function DatabasePanel({
               )}
               {collected && (
                 <span className="mt-2 inline-flex">
-                  <CollectedTag />
+                  {mine ? (
+                    <CollectedTag name={collected} />
+                  ) : (
+                    <RelatedTag name={collected} />
+                  )}
                 </span>
               )}
             </>
@@ -76,7 +90,11 @@ export function DatabasePanel({
             return (
               <li
                 key={stat.id}
-                className={`${base} border-emerald-400/20 bg-emerald-500/[0.06]`}
+                className={`${base} ${
+                  mine
+                    ? "border-emerald-400/20 bg-emerald-500/[0.06]"
+                    : "border-white/[0.06] bg-white/[0.02]"
+                }`}
               >
                 {body}
               </li>

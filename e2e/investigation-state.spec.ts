@@ -13,12 +13,24 @@ import { expect, test } from "@playwright/test";
 const MISSION = "event-loop-overload";
 const NOTICE = /Investigation progress restored/;
 
+/** The evidence rail, which is where a marked finding has to end up. */
+const notebook = (page: import("@playwright/test").Page) =>
+  page.getByRole("region", { name: "Collected Evidence" });
+
 /** Collects one finding, so the mission has state to restore on the next visit. */
 async function collectOneFinding(page: import("@playwright/test").Page) {
   await page.goto(`/missions/${MISSION}/investigation`);
   await page.getByRole("button", { name: /\/api\/products/ }).click();
   await page.getByRole("button", { name: "Mark as Evidence" }).click();
-  await expect(page.getByText("Unrelated endpoints are delayed too")).toBeVisible();
+  // Scoped to the rail on purpose. The finding's name now also appears on every
+  // row carrying it — as a tag, or as the screen-reader text behind a log row —
+  // so an unscoped text match resolves to five elements and asserts nothing in
+  // particular. The rail is what "it was collected" actually means.
+  await expect(
+    notebook(page).getByRole("heading", {
+      name: "Unrelated endpoints are delayed too",
+    }),
+  ).toBeVisible();
 }
 
 test("says nothing about restored progress on a first visit", async ({ page }) => {
@@ -118,6 +130,46 @@ test("clears the collected evidence when the restart is confirmed", async ({ pag
     MISSION,
   );
   expect(saved ?? "").not.toContain("unrelated-endpoints-delayed");
+});
+
+/**
+ * A tick has to mean "I marked this".
+ *
+ * One finding legitimately spans several tools, so the health span in Trace
+ * carries the same finding as the `/api/products` log line. It must not arrive
+ * wearing a checkmark the player never placed — that reads as the game having
+ * answered for them, which is the complaint this whole state exists to fix.
+ */
+test("shows a finding held from another tool without ticking it", async ({ page }) => {
+  await collectOneFinding(page);
+  await page.getByRole("tab", { name: "Trace" }).click();
+
+  await expect(
+    page.getByText(/belongs to a finding you already collected in another tool/),
+  ).toBeVisible();
+
+  // The tag on the span itself, not the notice's mention of it.
+  const span = page.getByRole("listitem").filter({ hasText: /api\/health/ });
+  await expect(span.getByText("Already held", { exact: true })).toBeVisible();
+  await expect(span.getByText("Collected", { exact: true })).toBeHidden();
+
+  // Not selectable either: the finding is held, so there is nothing to mark.
+  await expect(page.getByRole("button", { name: /api\/health/ })).toBeHidden();
+});
+
+test("ticks the row the player marked, in the tool they marked it in", async ({
+  page,
+}) => {
+  await collectOneFinding(page);
+
+  // Same finding, same visit — but this is the row they clicked, so it is
+  // theirs and says so.
+  await expect(page.getByText("Collected", { exact: true })).toBeHidden();
+  const row = page.getByTitle(/^Collected as evidence: Unrelated endpoints/);
+  await expect(row).toBeVisible();
+
+  // ...while its three siblings in the same panel are held, not collected.
+  await expect(page.getByTitle(/^Already held from another tool/)).toHaveCount(3);
 });
 
 test("makes every meaningful row selectable, not only the decisive ones", async ({

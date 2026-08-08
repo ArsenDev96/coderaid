@@ -40,8 +40,10 @@ export function Footer() {
           </nav>
         </div>
 
+        {/* Derived, not typed in: a hardcoded year is correct until it silently
+            is not, and this is a server component, so it resolves at build. */}
         <p className="mt-8 border-t border-white/[0.06] pt-5 text-center text-xs text-slate-600">
-          © 2026 CodeRaid. All rights reserved.
+          © {new Date().getFullYear()} CodeRaid. All rights reserved.
         </p>
       </div>
     </footer>

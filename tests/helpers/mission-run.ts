@@ -97,6 +97,9 @@ export function play(
   saveInvestigationState(missionId, {
     activeTool: investigation.tools[0],
     collectedEvidenceIds: keys.map((e) => e.id),
+    // Which rows were clicked is a display concern; a scripted run collects
+    // findings directly and has no rows to name.
+    markedRowKeys: null,
   });
   completeStage(missionId, "Investigation");
 

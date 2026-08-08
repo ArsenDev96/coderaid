@@ -42,7 +42,28 @@ export type EvidenceItem = {
 export type InvestigationState = {
   activeTool: InvestigationToolId;
   collectedEvidenceIds: string[];
+  /**
+   * The rows the player marked themselves, as `tool:rowId`.
+   *
+   * Collected state is keyed by evidence, and one finding legitimately spans
+   * many rows and several tools — so "is this row's finding collected?" cannot
+   * answer "did I collect it?". Without this, opening Trace after working
+   * through Logs showed spans already ticked that the player had never seen,
+   * which reads as the game answering for them.
+   *
+   * `null` means a save written before rows were tracked. Those keep the old
+   * behaviour — every collected row reads as marked — rather than being
+   * demoted wholesale to rows "someone else" marked, which is the one reading
+   * that would be actively wrong.
+   */
+  markedRowKeys: string[] | null;
 };
+
+/** Row identity for {@link InvestigationState.markedRowKeys}. Row ids are only
+ *  unique within a tool — code lines are bare numbers — so the tool is part of
+ *  the key. */
+export const rowKey = (tool: InvestigationToolId, rowId: string) =>
+  `${tool}:${rowId}`;
 
 export type LogLevel = "INFO" | "DEBUG" | "SQL" | "WARN" | "ERROR";
 
@@ -1063,6 +1084,14 @@ const EVENT_LOOP_INVESTIGATION: Investigation = {
       isKeyEvidence: false,
     },
     {
+      id: "requests-queue-rather-than-fail",
+      source: "metrics",
+      title: "Requests queue rather than fail",
+      description:
+        "The timeout rate went from 0.2% to 8.4%. Nothing is being rejected or erroring — requests wait their turn, and some wait past the client's patience.",
+      isKeyEvidence: false,
+    },
+    {
       id: "report-data-fetched-in-one-query",
       source: "code",
       title: "The report data is fetched in a single query",
@@ -1130,7 +1159,7 @@ const EVENT_LOOP_INVESTIGATION: Investigation = {
         time: "10:14:16.437",
         level: "INFO",
         message: "weekly report generated  duration_ms=7319",
-        evidenceId: "report-record-volume",
+        evidenceId: "report-generation-dominates",
       },
       {
         id: "e8",
@@ -1204,7 +1233,7 @@ const EVENT_LOOP_INVESTIGATION: Investigation = {
         value: "8.4%",
         detail: "Was 0.2% — requests queue rather than fail outright",
         tone: "warning",
-        evidenceId: "unrelated-endpoints-delayed",
+        evidenceId: "requests-queue-rather-than-fail",
       },
       {
         id: "em-throughput",
@@ -1419,8 +1448,16 @@ const PROMISE_CASCADE_INVESTIGATION: Investigation = {
       source: "metrics",
       title: "Successful vendor results are thrown away",
       description:
-        "47 vendor calls returned 200 in the failed run, and zero vendor profiles were written.",
+        "47 of the 48 vendor calls in the failed run returned 200, and not one of those results survived it.",
       isKeyEvidence: true,
+    },
+    {
+      id: "runs-keep-nothing-at-all",
+      source: "metrics",
+      title: "Five runs in a row kept nothing",
+      description:
+        "Vendors enriched reads 0 of 48, and has for the last five nightly runs. The output is empty rather than merely incomplete.",
+      isKeyEvidence: false,
     },
     {
       id: "promise-all-over-mapped-calls",
@@ -1598,7 +1635,7 @@ const PROMISE_CASCADE_INVESTIGATION: Investigation = {
         value: "0 / 48",
         detail: "Nothing was kept from the last five runs",
         tone: "critical",
-        evidenceId: "successes-discarded",
+        evidenceId: "runs-keep-nothing-at-all",
       },
       {
         id: "pm-calls-ok",
@@ -1889,7 +1926,15 @@ const ASYNC_MAP_INVESTIGATION: Investigation = {
       source: "metrics",
       title: "The worker is not under pressure",
       description:
-        "CPU sits at 9% and heap is flat — the worker is idle, not struggling.",
+        "CPU sits at 9% and drops to idle the moment each batch is marked done — the worker is not struggling, it has stopped working.",
+      isKeyEvidence: false,
+    },
+    {
+      id: "worker-heap-is-flat",
+      source: "metrics",
+      title: "Worker heap is flat across batches",
+      description:
+        "Heap holds at 180 MB with no growth trend from one batch to the next, so nothing is accumulating in memory between runs.",
       isKeyEvidence: false,
     },
     {
@@ -2052,7 +2097,7 @@ const ASYNC_MAP_INVESTIGATION: Investigation = {
         value: "180 MB",
         detail: "Flat across batches",
         tone: "normal",
-        evidenceId: "worker-not-overloaded",
+        evidenceId: "worker-heap-is-flat",
       },
       {
         id: "am-storage-errors",
@@ -3065,6 +3110,14 @@ const JWT_REFRESH_RACE_INVESTIGATION: Investigation = {
       isKeyEvidence: true,
     },
     {
+      id: "dashboard-fires-six-parallel-calls",
+      source: "metrics",
+      title: "One dashboard load fires six calls at once",
+      description:
+        "Six API calls go out in parallel per dashboard load, every one of them authorized with the same access token.",
+      isKeyEvidence: false,
+    },
+    {
       id: "expiry-is-expected",
       source: "logs",
       title: "The access token expired on schedule",
@@ -3239,7 +3292,7 @@ const JWT_REFRESH_RACE_INVESTIGATION: Investigation = {
         value: "6",
         detail: "All authorized with the same access token",
         tone: "warning",
-        evidenceId: "logout-tracks-page-fanout",
+        evidenceId: "dashboard-fires-six-parallel-calls",
       },
       {
         id: "jm-validation",
@@ -3496,6 +3549,14 @@ const HEALTH_CHECK_INVESTIGATION: Investigation = {
       isKeyEvidence: true,
     },
     {
+      id: "containers-restart-in-bursts",
+      source: "metrics",
+      title: "Containers are restarting constantly",
+      description:
+        "37 restarts across 8 instances in 30 minutes, against zero for the whole week before. Something is deciding these containers are dead.",
+      isKeyEvidence: false,
+    },
+    {
       id: "liveness-probe-runs-deep-dependency-check",
       source: "code",
       title: "One endpoint answers both probes and checks everything",
@@ -3533,6 +3594,14 @@ const HEALTH_CHECK_INVESTIGATION: Investigation = {
       title: "Memory and CPU are flat with headroom",
       description:
         "Heap holds at 214 MB against a 1 GB limit and CPU sits at 34% — no leak, no starvation, no OOM kill.",
+      isKeyEvidence: false,
+    },
+    {
+      id: "cpu-steady-across-restarts",
+      source: "metrics",
+      title: "CPU is unmoved by the restarts",
+      description:
+        "Utilisation sits at 34% before and after each restart, so the container is not being starved of processor time on its way down.",
       isKeyEvidence: false,
     },
     {
@@ -3664,7 +3733,7 @@ const HEALTH_CHECK_INVESTIGATION: Investigation = {
         value: "37",
         detail: "Across 8 instances; zero the week before",
         tone: "critical",
-        evidenceId: "health-endpoint-exceeds-probe-timeout",
+        evidenceId: "containers-restart-in-bursts",
       },
       {
         id: "hm-analytics",
@@ -3720,7 +3789,7 @@ const HEALTH_CHECK_INVESTIGATION: Investigation = {
         value: "34%",
         detail: "Headroom throughout, before and after each restart",
         tone: "normal",
-        evidenceId: "heap-and-cpu-flat",
+        evidenceId: "cpu-steady-across-restarts",
       },
     ],
     latency: {
@@ -3933,6 +4002,14 @@ const GRACEFUL_SHUTDOWN_INVESTIGATION: Investigation = {
       isKeyEvidence: false,
     },
     {
+      id: "baseline-error-rate-is-clean",
+      source: "metrics",
+      title: "Outside deploys the service is clean",
+      description:
+        "0.04% 5xx, steady all day and at every traffic level. There is no underlying fault waiting to be triggered by load.",
+      isKeyEvidence: false,
+    },
+    {
       id: "resources-are-fine",
       source: "metrics",
       title: "Nothing is under resource pressure",
@@ -4108,7 +4185,7 @@ const GRACEFUL_SHUTDOWN_INVESTIGATION: Investigation = {
         value: "0.04%",
         detail: "Steady all day, at every traffic level",
         tone: "normal",
-        evidenceId: "errors-only-during-deploys",
+        evidenceId: "baseline-error-rate-is-clean",
       },
       {
         id: "gm-cpu",
@@ -4378,7 +4455,15 @@ const RATE_LIMITER_RACE_INVESTIGATION: Investigation = {
       source: "metrics",
       title: "No instance is under pressure",
       description:
-        "p95 latency held at 84ms and CPU at 31% before and after scaling out. Nothing is queuing, retrying or falling behind — the requests are being let through deliberately.",
+        "p95 latency held at 84ms before and after scaling out. Nothing is queuing, retrying or falling behind — the extra requests are being let through deliberately.",
+      isKeyEvidence: false,
+    },
+    {
+      id: "instances-have-resource-headroom",
+      source: "metrics",
+      title: "Every instance has headroom to spare",
+      description:
+        "CPU at 31% and heap at 180 MB on every instance, unchanged by scaling out. Whatever decides to allow a request, it is not resource pressure.",
       isKeyEvidence: false,
     },
   ],
@@ -4511,7 +4596,7 @@ const RATE_LIMITER_RACE_INVESTIGATION: Investigation = {
         value: "31% / 180 MB",
         detail: "Headroom on every instance",
         tone: "normal",
-        evidenceId: "instances-are-not-under-load",
+        evidenceId: "instances-have-resource-headroom",
       },
       {
         id: "rm-skew",
@@ -5888,6 +5973,41 @@ export function findEvidence(
   return investigation.evidence.find((e) => e.id === id);
 }
 
+/**
+ * Every selectable row on one tool, in row order, as `{ rowId, evidenceId }`.
+ *
+ * Rows are listed individually rather than reduced to a set of findings,
+ * because several rows can carry one `evidenceId` and what a player sees on
+ * screen is the number of *rows*. `rowId` matches what the panel passes to
+ * `selection.toggle`, so a caller can ask `markedRowKeys` about it.
+ */
+export function selectableRowsOnTool(
+  investigation: Investigation,
+  toolId: InvestigationToolId,
+): { rowId: string; evidenceId: string }[] {
+  const tagged = <T,>(rows: T[], id: (row: T) => string, ev: (row: T) => string | undefined) =>
+    rows.flatMap((row) => {
+      const evidenceId = ev(row);
+      return evidenceId ? [{ rowId: id(row), evidenceId }] : [];
+    });
+
+  switch (toolId) {
+    case "logs":
+      return tagged(investigation.logs.lines, (l) => l.id, (l) => l.evidenceId);
+    case "metrics":
+      return tagged(investigation.metrics.cards, (m) => m.id, (m) => m.evidenceId);
+    case "code":
+      // Code lines key on their line number — see `CodeInspectionPanel`.
+      return tagged(investigation.code.lines, (l) => String(l.n), (l) => l.evidenceId);
+    case "database":
+      return tagged(investigation.database.stats, (s) => s.id, (s) => s.evidenceId);
+    case "trace":
+      return investigation.trace
+        ? tagged(investigation.trace.spans, (s) => s.id, (s) => s.evidenceId)
+        : [];
+  }
+}
+
 /* ------------------------- Persistence (localStorage) ------------------- */
 
 /* Re-exported rather than rebuilt: `lib/mission-storage.ts` names every
@@ -5915,7 +6035,14 @@ export function loadInvestigationState(
     const tool = allowedTools.includes(parsed.activeTool as InvestigationToolId)
       ? (parsed.activeTool as InvestigationToolId)
       : allowedTools[0];
-    return { activeTool: tool, collectedEvidenceIds: ids };
+    // Absent on saves written before rows were tracked. Distinguished from an
+    // empty list, which is a real "nothing marked yet": see `markedRowKeys`.
+    const marked = Array.isArray(parsed.markedRowKeys)
+      ? parsed.markedRowKeys.filter((k): k is string => typeof k === "string")
+      : ids.length > 0
+        ? null
+        : [];
+    return { activeTool: tool, collectedEvidenceIds: ids, markedRowKeys: marked };
   } catch {
     return null;
   }

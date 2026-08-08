@@ -4,6 +4,7 @@ import { METRIC_TONE, type Investigation } from "@/lib/investigation";
 import {
   CollectedTag,
   MarkEvidenceBar,
+  RelatedTag,
   SelectionMark,
   useEvidenceSelection,
 } from "./EvidenceSelection";
@@ -64,13 +65,17 @@ function LatencyChart({ latency }: { latency: Investigation["metrics"]["latency"
 export function MetricsPanel({
   metrics,
   hint,
-  isCollected,
+  collectedAs,
+  markedHere,
   onCollect,
 }: {
   metrics: Investigation["metrics"];
   hint: string;
-  isCollected: (evidenceId: string) => boolean;
-  onCollect: (ids: string[]) => void;
+  /** The finding this row was collected as, or null while uncollected. */
+  collectedAs: (evidenceId: string) => string | null;
+  /** Whether the player marked this row, rather than holding its finding from elsewhere. */
+  markedHere: (rowId: string) => boolean;
+  onCollect: (evidenceIds: string[], rowIds: string[]) => void;
 }) {
   const selection = useEvidenceSelection(onCollect);
 
@@ -81,8 +86,9 @@ export function MetricsPanel({
       <ul className="mt-4 grid grid-cols-1 gap-3 sm:grid-cols-2">
         {metrics.cards.map((card) => {
           const collected = card.evidenceId
-            ? isCollected(card.evidenceId)
-            : false;
+            ? collectedAs(card.evidenceId)
+            : null;
+          const mine = collected !== null && markedHere(card.id);
           const selected = selection.isSelected(card.id);
 
           const body = (
@@ -92,11 +98,11 @@ export function MetricsPanel({
                   {card.label}
                 </span>
                 {card.evidenceId ? (
-                  collected ? (
-                    <SelectionMark selected={false} collected />
-                  ) : (
-                    <SelectionMark selected={selected} collected={false} />
-                  )
+                  <SelectionMark
+                    selected={collected ? false : selected}
+                    collected={mine}
+                    related={collected !== null}
+                  />
                 ) : null}
               </div>
               <p
@@ -109,7 +115,11 @@ export function MetricsPanel({
               </p>
               {collected && (
                 <span className="mt-2 inline-flex">
-                  <CollectedTag />
+                  {mine ? (
+                    <CollectedTag name={collected} />
+                  ) : (
+                    <RelatedTag name={collected} />
+                  )}
                 </span>
               )}
             </>
@@ -132,7 +142,11 @@ export function MetricsPanel({
             return (
               <li
                 key={card.id}
-                className={`${base} border-emerald-400/20 bg-emerald-500/[0.06]`}
+                className={`${base} ${
+                  mine
+                    ? "border-emerald-400/20 bg-emerald-500/[0.06]"
+                    : "border-white/[0.06] bg-white/[0.02]"
+                }`}
               >
                 {body}
               </li>

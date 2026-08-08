@@ -801,6 +801,31 @@ test.describe("the authenticated path", () => {
   });
 
   /**
+   * The landing page must not invite a signed-in player to sign in.
+   *
+   * `/` is on the ordinary path for someone with a session — logging out lands
+   * there, and the logo links there from every page — but the header rendered a
+   * fixed "Sign In" / "Start Your First Mission" pair with no route to the
+   * dashboard anywhere on the page. The signed-out half of this is in
+   * `landing.spec.ts`; this half needs a real session, so it lives here.
+   */
+  test("offers the dashboard, not a sign-in, to a player who has one", async ({
+    page,
+  }) => {
+    await page.goto("/");
+
+    // Awaited first: the swap happens once the ledger resolves, so asserting
+    // the absence of "Sign In" before that would pass on the loading state.
+    await expect(
+      page.getByRole("link", { name: "Go to Dashboard" }).first(),
+    ).toBeVisible();
+    await expect(page.getByRole("link", { name: "Sign In" })).toHaveCount(0);
+
+    await page.getByRole("link", { name: "Go to Dashboard" }).first().click();
+    await expect(page).toHaveURL(/\/dashboard$/);
+  });
+
+  /**
    * The other half of the same design: sign-out is POST-only *on purpose*,
    * because a GET sign-out lets any page on the internet log the player out
    * with an `<img src="…/auth/sign-out">` tag. `app/auth/sign-out/route.ts`

@@ -715,7 +715,35 @@ selection to the collected-evidence rail. A key-clue counter gates progression:
 `keyCollected >= min(requiredKeyClues, #keyEvidence)` — 3 on both playable missions — before
 "Continue to Diagnosis" appears; following it records `completeStage("Investigation")`. The same
 threshold now also gates the diagnosis *route*, not just the button (§15.3).
-State: `{ activeTool, collectedEvidenceIds[] }`.
+State: `{ activeTool, collectedEvidenceIds[], markedRowKeys[] | null }`.
+
+**A tick must mean "I marked this" (2026-08-08).** Collected state is keyed by *evidence*, and one
+finding legitimately spans many rows and several tools — five code lines of one loop, four repeated
+log lines, a metric card and the trace span behind it. Rendering "collected" straight off the
+evidence id therefore put green ticks on rows the player had never seen: opening Trace after working
+through Logs showed a span already collected, which reads as the game answering for them. Three
+changes, none of which alters what the mission scores:
+
+- **`markedRowKeys`** records the rows the player actually clicked, as `tool:rowId` (`rowKey()` —
+  row ids are only unique within a tool, since code lines are bare numbers). A row whose finding is
+  held but which the player did not mark renders in a third state, *Already held*: no checkmark, no
+  emerald tint, and the finding named. `null` means a save written before rows were tracked; those
+  keep the old behaviour rather than being demoted wholesale to rows somebody else marked.
+- **Collected rows name their finding** (`CollectedTag name=…`, `RelatedTag`), so two rows tinting
+  together read as one discovery seen twice. Logs and Code carry it as a hover title and
+  screen-reader text instead — a visible tag would widen those rows past the monospace gutter.
+- **`AlreadyCollectedNotice`** states the rule in any tool showing *Already held* rows, and does not
+  render where every collected row was marked in place. It is the cross-tool counterpart to
+  `RestoredProgressNotice` (§15.2), which does the same job for a previous visit.
+
+**No two metric cards share a finding (2026-08-08).** Eight pairs did — `API p95 (all routes)` and
+`Timeout rate` were both `unrelated-endpoints-delayed` — and unlike a run of log lines or the body
+of a loop, cards are discrete tiles that read as independent measurements. Each pair was split, with
+eight new non-key findings authored (`requests-queue-rather-than-fail`, `runs-keep-nothing-at-all`,
+`worker-heap-is-flat`, `dashboard-fires-six-parallel-calls`, `containers-restart-in-bursts`,
+`cpu-steady-across-restarts`, `baseline-error-rate-is-clean`, `instances-have-resource-headroom`) and
+three descriptions narrowed where they had started describing two cards at once. Grouping is
+untouched in logs, code, trace and database, where it is correct.
 
 **Selectability must not leak the answer (2026-07-28).** "Rows that carry an `evidenceId` are
 selectable" is a rendering rule, but it was also a *disclosure*: only the findings the author
@@ -1493,7 +1521,7 @@ that is exactly why a mission can be played without an account.
 | `coderaid:{missionId}:grade` | verification | The grade **the server returned** — cached so the results screen renders the same verdict without a second round trip or a second run row |
 | `coderaid:{missionId}:credit` | verification | What the run added, as the server measured it: `{ xpAdded, skillXpAdded, firstCompletion }` |
 | `coderaid:{missionId}:run` | every stage | `{ startedAt, lastActiveAt, stagesCompleted: MissionStage[], hintsUsed: string[] }` — the run telemetry the grade is computed from |
-| `coderaid:{missionId}:investigation` | investigation | `{ activeTool, collectedEvidenceIds: string[] }` |
+| `coderaid:{missionId}:investigation` | investigation | `{ activeTool, collectedEvidenceIds: string[], markedRowKeys: string[] \| null }` |
 | `coderaid:{missionId}:diagnosis` | diagnosis | `{ rootCauseId, evidenceIds: string[], confirmed }` |
 | `coderaid:{missionId}:fix` | fix | `{ fixId, applied }` |
 | `coderaid:{missionId}:verification` | verification | `{ run, completed }` |
@@ -2023,6 +2051,30 @@ surfaces:
   closing on outside `pointerdown` (not `click`, so the menu is gone before whatever is underneath
   reacts) and on Escape. The last item follows `useProgress().authenticated`, which is true exactly
   when the ledger came from the server.
+
+Two more of the same kind were found on the landing page itself (2026-08-08). Every other spec
+treated `/` as a doorway and walked through it, so nothing had ever checked the page:
+
+- **"Pricing" pointed at a section that has never shown a price.** `NAV_LINKS` sent `#pricing` to
+  `FinalCTA` — a "Ready to Debug Your First Node.js Incident?" banner with a Start button. There is
+  no price, plan or tier anywhere in the product, which makes it the defect the footer had already
+  removed Privacy Policy and Terms of Service for: a nav item implying something the app cannot show.
+  The destination is real content, so the fault was the *label*, not the link — item and anchor are
+  now `Get Started` / `#get-started`, and `landing.spec.ts` walks every header anchor to assert it
+  resolves to an element that exists.
+- **A signed-in player was invited to sign in.** `Header` rendered a fixed "Sign In" /
+  "Start Your First Mission" pair with no route to the dashboard, and `/` is on the ordinary path for
+  someone with a session: signing out redirects there, and the logo links there from every page.
+  `AccountActions` now follows the same `useProgress()` source of truth as `AccountMenu`, showing a
+  single "Go to Dashboard" instead. Gated on `hydrated`, so the static markup stays the signed-out
+  pair and nothing mismatches on hydration — which also keeps `/` a static route, where reading the
+  session server-side would have made it dynamic. Covered from both sides: the signed-out state in
+  `landing.spec.ts`, the signed-in swap in `authenticated.spec.ts` where the fixture can mint a
+  session.
+
+Alongside them: the mobile toggle gained `aria-controls` and an Escape handler (it had
+`aria-expanded` pointing at nothing, and on a phone the open panel can scroll its own toggle out of
+reach), and the footer's copyright year is derived rather than typed in.
 
 13. ~~**"Log out" does not log out.**~~ **Fixed.** `DashboardSidebar` rendered it as
     `<Link href="/">`, which navigated to the landing page and **left the session intact** —

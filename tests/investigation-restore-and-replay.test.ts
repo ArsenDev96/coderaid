@@ -4,6 +4,7 @@ import {
   investigationStorageKey,
   keyEvidence,
   loadInvestigationState,
+  rowKey,
   saveInvestigationState,
 } from "@/lib/investigation";
 import { loadGrade } from "@/lib/grade-submission";
@@ -70,6 +71,7 @@ describe("what the workspace knows on mount", () => {
     saveInvestigationState(MISSION, {
       activeTool: investigation.tools[1],
       collectedEvidenceIds: collected,
+      markedRowKeys: [],
     });
 
     // What the effect reads to decide whether to show the notice, and with
@@ -83,6 +85,60 @@ describe("what the workspace knows on mount", () => {
     expect(loadInvestigationState(MISSION, getInvestigation(MISSION)!.tools)).toBeNull();
   });
 
+  /**
+   * A finding spans many rows and several tools, so "is this row's finding
+   * collected?" cannot answer "did I mark this row?". These pin the difference
+   * — a green tick on a row the player never clicked is what this exists to
+   * stop.
+   */
+  it("remembers which rows were marked, not just which findings", () => {
+    const investigation = getInvestigation(MISSION)!;
+    const marked = [rowKey("logs", "e3"), rowKey("metrics", "em-lag")];
+    saveInvestigationState(MISSION, {
+      activeTool: "logs",
+      collectedEvidenceIds: [investigation.evidence[0].id],
+      markedRowKeys: marked,
+    });
+
+    const restored = loadInvestigationState(MISSION, investigation.tools)!;
+    expect(restored.markedRowKeys).toEqual(marked);
+  });
+
+  it("keys rows by tool, so a code line number cannot collide with a log id", () => {
+    expect(rowKey("code", "23")).not.toBe(rowKey("logs", "23"));
+  });
+
+  it("reads a save written before rows were tracked as fully marked", () => {
+    // Demoting every row in an existing save to "someone else marked this" is
+    // the one reading that would be actively wrong, so absent means unknown
+    // and unknown keeps the old behaviour.
+    const investigation = getInvestigation(MISSION)!;
+    window.localStorage.setItem(
+      investigationStorageKey(MISSION),
+      JSON.stringify({
+        activeTool: "logs",
+        collectedEvidenceIds: [investigation.evidence[0].id],
+      }),
+    );
+
+    const restored = loadInvestigationState(MISSION, investigation.tools)!;
+    expect(restored.markedRowKeys).toBeNull();
+  });
+
+  it("distinguishes an untouched new save from a legacy one", () => {
+    // Nothing collected yet is a real empty list, not the unknown above.
+    window.localStorage.setItem(
+      investigationStorageKey(MISSION),
+      JSON.stringify({ activeTool: "logs", collectedEvidenceIds: [] }),
+    );
+
+    const restored = loadInvestigationState(
+      MISSION,
+      getInvestigation(MISSION)!.tools,
+    )!;
+    expect(restored.markedRowKeys).toEqual([]);
+  });
+
   it("does not count findings that no longer exist in the mission", () => {
     // The workspace filters restored ids through `findEvidence` before counting,
     // so a renamed finding cannot inflate the notice.
@@ -90,6 +146,7 @@ describe("what the workspace knows on mount", () => {
     saveInvestigationState(MISSION, {
       activeTool: investigation.tools[0],
       collectedEvidenceIds: [investigation.evidence[0].id, "deleted-in-a-later-edit"],
+      markedRowKeys: [],
     });
 
     const restored = loadInvestigationState(MISSION, investigation.tools)!;
