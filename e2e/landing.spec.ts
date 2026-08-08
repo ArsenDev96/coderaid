@@ -88,6 +88,39 @@ test("every footer link goes somewhere real", async ({ page }) => {
   }
 });
 
+/**
+ * Analytics must stay off when it is not configured.
+ *
+ * This run builds and serves the production app, so if the measurement id were
+ * ever hardcoded instead of read from the environment, every spec in every CI
+ * run would report a page view against the real property. Nothing in the suite
+ * would fail — the data would just quietly stop being about players.
+ */
+test("loads no analytics when no measurement id is configured", async ({ page }) => {
+  // Asserts the *unconfigured* behaviour, so it has nothing to say when an id is
+  // genuinely present. `playwright.config.ts` loads `.env.local` into this
+  // process, so this sees the same value the build did.
+  test.skip(
+    Boolean(process.env.NEXT_PUBLIC_GA_MEASUREMENT_ID?.trim()),
+    "an id is configured in this environment, so analytics is expected to load",
+  );
+
+  const thirdParty: string[] = [];
+  page.on("request", (request) => {
+    const url = request.url();
+    if (/googletagmanager\.com|google-analytics\.com/.test(url)) {
+      thirdParty.push(url);
+    }
+  });
+
+  await page.goto("/");
+  await page.getByRole("link", { name: "Start Your First Mission" }).first().click();
+  await page.waitForLoadState("networkidle");
+
+  expect(thirdParty).toEqual([]);
+  await expect(page.locator("#google-analytics")).toHaveCount(0);
+});
+
 test("closes the mobile menu on Escape", async ({ page }) => {
   await page.setViewportSize({ width: 390, height: 844 });
   await page.goto("/");

@@ -1899,7 +1899,10 @@ Genuinely outstanding:
    and Supabase's default privileges grant `SELECT` on new public relations to `anon` and
    `authenticated` all over again. Recreating the view without the revoke would have silently
    reopened item 20. The corollary is now written beside the house rule in `0001_init.sql`.
-8. No error boundaries, no analytics. Loading states now exist on the leaderboard and the ledger.
+8. No error boundaries. ~~No analytics.~~ **Analytics added 2026-08-08** — `gtag.js` via
+   `components/analytics/GoogleAnalytics.tsx`, off unless `NEXT_PUBLIC_GA_MEASUREMENT_ID` is set.
+   It brought a new debt item with it; see item 24. Loading states now exist on the leaderboard and
+   the ledger.
 9. ~~**No CI.**~~ **Resolved.** `.github/workflows/ci.yml` runs
    `typecheck → lint → validate:missions → build → test` on pushes to `main` and pull requests
    targeting it, on Node 20 with npm caching and no deployment step (§15.4).
@@ -2438,6 +2441,25 @@ reach), and the footer's copyright year is derived rather than typed in.
     Sites: `DashboardGreeting`, `LeaderboardFilterPanel`, `StageGate`, `DiagnosisWorkspace`,
     `FixWorkspace`, `InvestigationWorkspace`, `useMissionResume`, `ResultsWorkspace` (×2),
     `VerificationWorkspace`, `StartExperience`, `ProgressProvider`, `ProfileSection`, `useSettings`.
+
+24. **Analytics ships without a privacy policy or a consent gate — added 2026-08-08, open.**
+    `GoogleAnalytics` puts `gtag.js` on every page when `NEXT_PUBLIC_GA_MEASUREMENT_ID` is set. That
+    sets cookies and sends identifiers to a third party, and nothing in the app discloses it or asks.
+
+    This is the same judgement as item 15, reached from the other direction. Item 15 deleted a Terms
+    link because a link that is not terms implies an agreement that does not exist; this is an
+    agreement that does not exist with no link at all. Under GDPR and the UK/EU ePrivacy rules,
+    analytics cookies need prior consent, and consent needs something to consent *to*.
+
+    Already true and not worth re-deciding: the tag is off unless the id is set, so no development
+    session and no CI run reports anything, and `landing.spec.ts` fails if a measurement id is ever
+    hardcoded past the environment variable.
+
+    Missing, in the order it has to happen: a privacy policy naming Google Analytics and what it
+    collects; a consent banner that gates the tag rather than merely announcing it; and
+    `GoogleAnalytics` reading that consent instead of only the env var. Writing the policy copy is not
+    an engineering decision — which is exactly why item 15 left the links out — so **treat the id as
+    unset in production until the first two exist.** The plumbing is done; the disclosure is not.
 
 ---
 

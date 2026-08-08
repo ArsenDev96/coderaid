@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 import { Inter, JetBrains_Mono } from "next/font/google";
+import { GoogleAnalytics } from "@/components/analytics/GoogleAnalytics";
 import { ProgressProvider } from "@/components/progress/ProgressProvider";
 import "./globals.css";
 
@@ -47,6 +48,8 @@ export default function RootLayout({
       <body>
         {/* One hydrated progression ledger for the whole app. */}
         <ProgressProvider>{children}</ProgressProvider>
+        {/* Renders nothing unless NEXT_PUBLIC_GA_MEASUREMENT_ID is set. */}
+        <GoogleAnalytics />
       </body>
     </html>
   );
