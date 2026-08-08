@@ -60,6 +60,23 @@ SUPABASE_SERVICE_ROLE_KEY=<service role key>
 > which starts with `import "server-only"` so no import path can pull it toward the browser bundle.
 > Never give it a `NEXT_PUBLIC_` prefix.
 
+Google Analytics is optional and off unless its measurement id is set, in the **deployment**
+environment rather than in `.env.local`:
+
+```bash
+NEXT_PUBLIC_GA_MEASUREMENT_ID=G-HPHD87W5H9
+```
+
+Left unset — which is the default for `npm run dev` and for CI — `GoogleAnalytics` renders nothing
+and no request reaches Google. That is deliberate: `npm run test:e2e` builds and serves the
+production app, so an id baked into the source would report a page view for every Playwright spec in
+every run alongside real players. A value that is set but is not a `G-…` id is reported as a warning
+in the build log and ignored, because an analytics typo must not take down every page in the app.
+
+> **Adding this puts a third-party cookie-setting script on every page.** There is currently no
+> privacy policy to disclose it in, and no consent gate — both are needed before serving analytics to
+> visitors in the EU or UK. See §12 in [`docs/CURRENT_STATE.md`](docs/CURRENT_STATE.md).
+
 Apply the migrations in [`supabase/migrations/`](supabase/migrations/) in order, and enable the
 GitHub provider in Authentication → Providers.
 
